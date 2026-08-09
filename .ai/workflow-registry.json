@@ -42,6 +42,11 @@
       "id": "axtask.predeploy-cost-readiness.v1",
       "path": ".ai/workflows/predeploy-cost-readiness.md",
       "description": "Repository-only deployment necessity, readiness-gate, and qualitative cost-exposure evaluation."
+    },
+    {
+      "id": "axtask.stateful-architecture-migration.v1",
+      "path": ".ai/workflows/stateful-architecture-migration.md",
+      "description": "Evidence-first factoring for serverless/stateless migration with one owned seam, fail-closed KEEP defaults, and explicit proof ceilings."
     }
   ]
 }

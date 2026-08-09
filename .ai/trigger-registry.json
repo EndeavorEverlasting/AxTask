@@ -80,6 +80,12 @@
       "event": "deployment-considered",
       "condition": "A current repository candidate is being considered for deployment and must first determine deployment necessity, remaining gates, and qualitative cost exposure.",
       "workflowId": "axtask.predeploy-cost-readiness.v1"
+    },
+    {
+      "id": "serverless-or-stateful-architecture-change",
+      "event": "serverless-or-stateful-architecture-change",
+      "condition": "A task proposes serverless, stateless, function-style, edge, managed scheduler/queue/storage, persistent-server removal, persistence-provider change, or another stateful/runtime-boundary change.",
+      "workflowId": "axtask.stateful-architecture-migration.v1"
     }
   ]
 }

@@ -106,6 +106,19 @@
       "tests": ["server/ai-harness/predeploy-readiness-contract.test.ts"],
       "proofLevel": "repository-evidence",
       "status": "available"
+    },
+    {
+      "id": "stateful-architecture-ledger-validation",
+      "name": "Stateful architecture ledger validation",
+      "canonicalOwner": "harness-maintenance",
+      "activation": "A task proposes serverless/stateless architecture changes or edits the Stateful Surface Ledger, its workflow, skill, registrations, report, or enforcement.",
+      "description": "Validate fail-closed stateful-surface decisions, one-seam migration boundaries, deterministic routing/registration, prompt-versus-product separation, and proof ceilings before architecture mutation.",
+      "command": "node scripts/ai-harness/validate-stateful-architecture.mjs",
+      "outputs": ["stdout", ".ai/runs/<run-id>/stateful-architecture-report.md"],
+      "guardrails": ["provisional surfaces must remain KEEP", "one migration seam per sprint", "application logic remains in code/domain contracts", "no serverless provider selected by harness policy", "no proof escalation"],
+      "tests": ["server/ai-harness/stateful-architecture-contract.test.ts"],
+      "proofLevel": "harness",
+      "status": "available"
     }
   ]
 }

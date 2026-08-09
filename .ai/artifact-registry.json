@@ -165,6 +165,27 @@
       "generation": "node scripts/ai-harness/evaluate-predeploy-readiness.mjs --input <evidence.json> --output <path>",
       "namingConvention": "<run-id>/predeploy-readiness.json",
       "schema": ".ai/schemas/predeploy-readiness-result.schema.json"
+    },
+    {
+      "id": "stateful-surface-ledger",
+      "pathPattern": ".ai/stateful-surface-ledger.json",
+      "tracked": true,
+      "sanitized": true,
+      "producer": "axtask.stateful-architecture-migration.v1",
+      "generation": "Update only from repository evidence; provisional decisions fail closed to KEEP. Validate with node scripts/ai-harness/validate-stateful-architecture.mjs.",
+      "namingConvention": "stateful-surface-ledger.json",
+      "schema": ".ai/stateful-surface-ledger.schema.json",
+      "validator": "node scripts/ai-harness/validate-stateful-architecture.mjs"
+    },
+    {
+      "id": "stateful-architecture-report",
+      "pathPattern": ".ai/runs/<run-id>/stateful-architecture-report.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.stateful-architecture-migration.v1",
+      "generation": "Render .ai/reports/stateful-architecture-report-template.md after a ledger decision or migration seam.",
+      "namingConvention": "<run-id>/stateful-architecture-report.md",
+      "template": ".ai/reports/stateful-architecture-report-template.md"
     }
   ],
   "forbiddenTrackedOutputs": [

@@ -18,6 +18,7 @@ node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
 node scripts/ai-harness/validate-harness-infrastructure.mjs
 node scripts/ai-harness/validate-work-queue.mjs
+node scripts/ai-harness/validate-stateful-architecture.mjs
 npx --no-install vitest run \
   server/ai-harness/authority-contract.test.ts \
   server/ai-harness/harness-contract.test.ts \
@@ -25,4 +26,5 @@ npx --no-install vitest run \
   server/ai-harness/validator-selection-contract.test.ts \
   server/ai-harness/harness-infrastructure-contract.test.ts \
   server/ai-harness/contract-impact-contract.test.ts \
-  server/ai-harness/work-queue-contract.test.ts
+  server/ai-harness/work-queue-contract.test.ts \
+  server/ai-harness/stateful-architecture-contract.test.ts

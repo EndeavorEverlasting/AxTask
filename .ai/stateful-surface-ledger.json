@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "ledgerId": "axtask.stateful-surface-ledger.v1",
+  "mission": "Reduce unnecessary process and state coupling without treating serverless as an ideological target. Preserve working domain behavior until a bounded migration seam is proven.",
+  "decisionPolicy": {
+    "target": "Prove the current production-shaped baseline, then migrate one evidence-backed seam at a time. KEEP is a valid final decision.",
+    "defaultDisposition": "keep",
+    "migrationAuthorizationRule": "A stateful surface may not be changed by a serverless/stateless migration sprint unless its decisionStatus is approved, its evidence and validators are current, and the sprint owns only one named migrationSeam. Provisional entries fail closed to KEEP.",
+    "proofRule": "Static or build proof may not be promoted to launcher/browser, behavior-observed, or live-runtime proof. Each migration sprint must report the strongest proof actually attained and its ceiling."
+  },
+  "surfaces": [
+    {
+      "id": "http-process-runtime",
+      "name": "Express request/runtime process",
+      "category": "request-runtime",
+      "owner": "application-runtime",
+      "files": [
+        "server/index.ts",
+        "scripts/production-start.mjs",
+        "render.yaml"
+      ],
+      "currentResponsibility": "Owns the production Node process, HTTP lifecycle, middleware/server startup, and application runtime boundary.",
+      "stateHeld": "Process-local runtime state plus access to external application state; exact per-request/process affinity must be proven before decomposition.",
+      "stateLifetime": "process and request scoped; exact long-lived state requires code evidence",
+      "persistenceMechanism": "primarily external PostgreSQL plus process memory; no serverless assumption is authorized by this ledger",
+      "consumers": [
+        "browser client",
+        "API callers",
+        "health/readiness probes"
+      ],
+      "processAffinity": "unknown",
+      "longLivedConnection": "unknown",
+      "filesystemDependency": "unknown",
+      "schedulingDependency": "unknown",
+      "deploymentCoupling": "Render starts the Node production launcher from the repository deployment contract.",
+      "invariants": [
+        "Existing HTTP/API semantics remain stable.",
+        "/health remains DB-free liveness and /ready remains explicit DB readiness.",
+        "Production startup safety gates remain fail-closed."
+      ],
+      "stableContracts": [
+        "server/index.ts",
+        "scripts/production-start.mjs",
+        "render.yaml",
+        "tests/deploy/**"
+      ],
+      "evidence": [
+        ".ai/codebase-map.json identifies server/index.ts as the Express process entry and render.yaml as the deployment blueprint.",
+        "Current deploy contracts and local production certification are the baseline proof surfaces."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "Do not remove the server before proving which responsibilities require process affinity and which can be stateless.",
+      "migrationSeam": "Factor one request/runtime responsibility at a time behind unchanged API/domain contracts.",
+      "prerequisites": [
+        "Current production-shaped local baseline passes.",
+        "Route/middleware ownership and process-affinity evidence are recorded."
+      ],
+      "forbiddenChanges": [
+        "No wholesale server removal.",
+        "No API redesign bundled with runtime factoring.",
+        "No provider selection used as a substitute for architecture evidence."
+      ],
+      "validators": [
+        "npm run check",
+        "npm test",
+        "npm run build",
+        "npm run test:deploy",
+        "AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs"
+      ],
+      "proofCeiling": "live-runtime",
+      "collisionPaths": [
+        "server/index.ts",
+        "scripts/production-start.mjs",
+        "render.yaml",
+        "server/**"
+      ]
+    },
+    {
+      "id": "postgres-domain-state",
+      "name": "PostgreSQL / Drizzle domain persistence",
+      "category": "persistence",
+      "owner": "database-ops",
+      "files": [
+        "shared/schema.ts",
+        "drizzle.config.ts",
+        "migrations/**",
+        "scripts/db/**"
+      ],
+      "currentResponsibility": "Stores durable application/domain state and owns schema evolution and recovery contracts.",
+      "stateHeld": "durable relational product state, account state, audit/event state, and migration ledger state",
+      "stateLifetime": "durable",
+      "persistenceMechanism": "PostgreSQL accessed through Drizzle and repository database tooling",
+      "consumers": [
+        "server application",
+        "operator/database tools",
+        "backup/recovery workflows"
+      ],
+      "processAffinity": "not-required",
+      "longLivedConnection": "unknown",
+      "filesystemDependency": "not-required",
+      "schedulingDependency": "unknown",
+      "deploymentCoupling": "Production startup and recovery gates depend on database readiness, migrations, capacity policy, and backup evidence.",
+      "invariants": [
+        "Domain persistence remains durable and transactionally correct.",
+        "Migration and recovery ledgers are not forged by migration work.",
+        "Backup/restore and evidence-preservation contracts remain valid."
+      ],
+      "stableContracts": [
+        "shared/schema.ts",
+        "migrations/**",
+        "scripts/db/**",
+        "docs/DB_RECOVERY_RUNBOOK.md"
+      ],
+      "evidence": [
+        ".ai/codebase-map.json declares PostgreSQL/Drizzle as the current database shape.",
+        ".ai/ownership-rules.json assigns schema, migrations, and scripts/db to database-ops."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "A database incident is not evidence that relational persistence is unnecessary; storage/provider concerns must be separated from domain-state requirements.",
+      "migrationSeam": "Only factor a specific persistence adapter or data class after durability, transaction, cost, and recovery requirements are explicit.",
+      "prerequisites": [
+        "Current backup/restore proof is known.",
+        "The target data class and consistency model are documented.",
+        "Provider portability is evaluated separately from persistence semantics."
+      ],
+      "forbiddenChanges": [
+        "No schema rewrite to satisfy a serverless slogan.",
+        "No destructive cleanup as architecture migration.",
+        "No moving domain invariants into prompts."
+      ],
+      "validators": [
+        "npm run migration:check",
+        "npm test",
+        "npm run test:deploy",
+        "npm run build"
+      ],
+      "proofCeiling": "live-runtime",
+      "collisionPaths": [
+        "shared/schema.ts",
+        "migrations/**",
+        "scripts/db/**",
+        "drizzle.config.ts"
+      ]
+    },
+    {
+      "id": "auth-session-state",
+      "name": "Authentication and session state",
+      "category": "auth-session",
+      "owner": "security",
+      "files": [
+        "server/auth/**",
+        "server/**",
+        "package.json"
+      ],
+      "currentResponsibility": "Protects identity, authentication, authorization, and session continuity.",
+      "stateHeld": "session/authentication state and security-sensitive identity context; exact stores and affinity require direct code inspection",
+      "stateLifetime": "request, session, and durable security-record lifetimes",
+      "persistenceMechanism": "unknown until the auth/session implementation and configuration are inspected",
+      "consumers": [
+        "authenticated API routes",
+        "browser session",
+        "administrative/security flows"
+      ],
+      "processAffinity": "unknown",
+      "longLivedConnection": "unknown",
+      "filesystemDependency": "unknown",
+      "schedulingDependency": "not-required",
+      "deploymentCoupling": "Environment secrets and production identity configuration participate in startup/readiness.",
+      "invariants": [
+        "Authentication semantics and security posture cannot change implicitly.",
+        "Session continuity, revocation, CSRF/cookie behavior, and authorization must be preserved.",
+        "Secrets never enter tracked harness artifacts."
+      ],
+      "stableContracts": [
+        "server/auth/**",
+        "AGENT_GUARDRAILS.md",
+        "tests covering auth/session behavior"
+      ],
+      "evidence": [
+        ".ai/ownership-rules.json marks server/auth/** as security-owned high-risk scope.",
+        "Direct store/process-affinity evidence is still required before any migration decision."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "Auth/session state is a high-risk boundary; default to preservation until storage and process-affinity are proven.",
+      "migrationSeam": "Separate session storage/process affinity from authentication semantics without changing the public security contract.",
+      "prerequisites": [
+        "Inspect concrete session store and cookie/auth configuration.",
+        "Identify all session invalidation and step-up flows.",
+        "Add/identify focused auth regression tests."
+      ],
+      "forbiddenChanges": [
+        "No auth provider swap bundled with serverless work.",
+        "No weakened session or authorization semantics.",
+        "No secrets in migration artifacts."
+      ],
+      "validators": [
+        "npm run check",
+        "npm test",
+        "npm run build"
+      ],
+      "proofCeiling": "behavior-observed",
+      "collisionPaths": [
+        "server/auth/**",
+        "server/**",
+        "package.json"
+      ]
+    },
+    {
+      "id": "scheduled-background-work",
+      "name": "Scheduled and background work",
+      "category": "background-work",
+      "owner": "application-runtime",
+      "files": [
+        "render.yaml",
+        "server/**",
+        "scripts/**"
+      ],
+      "currentResponsibility": "Runs recurring retention, reminders, rollups, snapshots, and other background work where configured.",
+      "stateHeld": "job progress, schedules, retry/idempotency state, and effects depend on each worker implementation",
+      "stateLifetime": "job and durable-effect lifetimes",
+      "persistenceMechanism": "mixed; inspect each worker before changing execution model",
+      "consumers": [
+        "database",
+        "notifications",
+        "operations",
+        "analytics features"
+      ],
+      "processAffinity": "unknown",
+      "longLivedConnection": "unknown",
+      "filesystemDependency": "unknown",
+      "schedulingDependency": "required",
+      "deploymentCoupling": "Some jobs are deployment/provider scheduled while others may be process-started; exact ownership must be inventoried.",
+      "invariants": [
+        "Jobs remain idempotent or explicitly single-run where required.",
+        "Disabled resource-control posture is not silently reversed.",
+        "Retries cannot duplicate user-visible or financial effects."
+      ],
+      "stableContracts": [
+        "render.yaml",
+        "scripts/**",
+        "server/**",
+        "docs/SCHEDULED_RESOURCE_CONTROLS.md"
+      ],
+      "evidence": [
+        ".ai/codebase-map.json identifies scripts as operator/deployment tooling and server as workers/services.",
+        "render.yaml is a current deployment configuration surface; each job still needs code-level evidence."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "Managed scheduling may be appropriate, but moving a job does not remove its state, retry, or idempotency semantics.",
+      "migrationSeam": "Move one proven job boundary at a time while preserving its idempotency, retry, and data contracts.",
+      "prerequisites": [
+        "Inventory job entry point and schedule.",
+        "Prove retry/idempotency behavior.",
+        "Identify execution-time and external dependency requirements."
+      ],
+      "forbiddenChanges": [
+        "No bulk migration of all workers.",
+        "No enabling disabled jobs as part of architecture work.",
+        "No implicit retry semantic changes."
+      ],
+      "validators": [
+        "npm run check",
+        "npm test",
+        "npm run build",
+        "npm run test:deploy"
+      ],
+      "proofCeiling": "behavior-observed",
+      "collisionPaths": [
+        "render.yaml",
+        "server/**",
+        "scripts/**"
+      ]
+    },
+    {
+      "id": "filesystem-artifacts",
+      "name": "Filesystem and generated artifacts",
+      "category": "filesystem",
+      "owner": "shared-toolchain",
+      "files": [
+        ".ai/artifact-registry.json",
+        "scripts/**",
+        "tools/**",
+        "docs/**"
+      ],
+      "currentResponsibility": "Produces build outputs, backups/evidence, generated agent artifacts, and operator reports under explicit tracking policies.",
+      "stateHeld": "generated files, evidence bundles, build output, and operator artifacts",
+      "stateLifetime": "ephemeral, release-durable, or protected external evidence depending on artifact class",
+      "persistenceMechanism": "repository-tracked docs for sanitized durable evidence; ignored local paths or protected external storage for runtime/private artifacts",
+      "consumers": [
+        "agents",
+        "operators",
+        "CI",
+        "backup/recovery procedures"
+      ],
+      "processAffinity": "not-required",
+      "longLivedConnection": "not-required",
+      "filesystemDependency": "required",
+      "schedulingDependency": "not-required",
+      "deploymentCoupling": "Build output and some operator workflows depend on filesystem availability; production assumptions must be identified before function-style deployment.",
+      "invariants": [
+        "Secrets, raw logs, dumps, user exports, and machine-local evidence remain untracked.",
+        "Tracked artifacts remain reproducible and sanitized.",
+        "Runtime evidence is not confused with source artifacts."
+      ],
+      "stableContracts": [
+        ".ai/artifact-registry.json",
+        ".gitignore",
+        "scripts/**",
+        "docs/releases/**"
+      ],
+      "evidence": [
+        ".ai/artifact-registry.json explicitly separates tracked release evidence from ignored .ai/runs/.ai/generated runtime artifacts.",
+        "The exact production-local filesystem dependence still requires path-level inspection."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "Filesystem use must be split by artifact class; some is build-time only and some may require external durable storage.",
+      "migrationSeam": "Externalize only one runtime-required artifact class after proving it cannot remain build-time/local/operator-owned.",
+      "prerequisites": [
+        "Classify every runtime write path.",
+        "Separate build-time, test-time, operator, and live-runtime filesystem uses."
+      ],
+      "forbiddenChanges": [
+        "No blanket replacement of filesystem use with object storage.",
+        "No tracking private runtime artifacts.",
+        "No changing backup/evidence confidentiality boundaries."
+      ],
+      "validators": [
+        "node scripts/ai-harness/check-artifact-hygiene.mjs",
+        "npm test",
+        "npm run build"
+      ],
+      "proofCeiling": "behavior-observed",
+      "collisionPaths": [
+        "scripts/**",
+        "tools/**",
+        ".ai/artifact-registry.json"
+      ]
+    },
+    {
+      "id": "deployment-orchestration",
+      "name": "Deployment and production startup orchestration",
+      "category": "deployment",
+      "owner": "deployment-orchestration",
+      "files": [
+        "render.yaml",
+        "scripts/production-start.mjs",
+        "scripts/deploy/**",
+        ".github/workflows/**"
+      ],
+      "currentResponsibility": "Builds, gates, starts, certifies, and reports the production-shaped application.",
+      "stateHeld": "deployment configuration, candidate identity, gate results, and runtime proof",
+      "stateLifetime": "per candidate/deployment plus durable release evidence",
+      "persistenceMechanism": "tracked configuration plus CI/runtime evidence artifacts",
+      "consumers": [
+        "CI",
+        "Render",
+        "operators",
+        "agents"
+      ],
+      "processAffinity": "not-required",
+      "longLivedConnection": "not-required",
+      "filesystemDependency": "unknown",
+      "schedulingDependency": "unknown",
+      "deploymentCoupling": "Currently Render-oriented with repository-owned production startup and local-cert contracts.",
+      "invariants": [
+        "Repository/CI proof never masquerades as live proof.",
+        "Production mutation requires explicit authorization.",
+        "Current startup, health, migration, and capacity safety gates stay intact until replacements are proven."
+      ],
+      "stableContracts": [
+        "render.yaml",
+        "scripts/production-start.mjs",
+        "scripts/deploy/**",
+        ".ai/runtime-proof.schema.json"
+      ],
+      "evidence": [
+        ".ai/codebase-map.json records Render as current provider and no direct live deploy command as registered.",
+        "Current harness has predeploy and local production certification workflows."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "Deployment provider changes are downstream of application/state factoring, not evidence for it.",
+      "migrationSeam": "Replace one deployment adapter only after the application runtime contract is provider-neutral and equivalently certified.",
+      "prerequisites": [
+        "Current baseline candidate passes local production certification.",
+        "Required runtime capabilities for the target deployment class are explicit."
+      ],
+      "forbiddenChanges": [
+        "No provider-first rewrite.",
+        "No weakening health/readiness or startup gates.",
+        "No live provider mutation without operator authorization."
+      ],
+      "validators": [
+        "npm run build",
+        "npm run test:deploy",
+        "AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs"
+      ],
+      "proofCeiling": "live-runtime",
+      "collisionPaths": [
+        "render.yaml",
+        "scripts/production-start.mjs",
+        "scripts/deploy/**",
+        ".github/workflows/**"
+      ]
+    },
+    {
+      "id": "cache-queue-runtime",
+      "name": "Cache and queue dependencies",
+      "category": "cache-queue",
+      "owner": "application-runtime",
+      "files": [
+        "package.json",
+        "server/**"
+      ],
+      "currentResponsibility": "Potential caching/queue/runtime coordination surface; concrete production use must be proven by code search before architectural treatment.",
+      "stateHeld": "unknown until concrete clients, keys, queues, and consumers are enumerated",
+      "stateLifetime": "unknown",
+      "persistenceMechanism": "unknown",
+      "consumers": [
+        "unknown until repository evidence identifies active usage"
+      ],
+      "processAffinity": "unknown",
+      "longLivedConnection": "unknown",
+      "filesystemDependency": "not-required",
+      "schedulingDependency": "unknown",
+      "deploymentCoupling": "Unknown until active imports/configuration and production requirements are proven.",
+      "invariants": [
+        "Do not introduce a queue/cache merely to make the architecture look serverless.",
+        "Do not remove an active coordination mechanism without proving consumers and failure semantics."
+      ],
+      "stableContracts": [
+        "package.json",
+        "server/**"
+      ],
+      "evidence": [
+        "Dependency declarations alone do not prove active runtime use; direct import/configuration evidence is required."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "provisional",
+      "rationale": "Fail closed until repository evidence proves whether caches/queues are active, obsolete, or unnecessary.",
+      "migrationSeam": "First classify active versus unused dependencies; only then assign a bounded queue/cache migration seam.",
+      "prerequisites": [
+        "Search imports and initialization paths.",
+        "Identify producers, consumers, retry semantics, and persistence expectations."
+      ],
+      "forbiddenChanges": [
+        "No new queue/cache service before evidence.",
+        "No dependency deletion based only on package.json presence or absence."
+      ],
+      "validators": [
+        "npm run check",
+        "npm test",
+        "npm run build"
+      ],
+      "proofCeiling": "static-test",
+      "collisionPaths": [
+        "package.json",
+        "server/**"
+      ]
+    },
+    {
+      "id": "integration-seams",
+      "name": "Harness / routing / application integration seams",
+      "category": "integration",
+      "owner": "integration-coordination",
+      "files": [
+        ".ai/**",
+        "server/**",
+        "scripts/**",
+        "shared/**"
+      ],
+      "currentResponsibility": "Keeps agent orchestration, executable capabilities, and application/domain implementation separate and explicitly connected.",
+      "stateHeld": "run context, validation plans, artifacts, workflow state, and product state in their respective systems",
+      "stateLifetime": "per run plus durable tracked contracts",
+      "persistenceMechanism": "tracked harness contracts plus application-owned state stores",
+      "consumers": [
+        "agents",
+        "validators",
+        "application runtime",
+        "operators"
+      ],
+      "processAffinity": "not-required",
+      "longLivedConnection": "not-required",
+      "filesystemDependency": "required",
+      "schedulingDependency": "not-required",
+      "deploymentCoupling": "Harness may orchestrate deployment work but must never become the only implementation of product behavior.",
+      "invariants": [
+        "Skills describe reusable workflow guidance.",
+        "Capabilities expose reusable operations.",
+        "Triggers deterministically route conditions.",
+        "Application logic remains in code/domain contracts, not hidden in prompts."
+      ],
+      "stableContracts": [
+        ".ai/harness.json",
+        ".ai/capability-registry.json",
+        ".ai/trigger-registry.json",
+        ".ai/workflow-registry.json"
+      ],
+      "evidence": [
+        "The existing harness already separates workflows, skills, capabilities, triggers, validators, artifacts, and ownership rules."
+      ],
+      "disposition": "keep",
+      "decisionStatus": "approved",
+      "rationale": "This separation is the guardrail that prevents architecture migration from becoming prompt-only behavior.",
+      "migrationSeam": "No migration; preserve the integration boundary and extend it only with deterministic executable contracts.",
+      "prerequisites": [
+        "Harness validators remain green."
+      ],
+      "forbiddenChanges": [
+        "No product behavior implemented only in prompts.",
+        "No trigger conditions that rely on agent intuition when deterministic evidence exists.",
+        "No capability claiming execution it cannot perform."
+      ],
+      "validators": [
+        "node scripts/ai-harness/validate-authority.mjs",
+        "node scripts/ai-harness/validate-harness.mjs",
+        "node scripts/ai-harness/validate-harness-infrastructure.mjs"
+      ],
+      "proofCeiling": "harness",
+      "collisionPaths": [
+        ".ai/**",
+        "scripts/ai-harness/**",
+        "server/ai-harness/**"
+      ]
+    }
+  ]
+}

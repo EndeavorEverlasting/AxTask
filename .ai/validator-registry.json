@@ -31,13 +31,24 @@
       "requires": ["authority", "harness"]
     },
     {
+      "id": "stateful-architecture",
+      "command": "node scripts/ai-harness/validate-stateful-architecture.mjs",
+      "scope": "stateful-surface ledger, serverless/stateless factoring, deterministic routing, report, and proof-boundary completeness",
+      "required": true,
+      "selection": {
+        "paths": [".ai/stateful-surface-ledger.json", ".ai/stateful-surface-ledger.schema.json", ".ai/workflows/stateful-architecture-migration.md", ".ai/skills/stateful-architecture-migration.md", ".ai/reports/stateful-architecture-report-template.md", "docs/architecture/STATEFUL_SURFACE_LEDGER.md", "scripts/ai-harness/validate-stateful-architecture.mjs", "server/ai-harness/stateful-architecture-contract.test.ts", ".ai/harness.json", ".ai/workflow-registry.json", ".ai/capability-registry.json", ".ai/trigger-registry.json", ".ai/artifact-registry.json", ".ai/validator-registry.json", ".ai/codebase-map.json", ".ai/ownership-rules.json", ".githooks/**"],
+        "workflows": ["axtask.stateful-architecture-migration.v1"]
+      },
+      "requires": ["authority", "harness", "harness-infrastructure"]
+    },
+    {
       "id": "run-context",
       "command": "node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json",
       "scope": "run-context schema",
       "required": true,
       "selection": {
         "paths": [".ai/run-context.schema.json", ".ai/workflows/**", "scripts/ai-harness/validate-run-context.mjs"],
-        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1", "axtask.predeploy-cost-readiness.v1"]
+        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1", "axtask.predeploy-cost-readiness.v1", "axtask.stateful-architecture-migration.v1"]
       },
       "requires": ["authority", "harness"]
     },
@@ -54,11 +65,11 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts",
-      "scope": "negative, completeness, integration, readiness, and local certification contracts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts",
+      "scope": "negative, completeness, integration, readiness, stateful-architecture, and local certification contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
-      "requires": ["authority", "harness", "harness-infrastructure"]
+      "requires": ["authority", "harness", "harness-infrastructure", "stateful-architecture"]
     },
     {
       "id": "collision-inspection",
