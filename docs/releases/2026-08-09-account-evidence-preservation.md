@@ -15,6 +15,7 @@ The existing Backup Center account export is restore-oriented and intentionally 
 - `scripts/db/export-account-evidence.mjs`
   - PostgreSQL `REPEATABLE READ READ ONLY` snapshot;
   - exactly one account selected by user ID or email;
+  - public base-table-only discovery;
   - dynamic export of directly account-linked and task/invoice/attachment-linked rows;
   - bounded cursor streaming to JSONL rather than in-memory accumulation;
   - non-loopback reads require explicit `--prod --force-production` intent;
@@ -22,6 +23,7 @@ The existing Backup Center account export is restore-oriented and intentionally 
   - no `DATABASE_URL` logging;
   - secret/ephemeral tables excluded and sensitive account columns redacted;
   - per-file SHA-256 plus `manifest.json` and `manifest.sha256`;
+  - `EXPORT_INCOMPLETE` remains on any interrupted/failed bundle and is removed only after successful snapshot commit plus manifest creation;
   - non-secret database target fingerprint and source Git commit in the manifest.
 - High-volume `api_request` policy:
   - default `summary` mode exports meaningful security events row-for-row;
@@ -30,6 +32,7 @@ The existing Backup Center account export is restore-oriented and intentionally 
   - explicit `exclude` mode is recorded rather than silent.
 - `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`
   - verification and independent-copy procedure;
+  - incomplete-bundle rejection rule;
   - raw DB dump versus portable account artifact distinction;
   - provider-independence model;
   - attachment-object preservation boundary.
@@ -39,13 +42,23 @@ The existing Backup Center account export is restore-oriented and intentionally 
 - `tests/db/account-evidence-export.contract.test.ts`
   - Node syntax check;
   - read-only transaction contract;
+  - base-table discovery contract;
   - no SQL mutation execution path;
   - non-loopback intent gate;
   - bounded streaming;
   - account-link coverage;
   - high-volume telemetry policy;
   - credential exclusion/redaction;
+  - incomplete-marker lifecycle;
   - artifact hashing.
+- `server/account-evidence-export.integration.test.ts`
+  - loopback/disposable PostgreSQL only;
+  - seeds one account, meaningful security events, and historical `api_request` telemetry;
+  - restores the production containment trigger before exporter execution;
+  - runs the real CLI;
+  - verifies sentinel removal, manifest and per-file hashes, secret redaction, meaningful-event preservation, `api_request` summary anchors, excluded credential table behavior, and before/after source row-count equality.
+- `scripts/db/run-local-account-backup-cert.mjs`
+  - runs the evidence-export integration test after schema bootstrap/migrations as part of the existing disposable account-backup certification lane.
 
 ## Safety boundary
 
@@ -69,9 +82,10 @@ Before merge, the exact PR head must pass:
 4. `npm run check`
 5. full repository tests
 6. production build and standard CI guards
-
-A disposable PostgreSQL runtime proof is desirable before production use; production evidence export remains an operator-gated read-only action after merge.
+7. disposable PostgreSQL schema bootstrap/migrations
+8. account backup + evidence-export runtime certification
+9. local production certification
 
 ## Proof ceiling
 
-Repository-contract proof only until the exporter is exercised against disposable PostgreSQL. Even after local runtime proof, production preservation remains unproven until R1.5 produces a verified real manifest and independently stored copy.
+Successful CI proves repository contracts plus disposable-loopback PostgreSQL runtime behavior. It does **not** prove a production export, an independently stored preservation copy, formal chain-of-custody sufficiency, legal admissibility, or any Render/Neon recovery action. Production preservation remains unproven until R1.5 produces a verified real manifest and independently controlled copy.
