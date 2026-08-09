@@ -61,6 +61,7 @@ describe("agent operating authority contracts", () => {
   const agents = readRepoFile("AGENTS.md");
   const guardrails = readRepoFile("AGENT_GUARDRAILS.md");
   const deploymentDoc = readRepoFile("docs/GIT_BRANCHING_AND_DEPLOYMENT.md");
+  const recoveryDoc = readRepoFile("docs/DB_RECOVERY_RUNBOOK.md");
   const replitNotes = readRepoFile("replit.md");
 
   it("makes current repository contracts authoritative over historical platform notes", () => {
@@ -80,7 +81,11 @@ describe("agent operating authority contracts", () => {
     expect(replitNotes).toContain("Current deployment work targets Render");
     expect(replitNotes).toContain("current production database recovery and cost controls target Neon");
     expect(deploymentDoc).toContain("AxTask / Render specifics");
-    expect(deploymentDoc).toContain("`autoDeploy: true`");
+    expect(deploymentDoc).toContain("`autoDeploy: false`");
+    expect(deploymentDoc).toContain("must **not** be interpreted as authorization to resume or deploy");
+    expect(recoveryDoc).toContain("R0 — Render suspended");
+    expect(recoveryDoc).toContain("R1 — read-only production forensics");
+    expect(recoveryDoc).toContain("R8 — one authorized Render resume/deploy");
   });
 
   it("preserves liveness, readiness, and deterministic schema boundaries", () => {
