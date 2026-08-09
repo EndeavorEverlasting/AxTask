@@ -30,28 +30,16 @@ function readText(root, rel, errors) {
   return fs.readFileSync(file, "utf8");
 }
 
-function nonEmpty(v) {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
-function arr(v) {
-  return Array.isArray(v) ? v : [];
-}
-
-function ids(items) {
-  return new Set(arr(items).map((item) => item?.id).filter(nonEmpty));
-}
-
-function jsonEqual(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
+function nonEmpty(v) { return typeof v === "string" && v.trim().length > 0; }
+function arr(v) { return Array.isArray(v) ? v : []; }
+function ids(items) { return new Set(arr(items).map((item) => item?.id).filter(nonEmpty)); }
+function jsonEqual(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
 
 function validateAgainstSchema(value, schema, label, errors) {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
     errors.push(`${label}: invalid schema node`);
     return;
   }
-
   const type = schema.type ?? ((schema.properties || schema.required) ? "object" : schema.items ? "array" : undefined);
   if (type === "object") {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -59,15 +47,11 @@ function validateAgainstSchema(value, schema, label, errors) {
       return;
     }
     for (const required of arr(schema.required)) {
-      if (!Object.prototype.hasOwnProperty.call(value, required)) {
-        errors.push(`${label}: missing required property ${required}`);
-      }
+      if (!Object.prototype.hasOwnProperty.call(value, required)) errors.push(`${label}: missing required property ${required}`);
     }
     if (schema.properties && typeof schema.properties === "object") {
       for (const [key, childSchema] of Object.entries(schema.properties)) {
-        if (Object.prototype.hasOwnProperty.call(value, key)) {
-          validateAgainstSchema(value[key], childSchema, `${label}.${key}`, errors);
-        }
+        if (Object.prototype.hasOwnProperty.call(value, key)) validateAgainstSchema(value[key], childSchema, `${label}.${key}`, errors);
       }
     }
   } else if (type === "array") {
@@ -75,12 +59,8 @@ function validateAgainstSchema(value, schema, label, errors) {
       errors.push(`${label}: expected array`);
       return;
     }
-    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) {
-      errors.push(`${label}: expected at least ${schema.minItems} item(s)`);
-    }
-    if (schema.items) {
-      value.forEach((item, index) => validateAgainstSchema(item, schema.items, `${label}[${index}]`, errors));
-    }
+    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) errors.push(`${label}: expected at least ${schema.minItems} item(s)`);
+    if (schema.items) value.forEach((item, index) => validateAgainstSchema(item, schema.items, `${label}[${index}]`, errors));
   } else if (type === "string") {
     if (typeof value !== "string") errors.push(`${label}: expected string`);
   } else if (type === "number") {
@@ -90,10 +70,7 @@ function validateAgainstSchema(value, schema, label, errors) {
   } else if (type === "boolean") {
     if (typeof value !== "boolean") errors.push(`${label}: expected boolean`);
   }
-
-  if (Array.isArray(schema.enum) && !schema.enum.some((item) => jsonEqual(item, value))) {
-    errors.push(`${label}: value is not in declared enum`);
-  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => jsonEqual(item, value))) errors.push(`${label}: value is not in declared enum`);
 }
 
 export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
@@ -128,10 +105,11 @@ export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
 
     const requiredSurfaceFields = ["id","name","category","owner","files","currentResponsibility","stateHeld","stateLifetime","persistenceMechanism","consumers","processAffinity","longLivedConnection","filesystemDependency","schedulingDependency","deploymentCoupling","invariants","stableContracts","evidence","disposition","decisionStatus","rationale","migrationSeam","prerequisites","forbiddenChanges","validators","proofCeiling","collisionPaths"];
     const allowedDisposition = new Set(["keep","replace","externalize","delete"]);
-    const allowedDecisionStatus = new Set(["provisional","approved"]);
+    const allowedDecisionStatus = new Set(["provisional","approved","completed"]);
     const seen = new Set();
-    let approvedMigrationSeams = 0;
+    let activeMigrationSeams = 0;
     if (arr(ledger.surfaces).length < 6) errors.push("stateful ledger must contain at least six primary surfaces");
+
     for (const surface of arr(ledger.surfaces)) {
       const label = `surface ${surface?.id ?? "unknown"}`;
       for (const field of requiredSurfaceFields) {
@@ -143,17 +121,19 @@ export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
       if (!allowedDisposition.has(surface?.disposition)) errors.push(`${label}: invalid disposition`);
       if (!allowedDecisionStatus.has(surface?.decisionStatus)) errors.push(`${label}: invalid decisionStatus`);
       if (surface?.decisionStatus === "provisional" && surface?.disposition !== "keep") errors.push(`${label}: provisional decisions must fail closed to keep`);
-      if (surface?.decisionStatus === "approved" && surface?.disposition !== "keep") {
-        approvedMigrationSeams += 1;
-        if (arr(surface?.evidence).length < 2) errors.push(`${label}: approved migration decision requires at least two evidence items`);
-        if (arr(surface?.validators).length < 2) errors.push(`${label}: approved migration decision requires at least two validators`);
-        if (!nonEmpty(surface?.migrationSeam)) errors.push(`${label}: approved migration decision requires a bounded migrationSeam`);
+      if (surface?.decisionStatus === "completed" && surface?.disposition === "keep") errors.push(`${label}: completed decisions must record a historical non-keep migration`);
+      if (["approved", "completed"].includes(surface?.decisionStatus) && surface?.disposition !== "keep") {
+        if (surface?.decisionStatus === "approved") activeMigrationSeams += 1;
+        if (arr(surface?.evidence).length < 2) errors.push(`${label}: approved/completed migration decision requires at least two evidence items`);
+        if (arr(surface?.validators).length < 2) errors.push(`${label}: approved/completed migration decision requires at least two validators`);
+        if (!nonEmpty(surface?.migrationSeam)) errors.push(`${label}: approved/completed migration decision requires a bounded migrationSeam`);
       }
       if (arr(surface?.forbiddenChanges).length === 0) errors.push(`${label}: forbiddenChanges cannot be empty`);
       if (arr(surface?.stableContracts).length === 0) errors.push(`${label}: stableContracts cannot be empty`);
       if (arr(surface?.collisionPaths).some((item) => !nonEmpty(item))) errors.push(`${label}: collisionPaths must be non-empty strings`);
     }
-    if (approvedMigrationSeams > 1) errors.push(`stateful ledger authorizes ${approvedMigrationSeams} migration seams; at most one approved non-keep seam is allowed`);
+
+    if (activeMigrationSeams > 1) errors.push(`stateful ledger authorizes ${activeMigrationSeams} active migration seams; at most one approved non-keep seam is allowed; completed decisions are historical`);
     for (const requiredId of ["http-process-runtime","postgres-domain-state","auth-session-state","scheduled-background-work","filesystem-artifacts","deployment-orchestration","integration-seams"]) {
       if (!seen.has(requiredId)) errors.push(`stateful ledger missing required surface ${requiredId}`);
     }

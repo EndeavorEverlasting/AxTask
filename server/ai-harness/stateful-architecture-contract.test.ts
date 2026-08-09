@@ -31,11 +31,8 @@ describe("stateful architecture harness", () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.errors).toEqual([]);
     expect(parsed.surfacesChecked).toBeGreaterThanOrEqual(6);
-
     const ledger = JSON.parse(readFileSync(path.join(repoRoot, ".ai/stateful-surface-ledger.json"), "utf8"));
-    for (const surface of ledger.surfaces) {
-      if (surface.decisionStatus === "provisional") expect(surface.disposition).toBe("keep");
-    }
+    for (const surface of ledger.surfaces) if (surface.decisionStatus === "provisional") expect(surface.disposition).toBe("keep");
   });
 
   it("rejects a provisional migration decision", () => {
@@ -64,7 +61,7 @@ describe("stateful architecture harness", () => {
     expect(result.stdout).toContain("proofCeiling: value is not in declared enum");
   });
 
-  it("rejects more than one approved migration seam", () => {
+  it("rejects more than one active approved migration seam", () => {
     const root = fixture();
     const ledgerPath = path.join(root, ".ai/stateful-surface-ledger.json");
     const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
@@ -76,6 +73,19 @@ describe("stateful architecture harness", () => {
     const result = run(root);
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("at most one approved non-keep seam is allowed");
+  });
+
+  it("allows one completed historical migration beside one active approved seam", () => {
+    const root = fixture();
+    const ledgerPath = path.join(root, ".ai/stateful-surface-ledger.json");
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    ledger.surfaces[0].decisionStatus = "completed";
+    ledger.surfaces[0].disposition = "externalize";
+    ledger.surfaces[1].decisionStatus = "approved";
+    ledger.surfaces[1].disposition = "replace";
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+    const result = run(root);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
   });
 
   it("rejects a migration authorization rule without a token-safe one-seam clause", () => {
