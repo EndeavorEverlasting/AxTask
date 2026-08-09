@@ -55,6 +55,7 @@ async function main() {
 
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   const client = await pool.connect();
+  let forensicsIncomplete = false;
   const report = {
     timestamp: new Date().toISOString(),
     database: {},
@@ -164,6 +165,18 @@ async function main() {
 
     log("\n[audit] Row counts for known whale tables:");
     for (const table of WHALE_TABLES) {
+      if (forensicsMode && table === "security_events") {
+        report.whaleRowCounts[table] = {
+          deferred: "single-pass security_events forensic aggregate",
+        };
+        if (!jsonOnly) {
+          log(
+            `  ${table.padEnd(30)} (deferred to single-pass forensic aggregate)`,
+          );
+        }
+        continue;
+      }
+
       try {
         const rc = await client.query(
           `SELECT COUNT(*)::bigint AS n FROM "${table}"`,
@@ -180,6 +193,15 @@ async function main() {
     if (forensicsMode) {
       log("\n[audit] === SECURITY_EVENTS FORENSICS ===");
       report.securityEventsForensics = await runSecurityEventsForensics(client, log);
+      if (report.securityEventsForensics.eventTypeAggregationComplete) {
+        report.whaleRowCounts.security_events =
+          report.securityEventsForensics.totalRowsFromEventTypes;
+      } else {
+        report.whaleRowCounts.security_events = {
+          error: "single-pass security_events forensic aggregate did not complete",
+        };
+      }
+      forensicsIncomplete = !report.securityEventsForensics.evidenceComplete;
     }
   } finally {
     client.release();
@@ -188,6 +210,13 @@ async function main() {
 
   process.stdout.write(JSON.stringify(report, bigIntReplacer, 2));
   if (!jsonOnly) process.stdout.write("\n");
+
+  if (forensicsIncomplete) {
+    console.error(
+      "[audit] forensic evidence is incomplete; refusing to report R1 success",
+    );
+    process.exitCode = 2;
+  }
 }
 
 async function runSecurityEventsForensics(client, log) {
@@ -199,12 +228,20 @@ async function runSecurityEventsForensics(client, log) {
     estimatedRows: null,
     liveRows: null,
     deadRows: null,
+    totalRowsFromEventTypes: null,
     eventTypeCounts: {},
     oldestNewestPerType: {},
     triggerExists: false,
     triggerEnabled: false,
     triggerEnableCode: null,
     migration9999Recorded: false,
+    relationSizeCheckComplete: false,
+    rowStatsCheckComplete: false,
+    eventTypeAggregationComplete: false,
+    triggerCheckComplete: false,
+    migrationLedgerCheckComplete: false,
+    evidenceComplete: false,
+    errors: [],
     bloatAnalysis: {
       source: "pg_stat_user_tables",
       deadTupleRatio: null,
@@ -229,15 +266,17 @@ async function runSecurityEventsForensics(client, log) {
         ), 0)::bigint AS toast_bytes
     `);
     const r = relQ.rows[0];
+    if (!r) throw new Error("security_events relation-size query returned no row");
     forensics.relationSize = Number(r.total_bytes);
     forensics.heapSize = Number(r.heap_bytes);
     forensics.indexSize = Number(r.index_bytes);
     forensics.toastSize = Number(r.toast_bytes);
+    forensics.relationSizeCheckComplete = true;
     log(
       `[audit] security_events total=${formatBytes(forensics.relationSize)} heap=${formatBytes(forensics.heapSize)} indexes=${formatBytes(forensics.indexSize)} toast=${formatBytes(forensics.toastSize)}`,
     );
   } catch (err) {
-    log(`[audit] security_events size breakdown failed: ${err.message}`);
+    recordForensicsError(forensics, "relation-size", err, log);
   }
 
   try {
@@ -253,59 +292,60 @@ async function runSecurityEventsForensics(client, log) {
       WHERE c.relname = 'security_events'
         AND n.nspname = 'public'
     `);
-    if (estQ.rows.length > 0) {
-      const r = estQ.rows[0];
-      const estimate = Number(r.estimated_rows);
-      forensics.estimatedRows = Number.isFinite(estimate) && estimate >= 0 ? Math.round(estimate) : null;
-      forensics.liveRows = r.live_rows === null ? null : Number(r.live_rows);
-      forensics.deadRows = r.dead_rows === null ? null : Number(r.dead_rows);
-      log(
-        `[audit] security_events est_rows=${forensics.estimatedRows ?? "n/a"} live=${forensics.liveRows ?? "n/a"} dead=${forensics.deadRows ?? "n/a"}`,
-      );
+    if (estQ.rows.length === 0) {
+      throw new Error("security_events row-stat query returned no row");
     }
+    const r = estQ.rows[0];
+    const estimate = Number(r.estimated_rows);
+    forensics.estimatedRows =
+      Number.isFinite(estimate) && estimate >= 0 ? Math.round(estimate) : null;
+    forensics.liveRows = r.live_rows === null ? null : Number(r.live_rows);
+    forensics.deadRows = r.dead_rows === null ? null : Number(r.dead_rows);
+    forensics.rowStatsCheckComplete = true;
+    log(
+      `[audit] security_events est_rows=${forensics.estimatedRows ?? "n/a"} live=${forensics.liveRows ?? "n/a"} dead=${forensics.deadRows ?? "n/a"}`,
+    );
   } catch (err) {
-    log(`[audit] security_events row estimates failed: ${err.message}`);
+    recordForensicsError(forensics, "row-stats", err, log);
   }
 
-  let dominantTypes = [];
+  // security_events is the production whale. Gather exact counts and timestamp ranges
+  // in one GROUP BY scan instead of a separate COUNT plus N per-type timestamp scans.
   try {
     const typeQ = await client.query(`
-      SELECT event_type, COUNT(*)::bigint AS cnt
+      SELECT
+        event_type,
+        COUNT(*)::bigint AS cnt,
+        MIN(created_at) AS oldest,
+        MAX(created_at) AS newest
       FROM public.security_events
       GROUP BY event_type
       ORDER BY cnt DESC
     `);
-    dominantTypes = typeQ.rows.slice(0, 10).map((row) => row.event_type);
+
+    let totalRows = 0;
     for (const row of typeQ.rows) {
       const key = row.event_type === null ? "<NULL>" : String(row.event_type);
-      forensics.eventTypeCounts[key] = Number(row.cnt);
+      const count = Number(row.cnt);
+      forensics.eventTypeCounts[key] = count;
+      totalRows += count;
+      forensics.oldestNewestPerType[key] = {
+        oldest: row.oldest ?? null,
+        newest: row.newest ?? null,
+      };
     }
+    forensics.totalRowsFromEventTypes = totalRows;
+    forensics.eventTypeAggregationComplete = true;
+
     log("[audit] security_events event_type breakdown:");
     for (const [type, count] of Object.entries(forensics.eventTypeCounts)) {
-      log(`  ${type.padEnd(30)} ${count.toLocaleString()} rows`);
-    }
-  } catch (err) {
-    log(`[audit] security_events event_type counts failed: ${err.message}`);
-  }
-
-  try {
-    for (const type of dominantTypes) {
-      const tsQ = await client.query(
-        `SELECT MIN(created_at) AS oldest, MAX(created_at) AS newest
-           FROM public.security_events
-          WHERE event_type IS NOT DISTINCT FROM $1`,
-        [type],
+      const range = forensics.oldestNewestPerType[type];
+      log(
+        `  ${type.padEnd(30)} ${count.toLocaleString()} rows oldest=${range.oldest ?? "n/a"} newest=${range.newest ?? "n/a"}`,
       );
-      if (tsQ.rows[0]?.oldest) {
-        const key = type === null ? "<NULL>" : String(type);
-        forensics.oldestNewestPerType[key] = {
-          oldest: tsQ.rows[0].oldest,
-          newest: tsQ.rows[0].newest,
-        };
-      }
     }
   } catch (err) {
-    log(`[audit] security_events timestamp range failed: ${err.message}`);
+    recordForensicsError(forensics, "event-type-aggregate", err, log);
   }
 
   try {
@@ -322,11 +362,12 @@ async function runSecurityEventsForensics(client, log) {
       // O=enabled for origin sessions, A=always. R=replica-only is not normal-origin containment.
       forensics.triggerEnabled = ["O", "A"].includes(trigQ.rows[0].tgenabled);
     }
+    forensics.triggerCheckComplete = true;
     log(
       `[audit] trigger exists=${forensics.triggerExists} enabled=${forensics.triggerEnabled} code=${forensics.triggerEnableCode ?? "n/a"}`,
     );
   } catch (err) {
-    log(`[audit] trigger check failed: ${err.message}`);
+    recordForensicsError(forensics, "trigger-state", err, log);
   }
 
   try {
@@ -336,11 +377,12 @@ async function runSecurityEventsForensics(client, log) {
       WHERE filename = '9999_disable_api_request_security_events.sql'
     `);
     forensics.migration9999Recorded = migQ.rows.length > 0;
+    forensics.migrationLedgerCheckComplete = true;
     log(
       `[audit] migration 9999_disable_api_request_security_events.sql: ${forensics.migration9999Recorded ? "RECORDED" : "NOT RECORDED"}`,
     );
   } catch (err) {
-    log(`[audit] migration ledger check failed: ${err.message}`);
+    recordForensicsError(forensics, "migration-ledger", err, log);
   }
 
   if (forensics.liveRows !== null && forensics.deadRows !== null) {
@@ -362,7 +404,21 @@ async function runSecurityEventsForensics(client, log) {
     );
   }
 
+  forensics.evidenceComplete = [
+    forensics.relationSizeCheckComplete,
+    forensics.rowStatsCheckComplete,
+    forensics.eventTypeAggregationComplete,
+    forensics.triggerCheckComplete,
+    forensics.migrationLedgerCheckComplete,
+  ].every(Boolean);
+
   return forensics;
+}
+
+function recordForensicsError(forensics, stage, err, log) {
+  const message = err instanceof Error ? err.message : String(err);
+  forensics.errors.push({ stage, message });
+  log(`[audit] security_events ${stage} failed: ${message}`);
 }
 
 function bigIntReplacer(_key, value) {
