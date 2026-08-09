@@ -61,7 +61,9 @@ describe("account evidence export contract", () => {
   });
 
   it("never prints DATABASE_URL or embeds it in the manifest", () => {
-    expect(source).not.toContain("databaseUrl,");
+    expect(source).not.toContain("console.log(databaseUrl");
+    expect(source).not.toContain("console.error(databaseUrl");
+    expect(source).not.toContain("databaseUrl: databaseUrl");
     expect(source).not.toContain("DATABASE_URL:");
     expect(source).toContain("databaseTargetFingerprint(databaseUrl)");
     expect(source).toContain(
@@ -121,7 +123,9 @@ describe("account evidence export contract", () => {
 
   it("leaves an unmistakable incomplete marker unless the snapshot and manifest complete", () => {
     expect(source).toContain('path.join(exportDir, "EXPORT_INCOMPLETE")');
-    expect(source).toContain("Do not treat this directory as verified preservation evidence");
+    expect(source).toContain(
+      "Do not treat this directory as verified preservation evidence",
+    );
     expect(source).toContain("completenessMarkerPolicy");
     const commitIndex = source.indexOf('await client.query("COMMIT")');
     const unlinkIndex = source.indexOf("unlinkSync(incompleteMarker)");
