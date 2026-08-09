@@ -60,11 +60,31 @@ describePg("account evidence export disposable-postgres certification", () => {
       `INSERT INTO security_events
         (event_type, actor_user_id, route, method, status_code, payload_json, prev_hash, event_hash, created_at)
        VALUES
-        ('account_json_export', $1, '/api/account/export', 'GET', 200, '{"kind":"meaningful"}', NULL, $2, now() - interval '3 minutes'),
-        ('api_request', $1, '/api/tasks', 'GET', 200, NULL, $2, $3, now() - interval '2 minutes'),
-        ('api_request', $1, '/api/tasks', 'GET', 200, NULL, $3, $4, now() - interval '1 minute')`,
-      [userId, meaningfulHash, apiHash1, apiHash2],
+        ('account_json_export', $1, '/api/account/export', 'GET', 200, '{"kind":"meaningful"}', NULL, $2, now() - interval '3 minutes')`,
+      [userId, meaningfulHash],
     );
+
+    // Migration 9999 correctly suppresses new api_request rows. This disposable-only
+    // fixture temporarily disables that trigger so the test can model historical rows
+    // that existed before containment. It is restored immediately before the exporter runs.
+    await pool.query(
+      `ALTER TABLE security_events DISABLE TRIGGER trg_suppress_api_request_security_events`,
+    );
+    try {
+      await pool.query(
+        `INSERT INTO security_events
+          (event_type, actor_user_id, route, method, status_code, payload_json, prev_hash, event_hash, created_at)
+         VALUES
+          ('api_request', $1, '/api/tasks', 'GET', 200, NULL, $2, $3, now() - interval '2 minutes'),
+          ('api_request', $1, '/api/tasks', 'GET', 200, NULL, $3, $4, now() - interval '1 minute')`,
+        [userId, meaningfulHash, apiHash1, apiHash2],
+      );
+    } finally {
+      await pool.query(
+        `ALTER TABLE security_events ENABLE TRIGGER trg_suppress_api_request_security_events`,
+      );
+    }
+
     await pool.query(
       `INSERT INTO mfa_challenges
         (user_id, purpose, code_hash, expires_at, created_at)
