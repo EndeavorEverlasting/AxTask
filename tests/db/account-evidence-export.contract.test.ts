@@ -6,7 +6,12 @@ import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
-const scriptPath = path.join(repoRoot, "scripts", "db", "export-account-evidence.mjs");
+const scriptPath = path.join(
+  repoRoot,
+  "scripts",
+  "db",
+  "export-account-evidence.mjs",
+);
 const source = fs.readFileSync(scriptPath, "utf8");
 
 describe("account evidence export contract", () => {
@@ -19,21 +24,39 @@ describe("account evidence export contract", () => {
   });
 
   it("uses one repeatable read-only database snapshot", () => {
-    expect(source).toContain("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    expect(source).toContain("DECLARE ${quoteIdent(cursorName)} NO SCROLL CURSOR");
+    expect(source).toContain(
+      "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+    );
+    expect(source).toContain(
+      "DECLARE ${quoteIdent(cursorName)} NO SCROLL CURSOR",
+    );
     expect(source).toContain("FETCH FORWARD ${batchSize}");
     expect(source).toContain("ROLLBACK");
     expect(source).toContain("COMMIT");
   });
 
+  it("discovers only concrete public base tables", () => {
+    expect(source).toContain("JOIN information_schema.tables t");
+    expect(source).toContain("t.table_type = 'BASE TABLE'");
+    expect(source).toContain("c.table_schema = 'public'");
+  });
+
   it("contains no SQL mutation execution path", () => {
-    expect(source).not.toMatch(/client\.query\(\s*[`"']\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|VACUUM)\b/i);
-    expect(source).not.toMatch(/pool\.query\(\s*[`"']\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|VACUUM)\b/i);
+    expect(source).not.toMatch(
+      /client\.query\(\s*[`"']\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|VACUUM)\b/i,
+    );
+    expect(source).not.toMatch(
+      /pool\.query\(\s*[`"']\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|VACUUM)\b/i,
+    );
   });
 
   it("requires explicit intent before reading a non-loopback database", () => {
-    expect(source).toContain('!args.has("prod") || !args.has("force-production")');
-    expect(source).toContain("non-loopback evidence export requires --prod --force-production");
+    expect(source).toContain(
+      '!args.has("prod") || !args.has("force-production")',
+    );
+    expect(source).toContain(
+      "non-loopback evidence export requires --prod --force-production",
+    );
     expect(source).toContain('"localhost", "127.0.0.1", "::1", "[::1]"');
   });
 
@@ -41,12 +64,15 @@ describe("account evidence export contract", () => {
     expect(source).not.toContain("databaseUrl,");
     expect(source).not.toContain("DATABASE_URL:");
     expect(source).toContain("databaseTargetFingerprint(databaseUrl)");
-    expect(source).toContain('target: loopback ? "loopback" : "non-loopback"');
+    expect(source).toContain(
+      'target: loopback ? "loopback" : "non-loopback"',
+    );
   });
 
   it("streams table rows in bounded cursor batches instead of loading the account into memory", () => {
     expect(source).toContain("DEFAULT_BATCH_SIZE = 1000");
-    expect(source).toContain('parseInteger(args.get("batch-size") ?? DEFAULT_BATCH_SIZE, "batch-size", 1, 10000)');
+    expect(source).toContain('args.get("batch-size") ?? DEFAULT_BATCH_SIZE');
+    expect(source).toContain('"batch-size",\n    1,\n    10000');
     expect(source).toContain("FETCH FORWARD ${batchSize}");
     expect(source).toContain("writeSync(fd, line");
   });
@@ -73,14 +99,34 @@ describe("account evidence export contract", () => {
   });
 
   it("excludes ephemeral credential material and records redactions", () => {
-    for (const table of ["session", "password_reset_tokens", "mfa_challenges", "user_push_subscriptions"]) {
+    for (const table of [
+      "session",
+      "password_reset_tokens",
+      "mfa_challenges",
+      "user_push_subscriptions",
+    ]) {
       expect(source).toContain(`"${table}"`);
     }
-    for (const column of ["password_hash", "security_answer_hash", "totp_secret_ciphertext", "public_dm_token"]) {
+    for (const column of [
+      "password_hash",
+      "security_answer_hash",
+      "totp_secret_ciphertext",
+      "public_dm_token",
+    ]) {
       expect(source).toContain(`"${column}"`);
     }
     expect(source).toContain("excludedTables: skippedTables");
     expect(source).toContain("redactedColumns");
+  });
+
+  it("leaves an unmistakable incomplete marker unless the snapshot and manifest complete", () => {
+    expect(source).toContain('path.join(exportDir, "EXPORT_INCOMPLETE")');
+    expect(source).toContain("Do not treat this directory as verified preservation evidence");
+    expect(source).toContain("completenessMarkerPolicy");
+    const commitIndex = source.indexOf('await client.query("COMMIT")');
+    const unlinkIndex = source.indexOf("unlinkSync(incompleteMarker)");
+    expect(commitIndex).toBeGreaterThan(-1);
+    expect(unlinkIndex).toBeGreaterThan(commitIndex);
   });
 
   it("hashes every artifact and the manifest", () => {
