@@ -89,6 +89,26 @@
       "template": ".ai/reports/operator-report-template.md"
     },
     {
+      "id": "log-retention-proof",
+      "pathPattern": ".ai/runs/<run-id>/log-retention-proof.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.log-retention-capacity-defense.v1",
+      "generation": "node scripts/ai-harness/validate-log-retention.mjs --json > <path>",
+      "namingConvention": "<run-id>/log-retention-proof.json",
+      "validator": "node scripts/ai-harness/validate-log-retention.mjs"
+    },
+    {
+      "id": "log-retention-report",
+      "pathPattern": ".ai/runs/<run-id>/log-retention-report.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.log-retention-capacity-defense.v1",
+      "generation": "Render .ai/reports/log-retention-report-template.md after repository validation and any separately authorized live retention check.",
+      "namingConvention": "<run-id>/log-retention-report.md",
+      "template": ".ai/reports/log-retention-report-template.md"
+    },
+    {
       "id": "final-handoff",
       "pathPattern": ".ai/runs/<run-id>/final-handoff.md",
       "tracked": false,

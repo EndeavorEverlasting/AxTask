@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "contractId": "axtask.log-retention-capacity-defense.v1",
+  "canonicalSources": {
+    "policy": "docs/DB_RETENTION_POLICY.md",
+    "runner": "scripts/db-retention.mjs",
+    "scheduler": "render.yaml",
+    "runtimeControls": "docs/SCHEDULED_RESOURCE_CONTROLS.md"
+  },
+  "criticalSentinels": [
+    {
+      "id": "security-events",
+      "table": "security_events",
+      "column": "created_at",
+      "window": "90 days",
+      "reason": "Known capacity-incident surface; append-only telemetry must not grow without a bound."
+    },
+    {
+      "id": "foundry-run-logs",
+      "table": "foundry_run_logs",
+      "column": "created_at",
+      "window": "90 days",
+      "reason": "Agent/operator run logs must remain bounded instead of accumulating indefinitely."
+    }
+  ],
+  "scheduler": {
+    "serviceName": "axtask-db-retention",
+    "type": "cron",
+    "schedule": "15 4 * * *",
+    "command": "node scripts/db-retention.mjs",
+    "requiredEnv": ["DATABASE_URL"],
+    "disabledFlag": "DISABLE_DB_RETENTION_CRON",
+    "disabledValue": "true"
+  },
+  "proof": {
+    "repoValidator": "node scripts/ai-harness/validate-log-retention.mjs",
+    "liveObservationMarker": "[retention] done. rows_deleted=",
+    "repoValidationProvesLiveExecution": false,
+    "note": "Repository validation proves policy/runner/scheduler wiring only. Live Render cron existence, enabled state, and last successful execution require runtime/operator evidence."
+  }
+}

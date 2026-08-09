@@ -86,6 +86,12 @@
       "event": "serverless-or-stateful-architecture-change",
       "condition": "A task proposes serverless, stateless, function-style, edge, managed scheduler/queue/storage, persistent-server removal, persistence-provider change, or another stateful/runtime-boundary change.",
       "workflowId": "axtask.stateful-architecture-migration.v1"
+    },
+    {
+      "id": "log-retention-risk",
+      "event": "log-retention-risk",
+      "condition": "Append-only/log growth is observed or retention policy, retention runner, Render cron wiring, scheduled-resource controls, or a critical retention sentinel changes.",
+      "workflowId": "axtask.log-retention-capacity-defense.v1"
     }
   ]
 }
