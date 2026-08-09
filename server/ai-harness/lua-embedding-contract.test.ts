@@ -3,8 +3,10 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = process.cwd();
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(testDir, "..", "..");
 const validator = path.join(repoRoot, "scripts/ai-harness/validate-lua-embedding.mjs");
 const tempRoots: string[] = [];
 const run = (root = repoRoot) => spawnSync(process.execPath, [validator, `--root=${root}`, "--json"], { cwd: repoRoot, encoding: "utf8" });
