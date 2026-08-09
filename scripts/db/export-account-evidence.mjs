@@ -468,8 +468,25 @@ async function main() {
     const skippedTables = [];
     let apiRequestSummary = null;
 
+    const identityOutputFile = path.join(exportDir, "users.jsonl");
+    const identityArtifact = await exportQueryToJsonl(client, {
+      tableName: "users",
+      querySql:
+        "SELECT * FROM public.users WHERE id = current_setting('axtask.evidence_user_id') ORDER BY id",
+      outputFile: identityOutputFile,
+      batchSize,
+      linkingPaths: ["users.id=resolved-account"],
+    });
+    if (identityArtifact.rowCount !== 1) {
+      throw new Error(
+        `resolved account identity export must contain exactly one users row; got ${identityArtifact.rowCount}`,
+      );
+    }
+    files.push(identityArtifact);
+
     for (const table of discovered) {
       const { tableName, columns } = table;
+      if (tableName === "users") continue;
       if (SENSITIVE_TABLES_EXCLUDED.has(tableName)) {
         skippedTables.push({
           table: tableName,
@@ -559,6 +576,8 @@ async function main() {
         createdAt: account.created_at ?? null,
       },
       accountLinkPolicy: {
+        identityArtifact:
+          "users.jsonl is mandatory and must contain exactly one row matching the resolved account",
         directUserColumns:
           "user_id, every *_user_id role column, plus known unsuffixed role columns deleted_by/invited_by/banned_by",
         taskReferenceColumns: "task_id and every *_task_id column",
