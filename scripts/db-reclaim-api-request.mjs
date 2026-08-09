@@ -2,27 +2,28 @@
 /**
  * Targeted api_request telemetry cleanup for security_events.
  *
- * Safely removes ONLY event_type='api_request' rows from security_events,
- * preserving all other security audit events.
+ * Logical cleanup and physical reclaim are deliberately separate operations:
+ *
+ *   # read-only dry run (default)
+ *   node scripts/db-reclaim-api-request.mjs --retention-days=1
+ *
+ *   # logical cleanup only; each DELETE batch commits independently
+ *   node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --retention-days=1
+ *
+ *   # physical reclaim only; run later in an authorized maintenance window
+ *   node scripts/db-reclaim-api-request.mjs --vacuum-full --execute --confirm=VACUUM_FULL --prod
  *
  * SAFETY GATES:
- *   - DRY RUN BY DEFAULT (use --execute to mutate)
- *   - Requires explicit --confirm=YES token
- *   - Requires explicit --prod flag (or NODE_ENV=production)
- *   - Refuses to run against non-loopback DATABASE_URL unless --force-production
- *   - Never TRUNCATEs security_events
- *   - Never drops indexes automatically
- *   - Prefers bounded/batched deletion over one enormous transaction
- *   - Emits before/after counts
- *   - Supports logical-only mode (--logical-only)
- *   - Physical reclaim (VACUUM FULL) is a separate explicit step
- *
- * Usage:
- *   node scripts/db-reclaim-api-request.mjs --dry-run
- *   node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod
- *   node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --logical-only
- *   node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --retention-days=7
- *   node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --batch-size=5000
+ *   - dry-run by default; --execute is required for mutation
+ *   - mutation requires --prod (or NODE_ENV=production)
+ *   - non-loopback mutation additionally requires --force-production
+ *   - logical cleanup requires --confirm=YES
+ *   - physical reclaim requires --vacuum-full AND --confirm=VACUUM_FULL
+ *   - VACUUM FULL never runs as a side effect of logical cleanup
+ *   - never TRUNCATEs security_events and never drops indexes
+ *   - never logs DATABASE_URL, even masked
+ *   - deletes only event_type='api_request' rows older than the retention window
+ *   - verifies the non-api_request row count is unchanged
  *
  * Env: DATABASE_URL (required)
  */
@@ -31,14 +32,22 @@ import pgModule from "pg";
 const pg = pgModule.default || pgModule;
 
 const args = parseArgs(process.argv.slice(2));
-
-const dryRun = args.has("dry-run") || !args.has("execute");
+const execute = args.has("execute");
+const dryRun = !execute;
+const physicalReclaim = args.has("vacuum-full");
 const confirm = args.get("confirm");
 const isProd = args.has("prod") || process.env.NODE_ENV === "production";
 const forceProduction = args.has("force-production");
-const logicalOnly = args.has("logical-only");
-const retentionDays = Number(args.get("retention-days") ?? 1);
-const batchSize = Number(args.get("batch-size") ?? 5000);
+const retentionDays = parseIntegerArg(args.get("retention-days") ?? "1", {
+  name: "retention-days",
+  min: 0,
+  max: 3650,
+});
+const batchSize = parseIntegerArg(args.get("batch-size") ?? "5000", {
+  name: "batch-size",
+  min: 1,
+  max: 50000,
+});
 const jsonOutput = args.has("json");
 
 function parseArgs(argv) {
@@ -50,209 +59,226 @@ function parseArgs(argv) {
     else map.set(raw.slice(2, eq), raw.slice(eq + 1));
   }
   return {
-    get: (k) => map.get(k),
-    has: (k) => map.has(k),
+    get: (key) => map.get(key),
+    has: (key) => map.has(key),
   };
 }
 
-function log(...args) {
-  if (!jsonOutput) console.error(...args);
+function parseIntegerArg(raw, { name, min, max }) {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`--${name} must be an integer between ${min} and ${max}`);
+  }
+  return value;
 }
 
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes)) return String(bytes);
-  if (bytes < 1024) return `${bytes} bytes`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(0)} kB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(2)} GB`;
+function log(...values) {
+  if (!jsonOutput) console.error(...values);
 }
 
-function isLocalDatabase(url) {
+function isLoopbackDatabase(url) {
   try {
-    const parsed = new URL(url);
-    const host = parsed.hostname;
-    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.startsWith("192.168.") || host.startsWith("10.") || host.endsWith(".local");
+    const host = new URL(url).hostname.toLowerCase();
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(host);
   } catch {
     return false;
   }
 }
 
-async function getApiRequestCount(client, retentionDays) {
+function assertMutationAuthorized(url) {
+  if (dryRun) return;
+
+  const expectedConfirmation = physicalReclaim ? "VACUUM_FULL" : "YES";
+  if (confirm !== expectedConfirmation) {
+    throw new Error(
+      `refusing mutation: expected --confirm=${expectedConfirmation} for ${physicalReclaim ? "physical reclaim" : "logical cleanup"}`,
+    );
+  }
+  if (!isProd) {
+    throw new Error("refusing mutation without --prod (or NODE_ENV=production)");
+  }
+  if (!isLoopbackDatabase(url) && !forceProduction) {
+    throw new Error(
+      "refusing non-loopback mutation without --force-production; production writes require explicit operator authorization",
+    );
+  }
+}
+
+async function getCounts(client) {
   const { rows } = await client.query(
-    `SELECT COUNT(*)::bigint AS cnt FROM security_events WHERE event_type = 'api_request' AND created_at < now() - interval '${retentionDays} day'`
+    `SELECT
+       COUNT(*)::bigint AS total,
+       COUNT(*) FILTER (WHERE event_type = 'api_request')::bigint AS api_request_total,
+       COUNT(*) FILTER (WHERE event_type IS DISTINCT FROM 'api_request')::bigint AS non_api_request
+     FROM security_events`,
   );
-  return Number(rows[0].cnt);
+  return {
+    total: Number(rows[0].total),
+    apiRequestTotal: Number(rows[0].api_request_total),
+    nonApiRequest: Number(rows[0].non_api_request),
+  };
 }
 
-async function getTotalSecurityEventsCount(client) {
-  const { rows } = await client.query(`SELECT COUNT(*)::bigint AS cnt FROM security_events`);
-  return Number(rows[0].cnt);
+async function getEligibleApiRequestCount(client, days) {
+  const { rows } = await client.query(
+    `SELECT COUNT(*)::bigint AS count
+       FROM security_events
+      WHERE event_type = 'api_request'
+        AND created_at < now() - ($1::int * interval '1 day')`,
+    [days],
+  );
+  return Number(rows[0].count);
 }
 
-async function getNonApiRequestCount(client) {
-  const { rows } = await client.query(`SELECT COUNT(*)::bigint AS cnt FROM security_events WHERE event_type != 'api_request'`);
-  return Number(rows[0].cnt);
+async function getRelationSize(client) {
+  const { rows } = await client.query(
+    `SELECT pg_total_relation_size('public.security_events'::regclass)::bigint AS bytes`,
+  );
+  return Number(rows[0].bytes);
 }
 
-async function runBatchedDelete(client, retentionDays, batchSize) {
+async function runBatchedDelete(client, days, size) {
   let totalDeleted = 0;
-  let batchNum = 0;
+  let batchNumber = 0;
 
   while (true) {
-    batchNum++;
-    const sql = `
-      DELETE FROM security_events
-      WHERE ctid IN (
-        SELECT ctid
-        FROM security_events
-        WHERE event_type = 'api_request'
-          AND created_at < now() - interval '${retentionDays} day'
-        LIMIT ${batchSize}
-      )
-    `;
-
-    const start = Date.now();
-    const res = await client.query(sql);
-    const ms = Date.now() - start;
-    const deleted = res.rowCount ?? 0;
+    batchNumber += 1;
+    // Intentionally no encompassing BEGIN/COMMIT: each bounded DELETE statement
+    // commits independently so millions of rows do not become one giant transaction.
+    const result = await client.query(
+      `DELETE FROM security_events
+        WHERE ctid IN (
+          SELECT ctid
+            FROM security_events
+           WHERE event_type = 'api_request'
+             AND created_at < now() - ($1::int * interval '1 day')
+           LIMIT $2
+        )`,
+      [days, size],
+    );
+    const deleted = result.rowCount ?? 0;
     totalDeleted += deleted;
-
-    log(`[reclaim-api-request] batch ${batchNum}: deleted ${deleted} rows in ${ms} ms (total: ${totalDeleted})`);
-
-    if (deleted < batchSize) break;
+    log(
+      `[reclaim-api-request] batch=${batchNumber} deleted=${deleted} total_deleted=${totalDeleted}`,
+    );
+    if (deleted < size) break;
   }
 
   return totalDeleted;
 }
 
 async function runVacuumFull(client) {
-  log(`[reclaim-api-request] Running VACUUM FULL on security_events...`);
-  const start = Date.now();
-  await client.query(`VACUUM FULL security_events`);
-  const ms = Date.now() - start;
-  log(`[reclaim-api-request] VACUUM FULL completed in ${ms} ms`);
+  log(
+    "[reclaim-api-request] VACUUM FULL requested explicitly; this requires an exclusive table lock.",
+  );
+  await client.query("VACUUM FULL public.security_events");
+}
+
+function emitReport(report) {
+  if (jsonOutput) console.log(JSON.stringify(report, null, 2));
 }
 
 async function main() {
   const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.error("[reclaim-api-request] DATABASE_URL is not set.");
-    process.exit(1);
-  }
+  if (!url) throw new Error("DATABASE_URL is not set");
 
-  // Safety: refuse mutation without explicit confirmation
-  if (!dryRun && confirm !== "YES") {
-    console.error("[reclaim-api-request] refusing to run without --confirm=YES");
-    process.exit(2);
-  }
+  assertMutationAuthorized(url);
 
-  // Safety: refuse mutation without production intent
-  if (!dryRun && !isProd) {
-    console.error("[reclaim-api-request] refusing to run without --prod (or NODE_ENV=production).");
-    process.exit(2);
-  }
-
-  // Safety: refuse mutation against non-loopback unless explicitly forced
-  if (!dryRun && !forceProduction && !isLocalDatabase(url)) {
-    console.error("[reclaim-api-request] refusing to mutate non-loopback DATABASE_URL without --force-production.");
-    console.error("[reclaim-api-request] This script is for local/disposable databases. Use --force-production ONLY with explicit authorization.");
-    process.exit(2);
-  }
-
-  // Safety: never log DATABASE_URL
-  const maskedUrl = url.replace(/:[^:@]*@/, ":***@");
-  log(`[reclaim-api-request] target: ${maskedUrl}  dry_run=${dryRun}  prod=${isProd}  logical_only=${logicalOnly}  retention_days=${retentionDays}  batch_size=${batchSize}`);
+  log(
+    `[reclaim-api-request] mode=${physicalReclaim ? "physical-reclaim" : "logical-cleanup"} dry_run=${dryRun} target=${isLoopbackDatabase(url) ? "loopback" : "non-loopback"} retention_days=${retentionDays} batch_size=${batchSize}`,
+  );
 
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   const client = await pool.connect();
-
   try {
-    // BEFORE counts
-    const beforeTotal = await getTotalSecurityEventsCount(client);
-    const beforeApiRequest = await getApiRequestCount(client, retentionDays);
-    const beforeNonApiRequest = await getNonApiRequestCount(client);
-
-    log(`[reclaim-api-request] BEFORE: total=${beforeTotal.toLocaleString()}  api_request(eligible)=${beforeApiRequest.toLocaleString()}  non_api_request=${beforeNonApiRequest.toLocaleString()}`);
+    const before = await getCounts(client);
+    const eligibleBefore = await getEligibleApiRequestCount(client, retentionDays);
+    const sizeBefore = await getRelationSize(client);
 
     if (dryRun) {
-      log(`[reclaim-api-request] DRY RUN: would delete ${beforeApiRequest.toLocaleString()} api_request rows older than ${retentionDays} day(s)`);
-      log(`[reclaim-api-request] DRY RUN: non-api_request rows (${beforeNonApiRequest.toLocaleString()}) would be PRESERVED`);
-
-      if (!logicalOnly) {
-        log(`[reclaim-api-request] DRY RUN: would run VACUUM FULL on security_events after deletion`);
-      }
-
       const report = {
         dryRun: true,
-        before: { total: beforeTotal, apiRequest: beforeApiRequest, nonApiRequest: beforeNonApiRequest },
-        after: { total: beforeTotal - beforeApiRequest, apiRequest: 0, nonApiRequest: beforeNonApiRequest },
-        deleted: beforeApiRequest,
-        vacuumFull: !logicalOnly,
+        mode: physicalReclaim ? "physical-reclaim" : "logical-cleanup",
+        before: { ...before, eligibleApiRequest: eligibleBefore, relationBytes: sizeBefore },
+        wouldDelete: physicalReclaim ? 0 : eligibleBefore,
+        wouldVacuumFull: physicalReclaim,
+        nonApiRequestPreserved: before.nonApiRequest,
       };
-
-      if (jsonOutput) console.log(JSON.stringify(report, null, 2));
-      process.exit(0);
+      log(
+        physicalReclaim
+          ? "[reclaim-api-request] DRY RUN: would run VACUUM FULL only; no rows would be deleted."
+          : `[reclaim-api-request] DRY RUN: would delete ${eligibleBefore} eligible api_request rows in batches; VACUUM FULL would NOT run.`,
+      );
+      emitReport(report);
+      return 0;
     }
 
-    // Execute deletion in a transaction
-    await client.query("BEGIN");
-    try {
-      const deleted = await runBatchedDelete(client, retentionDays, batchSize);
-      await client.query("COMMIT");
-
-      // AFTER counts
-      const afterTotal = await getTotalSecurityEventsCount(client);
-      const afterApiRequest = await getApiRequestCount(client, retentionDays);
-      const afterNonApiRequest = await getNonApiRequestCount(client);
-
-      log(`[reclaim-api-request] AFTER: total=${afterTotal.toLocaleString()}  api_request(eligible)=${afterApiRequest.toLocaleString()}  non_api_request=${afterNonApiRequest.toLocaleString()}`);
-      log(`[reclaim-api-request] DELETED: ${deleted.toLocaleString()} api_request rows`);
-
-      // Verify non-api_request rows preserved
-      if (afterNonApiRequest !== beforeNonApiRequest) {
-        console.error(`[reclaim-api-request] ERROR: non-api_request count changed! before=${beforeNonApiRequest} after=${afterNonApiRequest}`);
-        process.exit(3);
+    if (physicalReclaim) {
+      if (eligibleBefore > 0) {
+        throw new Error(
+          `refusing VACUUM FULL while ${eligibleBefore} eligible api_request rows remain; run logical cleanup first`,
+        );
       }
-      log(`[reclaim-api-request] VERIFIED: non-api_request rows preserved (${afterNonApiRequest.toLocaleString()})`);
-
-      // Physical reclaim if not logical-only
-      if (!logicalOnly) {
-        // VACUUM FULL cannot run in a transaction
-        await runVacuumFull(client);
-
-        const afterVacuumTotal = await getTotalSecurityEventsCount(client);
-        const afterVacuumApiRequest = await getApiRequestCount(client, retentionDays);
-        log(`[reclaim-api-request] POST-VACUUM: total=${afterVacuumTotal.toLocaleString()}  api_request(eligible)=${afterVacuumApiRequest.toLocaleString()}`);
+      await runVacuumFull(client);
+      const sizeAfter = await getRelationSize(client);
+      const after = await getCounts(client);
+      if (after.nonApiRequest !== before.nonApiRequest) {
+        throw new Error(
+          `non-api_request count changed during physical reclaim: before=${before.nonApiRequest} after=${after.nonApiRequest}`,
+        );
       }
-
-      const report = {
+      emitReport({
         dryRun: false,
-        before: { total: beforeTotal, apiRequest: beforeApiRequest, nonApiRequest: beforeNonApiRequest },
-        after: { total: afterTotal, apiRequest: afterApiRequest, nonApiRequest: afterNonApiRequest },
-        deleted: deleted,
-        vacuumFull: !logicalOnly,
-        retentionDays,
-        batchSize,
-      };
-
-      if (jsonOutput) console.log(JSON.stringify(report, null, 2));
-      process.exit(0);
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
+        mode: "physical-reclaim",
+        before: { ...before, relationBytes: sizeBefore },
+        after: { ...after, relationBytes: sizeAfter },
+        deleted: 0,
+        vacuumFull: true,
+      });
+      return 0;
     }
-  } catch (err) {
-    console.error("[reclaim-api-request] fatal:", err);
-    process.exit(1);
+
+    const deleted = await runBatchedDelete(client, retentionDays, batchSize);
+    const after = await getCounts(client);
+    const eligibleAfter = await getEligibleApiRequestCount(client, retentionDays);
+    const sizeAfter = await getRelationSize(client);
+
+    if (after.nonApiRequest !== before.nonApiRequest) {
+      throw new Error(
+        `non-api_request count changed: before=${before.nonApiRequest} after=${after.nonApiRequest}`,
+      );
+    }
+    if (eligibleAfter !== 0) {
+      throw new Error(`logical cleanup incomplete: ${eligibleAfter} eligible api_request rows remain`);
+    }
+
+    log(
+      `[reclaim-api-request] VERIFIED deleted=${deleted} non_api_request_preserved=${after.nonApiRequest}`,
+    );
+    emitReport({
+      dryRun: false,
+      mode: "logical-cleanup",
+      before: { ...before, eligibleApiRequest: eligibleBefore, relationBytes: sizeBefore },
+      after: { ...after, eligibleApiRequest: eligibleAfter, relationBytes: sizeAfter },
+      deleted,
+      vacuumFull: false,
+      retentionDays,
+      batchSize,
+    });
+    return 0;
   } finally {
     client.release();
     await pool.end();
   }
 }
 
-main().catch((err) => {
-  console.error("[reclaim-api-request] fatal:", err);
-  process.exit(1);
-});
+main()
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((err) => {
+    console.error(
+      `[reclaim-api-request] fatal: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exitCode = 1;
+  });
