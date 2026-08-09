@@ -3,7 +3,15 @@
 
 **Version:** 1.2.0 (Robustness + Security Hardening)
 **Status:** Production-oriented foundation under active hardening
-**Last Updated:** May 2, 2026
+**Last Updated:** August 9, 2026
+
+## 🔄 Current Work / Agent Queue
+
+**For users:** **[Open the shared AxTask work queue →](.ai/WORK_QUEUE.md)**
+
+**For agents:** **[Start with the AI harness intake →](.ai/README.md)**, which loads the repository authority and operating rules before routing you to the shared queue.
+
+The queue is the stateful coordination ledger for current work: users can review or update tasks, while agents claim work through the harness and record blockers, durable proof, and continuation state as they move through validation, review, and merge. **If you want to help with AxTask right now, start with the link appropriate to you above.**
 
 ## Overview
 
