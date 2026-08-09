@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "schemaId": "axtask.lua-sandbox-capabilities.schema.v1",
+  "type": "object",
+  "required": ["manifestId", "mode", "openedLibraries", "defaultDeniedLibraries", "hostFunctions", "globalValues", "policy", "entryRequirements", "note"],
+  "properties": {
+    "manifestId": {"type": "string", "enum": ["axtask.lua-sandbox-capabilities.v1"]},
+    "mode": {"type": "string", "enum": ["allowlist"]},
+    "openedLibraries": {"type": "array", "items": {"type": "string"}},
+    "defaultDeniedLibraries": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "hostFunctions": {"type": "array", "items": {"type": "object", "required": ["id", "owner", "purpose", "inputs", "outputs", "preconditions", "forbidden", "guardrails", "tests", "proofCeiling"]}},
+    "globalValues": {"type": "array", "items": {"type": "object"}},
+    "policy": {"type": "object", "required": ["wildcardAllowed", "undeclaredHostFunctionAllowed", "filesystemDefault", "networkDefault", "processDefault", "dynamicCodeLoadingDefault"]},
+    "entryRequirements": {"type": "object", "required": ["requiredFields", "note"]},
+    "note": {"type": "string"}
+  }
+}

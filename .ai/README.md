@@ -9,13 +9,14 @@ This directory is the machine-readable operating layer for repository agents. Pr
 3. Load `.ai/authority.json` and `.ai/harness.json`.
 4. Use `.ai/codebase-map.json` to find entry points, commands, configurations, high-risk surfaces, and known traps.
 5. If the task changes a stateful/runtime boundary — serverless/stateless work, server removal, persistence/session changes, background jobs, functions/queues/KV/object storage, or provider/runtime factoring — validate the canonical ledger and then run `node scripts/ai-harness/next-stateful-task.mjs`. Do not start by rewriting the whole ledger.
-6. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes deterministically route to `axtask.stateful-architecture-migration.v1`.
-7. Create a run context matching `.ai/run-context.schema.json`.
-8. Select validators from changed paths and workflow; do not confuse selection with execution.
-9. Run the selected commands and record exact pass, fail, and skip results.
-10. When a validator or workflow fails, route through `axtask.failure-recovery.v1` and produce the registered failure report.
-11. Keep advancing the claimed queue item through validation, commit, push, PR/review repair, and merge whenever those actions are safe, authorized, and tool-accessible. `VERIFY`, `REVIEW`, and `MERGE` are continuation states, not handoff points.
-12. Before stopping, update the queue block with strongest proof, exact gate, and first executable next action; then produce the operator report and compressed handoff.
+6. If the task proposes Lua, LuaJIT, embedded rules/mod scripts, Lua VM state, sandbox functions, or any host-to-script API, read `.ai/lua-embedding-contract.json` and `.ai/lua-sandbox-capabilities.json`, run `node scripts/ai-harness/validate-lua-embedding.mjs`, and route to `axtask.lua-embedding-integration.v1`. The current phase is harness-only and authorizes no product mutation.
+7. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; Lua integration composes with that workflow rather than bypassing it.
+8. Create a run context matching `.ai/run-context.schema.json`.
+9. Select validators from changed paths and workflow; do not confuse selection with execution.
+10. Run the selected commands and record exact pass, fail, and skip results.
+11. When a validator or workflow fails, route through `axtask.failure-recovery.v1` and produce the registered failure report.
+12. Keep advancing the claimed queue item through validation, commit, push, PR/review repair, and merge whenever those actions are safe, authorized, and tool-accessible. `VERIFY`, `REVIEW`, and `MERGE` are continuation states, not handoff points.
+13. Before stopping, update the queue block with strongest proof, exact gate, and first executable next action; then produce the operator report and compressed handoff.
 
 ## Shared work queue
 
@@ -72,6 +73,31 @@ node scripts/ai-harness/restore-eol-noise.mjs <tracked-path>
 
 The helper refuses to restore a path when semantic content changes remain.
 
+## Lua embedding contract
+
+Lua is incorporated as a **host-controlled embedding boundary**, not as an autonomous application runtime. The current adoption phase is `harness-only`: there is no selected runtime adapter, no JIT choice, no exposed host function, and no product mutation authorization.
+
+The contract is fail-closed:
+
+- The host owns the main execution loop, critical state, cleanup, rollback, and performance-critical code by default.
+- Lua VM states are independent, disposable, and explicitly closed. Destroying one state must not own unrelated host memory.
+- Lua may raise errors; the host catches them and performs cleanup before propagation.
+- `.ai/lua-sandbox-capabilities.json` is an allowlist. It starts empty. `os`, `io`, wildcard host access, filesystem, network, process, and dynamic-code-loading access are denied by default.
+- Dynamic values cross the host boundary only through explicit runtime checks and documented type contracts. Hidden cross-boundary coercion is forbidden.
+- The interpreter/explicit bytecode path is the baseline. JIT stays disabled by default and requires benchmark evidence, deoptimization/stack-reconstruction proof, and separate runtime validation.
+- Lua sequences are 1-indexed. Any zero-based host translation must be explicit at the boundary.
+- AI-generated Lua must remain readable, capability-declared, and reviewable without hidden host lookup or runtime magic.
+- If a requirement belongs in the host, keep it in the host. The script layer stays small.
+
+Validate the boundary with:
+
+```bash
+node scripts/ai-harness/validate-lua-embedding.mjs
+npx --no-install vitest run server/ai-harness/lua-embedding-contract.test.ts
+```
+
+A future implementation sprint must first leave the `harness-only` phase deliberately, name exactly one approved stateful migration seam, register every host capability with owner/input/output/precondition/forbidden/guardrail/test/proof metadata, and add a real runtime validator. The current harness proves none of those runtime facts.
+
 ## Canonical reference
 
 ```yaml
@@ -98,7 +124,8 @@ node scripts/ai-harness/validate-work-queue.mjs
 node scripts/ai-harness/validate-stateful-architecture.mjs
 node scripts/ai-harness/validate-stateful-surface.mjs --all
 node scripts/ai-harness/next-stateful-task.mjs
-npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/work-queue-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/stateful-task-loop-contract.test.ts
+node scripts/ai-harness/validate-lua-embedding.mjs
+npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/work-queue-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/stateful-task-loop-contract.test.ts server/ai-harness/lua-embedding-contract.test.ts
 ```
 
 The selector may also read repeated `--changed <path>` arguments, a newline-delimited `--changed-file`, or the current working-tree changes. It emits an English plan by default and never executes validator commands.
@@ -115,7 +142,7 @@ Hooks are opt-in through:
 node scripts/ai-harness/install-hooks.mjs
 ```
 
-- `pre-commit` runs repository security guards plus authority, harness, work-queue, stateful-architecture, per-surface task, and artifact-hygiene validators.
-- `pre-push` runs repository security guards, authority, harness completeness, work-queue, stateful-architecture/per-surface validation, log-retention validation when present, and focused harness contract tests with `npx --no-install`.
+- `pre-commit` runs repository security guards plus authority, harness, work-queue, stateful-architecture, per-surface task, Lua embedding, and artifact-hygiene validators.
+- `pre-push` runs repository security guards, authority, harness completeness, work-queue, stateful-architecture/per-surface validation, Lua embedding, log-retention validation, and focused harness contract tests with `npx --no-install`.
 
 The installer does not silently replace a different local hook path.

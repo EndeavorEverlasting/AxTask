@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "manifestId": "axtask.lua-sandbox-capabilities.v1",
+  "mode": "allowlist",
+  "openedLibraries": [],
+  "defaultDeniedLibraries": ["os", "io"],
+  "hostFunctions": [],
+  "globalValues": [],
+  "policy": {
+    "wildcardAllowed": false,
+    "undeclaredHostFunctionAllowed": false,
+    "filesystemDefault": "denied",
+    "networkDefault": "denied",
+    "processDefault": "denied",
+    "dynamicCodeLoadingDefault": "denied"
+  },
+  "entryRequirements": {
+    "requiredFields": ["id", "owner", "purpose", "inputs", "outputs", "preconditions", "forbidden", "guardrails", "tests", "proofCeiling"],
+    "note": "Every exposed host function is a reviewed capability. No implicit globals or wildcard registrations."
+  },
+  "note": "The empty allowlist is intentional while the adoption phase is harness-only. Future implementation work must add only evidence-backed, individually scoped host capabilities."
+}

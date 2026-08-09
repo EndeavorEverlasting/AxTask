@@ -1,0 +1,63 @@
+name: harness-lua-embedding
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".ai/**"
+      - ".githooks/**"
+      - ".github/workflows/harness-lua-embedding.yml"
+      - "scripts/ai-harness/**"
+      - "server/ai-harness/**"
+      - "docs/releases/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness-lua-embedding:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch pull-request base without force
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+
+      - name: Reject whitespace errors in pull-request diff
+        if: github.event_name == 'pull_request'
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+
+      - name: Validate authority
+        run: node scripts/ai-harness/validate-authority.mjs
+
+      - name: Validate harness
+        run: node scripts/ai-harness/validate-harness.mjs
+
+      - name: Validate harness completeness
+        run: node scripts/ai-harness/validate-harness-infrastructure.mjs
+
+      - name: Validate canonical stateful architecture contract
+        run: node scripts/ai-harness/validate-stateful-architecture.mjs
+
+      - name: Validate stateful single-fact artifacts
+        run: node scripts/ai-harness/validate-stateful-surface.mjs --all
+
+      - name: Validate Lua embedding contract
+        run: node scripts/ai-harness/validate-lua-embedding.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused Lua embedding contracts
+        run: npx --no-install vitest run server/ai-harness/lua-embedding-contract.test.ts
