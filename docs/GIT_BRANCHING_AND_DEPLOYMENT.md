@@ -4,17 +4,16 @@ This project is safe to **run and test live on your machine** (local dev server,
 
 Risk appears when you **push commits to the remote branch that your hosting or CI/CD treats as production** (or as the automatic deploy target). A push there can trigger builds, releases, or simply merge unfinished work into the line everyone else assumes is stable.
 
-> **AxTask / Render specifics.** `render.yaml` is configured with
-> `autoDeploy: true`, meaning every push (or merge) that lands on the
-> production-deploy branch triggers a build and deploy immediately. Safety
-> is delegated to the deploy-start chain in
-> [`scripts/production-start.mjs`](../scripts/production-start.mjs):
-> environment gate → capacity gate → SQL migrations → guarded Drizzle policy → server.
-> Production startup must not run live Drizzle schema push by default; see
-> [Schema Evolution Pipeline](./SCHEMA_EVOLUTION_PIPELINE.md).
-> Because there is no human in the loop, the branching rules below are
-> the *only* protection against shipping unfinished work — take them
-> literally.
+> **AxTask / Render specifics.** During the active database-recovery window,
+> `render.yaml` is configured with `autoDeploy: false`. `main` remains the
+> accepted production source branch, but a merge to `main` must **not** be
+> interpreted as authorization to resume or deploy the suspended Render service.
+> Recovery follows `docs/DB_RECOVERY_RUNBOOK.md` R0–R9, with an explicit operator
+> gate before the single live resume/deploy attempt. Safety in normal startup is
+> still delegated to [`scripts/production-start.mjs`](../scripts/production-start.mjs):
+> environment gate → explicit capacity policy → SQL migrations → guarded Drizzle
+> policy → server. Production startup must not run live Drizzle schema push by
+> default; see [Schema Evolution Pipeline](./SCHEMA_EVOLUTION_PIPELINE.md).
 
 ## Mental model
 
@@ -119,3 +118,4 @@ Use this whenever your feature branch and `main` are no longer aligned and you w
 - Large infrastructure moves: see [MORNING_NEW_BOX_MIGRATION_CHECKLIST.md](./MORNING_NEW_BOX_MIGRATION_CHECKLIST.md) (includes confirming the active branch before risky steps).
 - If you add or rename Express routes, update the route inventory snapshot as described in [server/routes-inventory.contract.test.ts](../server/routes-inventory.contract.test.ts) (`vitest run` with `-u` on that file when the change is intentional).
 - Schema evolution and production startup policy: [SCHEMA_EVOLUTION_PIPELINE.md](./SCHEMA_EVOLUTION_PIPELINE.md).
+- Production database incident recovery: [DB_RECOVERY_RUNBOOK.md](./DB_RECOVERY_RUNBOOK.md).
