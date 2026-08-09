@@ -3,7 +3,13 @@
 
 **Version:** 1.2.0 (Robustness + Security Hardening)
 **Status:** Production-oriented foundation under active hardening
-**Last Updated:** May 2, 2026
+**Last Updated:** August 9, 2026
+
+## 🔄 Current Work / Agent Queue
+
+**[Open the shared AxTask work queue →](.ai/WORK_QUEUE.md)**
+
+Users and agents use this stateful ledger to see the current work, claim tasks, record blockers and durable proof, and keep work moving through validation, review, and merge. **If you want to help with AxTask right now, start here.**
 
 ## Overview
 
