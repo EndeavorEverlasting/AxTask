@@ -23,27 +23,28 @@ Use when a task proposes serverless, stateless, function-style, edge, managed-sc
 2. The target is less unnecessary state/process coupling, not 100% serverless purity.
 3. Every affected surface starts from the ledger. A `provisional` entry fails closed to `keep`.
 4. Evidence gathering is smaller than architecture decision-making. Complete the next unresolved ledger fact; do not rewrite the complete ledger to answer one question.
-5. `approved` means the currently active migration authorization. After the seam is implemented and proven, set `decisionStatus` to `completed`; completed decisions are historical evidence and do not authorize further mutation.
-6. Use one migration seam per sprint. At most one non-`keep` surface may remain `approved` at a time.
-7. Skills describe reusable workflow guidance. Capabilities expose reusable operations. Triggers deterministically route conditions. Application logic remains in code and domain contracts, not hidden in prompts.
-8. Do not choose a serverless provider before the ledger proves the required runtime capabilities and the owned seam.
-9. Prefer deletion when evidence proves a component is unnecessary; prefer externalization only when state is required but process affinity is not; keep stateful behavior when that is the simplest correct architecture.
-10. Repository/CI proof, local launcher proof, behavior observation, and live runtime proof are distinct ceilings.
+5. `approved` means the currently active migration authorization. After the seam is implemented and proven, set canonical `decisionStatus` to `completed`; completed canonical decisions are historical evidence and do not authorize further mutation.
+6. Per-surface task `COMPLETED` is different: it means that surface's evidence/decision routing loop is closed. It does not claim a migration was implemented or any runtime proof was attained.
+7. Use one migration seam per sprint. At most one non-`keep` canonical surface may remain `approved` at a time.
+8. Skills describe reusable workflow guidance. Capabilities expose reusable operations. Triggers deterministically route conditions. Application logic remains in code and domain contracts, not hidden in prompts.
+9. Do not choose a serverless provider before the ledger proves the required runtime capabilities and the owned seam.
+10. Prefer deletion when evidence proves a component is unnecessary; prefer externalization only when state is required but process affinity is not; keep stateful behavior when that is the simplest correct architecture.
+11. Repository/CI proof, local launcher proof, behavior observation, and live runtime proof are distinct ceilings. Evidence may never exceed the routed surface's `proofCeiling`.
 
 ## Execution loop
 
 1. Run repository intake and reconcile `.ai/WORK_QUEUE.md`, current main, open PRs, and collisions.
 2. Validate the canonical architecture ledger: `node scripts/ai-harness/validate-stateful-architecture.mjs`.
 3. Validate the per-surface task artifacts: `node scripts/ai-harness/validate-stateful-surface.mjs --all`.
-4. Run `node scripts/ai-harness/next-stateful-task.mjs`. The router MUST return at most one surface and one unresolved evidence gap.
+4. Run `node scripts/ai-harness/next-stateful-task.mjs`. The router MUST return at most one surface and one unresolved evidence gap. Manual `--surface` override is forbidden.
 5. Treat the routed task as the complete reasoning boundary: inspect only its exact files, answer only its question, and update only its named surface artifact. Do not plan adjacent surfaces while the current gap is open.
 6. **Three-operation action budget:** after routing, no more than three repository/tool operations may occur without one of these productive actions: inspect an exact routed file, mutate the current surface artifact, run the current validator, or record an exact blocker with executable next action. Repeated statements that work will be written do not count.
-7. Resolve the gap only with concrete repository evidence. Then run the exact command emitted under `VALIDATE`, for example `node scripts/ai-harness/validate-stateful-surface.mjs http-process-runtime --require=process-affinity`.
-8. Run `node scripts/ai-harness/next-stateful-task.mjs` again. Do not manually choose the next surface while an earlier open task exists.
-9. When a surface reaches `READY_FOR_DECISION`, evaluate only that surface against the matching canonical ledger entry. KEEP is valid; evidence gathering itself never authorizes product/runtime mutation.
+7. Resolve the gap only with concrete repository evidence from the gap's exact files and at or below the surface `proofCeiling`. Set the top-level surface status to the next status emitted by the router, then run the exact command emitted under `VALIDATE`.
+8. Run `node scripts/ai-harness/next-stateful-task.mjs` again. Do not manually choose the next surface while an earlier open or blocked task exists.
+9. When a surface reaches `READY_FOR_DECISION`, evaluate only that surface against the matching canonical ledger entry. KEEP is valid; evidence gathering itself never authorizes product/runtime mutation. Record the canonical decision, set the per-surface artifact status to `COMPLETED`, and run both validators emitted by the decision task.
 10. Promote a non-`keep` canonical decision to `approved` only with concrete evidence, bounded prerequisites, collision paths, validators, proof ceiling, and no other active non-`keep` approved seam.
 11. If an approved disposition is `replace`, `externalize`, or `delete`, implement one seam only and preserve API/domain/auth/data invariants. Then run owning application validators.
-12. When the authorized seam's implementation/proof gate is complete, set it to `completed` before another non-`keep` seam can be approved.
+12. When the authorized seam's implementation/proof gate is complete, set the canonical decision to `completed` before another non-`keep` seam can be approved.
 13. Commit/push/PR under normal repository rules and produce the stateful task/operator report. Continue through the next safe checkpoint.
 
 ### Line-ending noise
@@ -86,4 +87,4 @@ Then run validators selected for actual application files changed. Static valida
 
 ## Proof ceiling
 
-The evidence-task loop provides contract/harness proof only. A routed task, ledger disposition, or passing validator does not prove application behavior, deployment completion, or live runtime behavior. Report only the strongest proof actually executed.
+The evidence-task loop provides no proof above the current surface's declared ceiling. A routed task, ledger disposition, or passing validator does not prove application behavior, deployment completion, or live runtime behavior. Report only the strongest proof actually executed.

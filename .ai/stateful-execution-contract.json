@@ -10,7 +10,7 @@
   "selectionPolicy": {
     "maxTasksReturned": 1,
     "gapOrder": "array-order",
-    "skipBlocked": true,
+    "skipBlocked": false,
     "surfacePriority": [
       "http-process-runtime",
       "auth-session-state",
@@ -47,8 +47,8 @@
     "Do not select or introduce a serverless provider during evidence gathering.",
     "Do not modify product/runtime code from an EVIDENCE_REQUIRED task.",
     "Do not edit more than one stateful surface artifact per routed task.",
-    "Do not promote proof above what was actually executed.",
+    "Do not promote proof above the current surface proofCeiling.",
     "Do not hide application behavior in prompts, skills, or reports."
   ],
-  "completionRule": "The router advances only after the selected evidence gap is resolved and its validator passes. If no open gaps remain, it reports READY_FOR_DECISION surfaces; blocked gaps remain explicit blockers and are never silently skipped as complete."
+  "completionRule": "The router advances only after the selected evidence gap is resolved, the per-surface top-level status matches remaining gaps, and its focused validator passes. Blocked gaps stop routing at that surface. When a surface reaches READY_FOR_DECISION, the decision task records the canonical ledger decision and then marks the per-surface artifact COMPLETED; COMPLETED closes only the evidence/decision routing loop and does not claim migration implementation or runtime proof."
 }
