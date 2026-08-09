@@ -47,6 +47,7 @@
     {"id":"stateful-architecture-report","type":"operator-report","path":".ai/reports/stateful-architecture-report-template.md"},
     {"id":"log-retention-report","type":"operator-report","path":".ai/reports/log-retention-report-template.md"},
     {"id":"handoff","type":"handoff","path":".ai/handoff/final-handoff-template.md"},
+    {"id":"log-retention-ci","type":"ci-workflow","path":".github/workflows/harness-log-retention.yml"},
     {"id":"pre-commit-hook","type":"local-hook","path":".githooks/pre-commit"},
     {"id":"pre-push-hook","type":"local-hook","path":".githooks/pre-push"}
   ],
