@@ -14,18 +14,22 @@
  *   AXTASK_DB_SIZE_BUDGET_BYTES    - Operator budget in bytes (optional).
  *                                    When set, enables threshold classification.
  *                                    When unset, gate is REPORT-ONLY.
+ *                                    When present but malformed, the gate fails
+ *                                    closed with exit 3 instead of silently
+ *                                    disabling the operator limit.
  *   AXTASK_DB_CAPACITY_ACK         - "1" to acknowledge a soft-fail warning
- *                                    and let a deploy proceed (CI operator opt-in).
- *                                    Only relevant when an explicit budget exists.
+ *                                    and let a deploy proceed. Only relevant
+ *                                    when an explicit budget exists.
  *   AXTASK_DB_CAPACITY_JSON        - "1" to also emit JSON report on stdout.
  *
  * Exit codes:
  *   0 - OK (no budget configured, or well below budget, or soft-fail acknowledged)
- *   1 - Soft fail (>=85% of explicit operator budget): blocks CI unless AXTASK_DB_CAPACITY_ACK=1
- *   2 - Hard fail (>=90% of explicit operator budget): never proceeds; reduce DB size or raise budget
- *   3 - Fatal error (connection, parsing, etc.)
+ *   1 - Soft fail (>=85% of explicit operator budget): blocks unless acknowledged
+ *   2 - Hard fail (>=90% of explicit operator budget): never proceeds
+ *   3 - Fatal error (connection, malformed explicit budget, etc.)
  *
- * Non-Neon environments: gracefully skips Neon-specific queries.
+ * Provider metadata such as neon.max_cluster_size is informational only. It is
+ * never used as the operator budget or billing-plan allowance.
  */
 
 import pgModule from "pg";
@@ -85,43 +89,62 @@ async function fetchNeonClusterHint(client) {
   }
 }
 
-function parseBudget() {
-  const raw = process.env.AXTASK_DB_SIZE_BUDGET_BYTES;
-  if (!raw) return null;
+function normalizeBudget(raw, source) {
+  if (raw === undefined || raw === null || raw === "") return null;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) {
-    console.error(
-      `[db-capacity] Invalid AXTASK_DB_SIZE_BUDGET_BYTES=${JSON.stringify(raw)}; treating as unset (report-only mode).`,
-    );
-    return null;
+    throw new Error(`${source} must be a positive finite byte count; received ${JSON.stringify(raw)}`);
   }
   return n;
 }
 
+function parseBudget() {
+  return normalizeBudget(
+    process.env.AXTASK_DB_SIZE_BUDGET_BYTES,
+    "AXTASK_DB_SIZE_BUDGET_BYTES",
+  );
+}
+
 function printReport(report) {
-  const { dbSize, operatorBudget, operatorBudgetSource, providerHint, fraction, level, topTables } = report;
+  const {
+    dbSize,
+    operatorBudget,
+    operatorBudgetSource,
+    providerHint,
+    fraction,
+    level,
+    topTables,
+  } = report;
 
   console.log(`[db-capacity] Level: ${level.toUpperCase()}`);
   console.log(`[db-capacity] Database size: ${formatBytes(dbSize)}`);
 
   if (operatorBudget !== null) {
-    console.log(`[db-capacity] Operator budget: ${formatBytes(operatorBudget)} (source: ${operatorBudgetSource})`);
-    console.log(`[db-capacity] Utilization: ${(fraction * 100).toFixed(1)}% of operator budget`);
+    console.log(
+      `[db-capacity] Operator budget: ${formatBytes(operatorBudget)} (source: ${operatorBudgetSource})`,
+    );
+    console.log(
+      `[db-capacity] Utilization: ${(fraction * 100).toFixed(1)}% of operator budget`,
+    );
   } else {
-    console.log(`[db-capacity] Operator budget: NOT CONFIGURED (report-only mode)`);
-    console.log(`[db-capacity] No threshold evaluation performed.`);
+    console.log("[db-capacity] Operator budget: NOT CONFIGURED (report-only mode)");
+    console.log("[db-capacity] No threshold evaluation performed.");
   }
 
   if (providerHint) {
-    console.log(`[db-capacity] Provider capacity hint (neon.max_cluster_size): ${providerHint}`);
+    console.log(
+      `[db-capacity] Provider capacity hint (neon.max_cluster_size): ${providerHint}`,
+    );
     if (operatorBudget !== null) {
       const hintBytes = parseProviderHint(providerHint);
       if (hintBytes && operatorBudget > hintBytes) {
-        console.warn(`[db-capacity] WARNING: Operator budget (${formatBytes(operatorBudget)}) exceeds provider hint (${providerHint}).`);
+        console.warn(
+          `[db-capacity] WARNING: Operator budget (${formatBytes(operatorBudget)}) exceeds provider hint (${providerHint}).`,
+        );
       }
     }
   } else {
-    console.log(`[db-capacity] Provider capacity hint: NOT AVAILABLE`);
+    console.log("[db-capacity] Provider capacity hint: NOT AVAILABLE");
   }
 
   if (topTables.length > 0) {
@@ -133,8 +156,7 @@ function printReport(report) {
 }
 
 function parseProviderHint(hint) {
-  // Parse strings like "16 TB", "512 MB", "10 GB"
-  const match = hint.trim().match(/^([\d.]+)\s*(\w+)$/i);
+  const match = String(hint).trim().match(/^([\d.]+)\s*(\w+)$/i);
   if (!match) return null;
   const value = Number(match[1]);
   const unit = match[2].toUpperCase();
@@ -147,11 +169,17 @@ function parseProviderHint(hint) {
     PB: 1024 ** 5,
   };
   const mult = multipliers[unit];
-  if (!mult) return null;
+  if (!Number.isFinite(value) || !mult) return null;
   return value * mult;
 }
 
-function buildReport(dbSize, operatorBudget, operatorBudgetSource, providerHint, topTables) {
+function buildReport(
+  dbSize,
+  operatorBudget,
+  operatorBudgetSource,
+  providerHint,
+  topTables,
+) {
   let fraction = 0;
   let level = "ok";
   let exitCode = 0;
@@ -189,7 +217,8 @@ function buildReport(dbSize, operatorBudget, operatorBudgetSource, providerHint,
     operatorBudgetSource,
     providerHint,
     fraction: operatorBudget !== null ? fraction : null,
-    utilizationPercent: operatorBudget !== null ? (fraction * 100).toFixed(1) : null,
+    utilizationPercent:
+      operatorBudget !== null ? (fraction * 100).toFixed(1) : null,
     topTables,
   };
 }
@@ -200,9 +229,15 @@ export async function runCapacityCheck({ url, budget } = {}) {
     throw new Error("DATABASE_URL is not set");
   }
 
-  // Allow explicit budget override for testing; otherwise read from env
-  const operatorBudget = budget ?? parseBudget();
-  const operatorBudgetSource = budget !== undefined ? "argument" : (process.env.AXTASK_DB_SIZE_BUDGET_BYTES ? "env:AXTASK_DB_SIZE_BUDGET_BYTES" : "unset");
+  const hasArgumentBudget = budget !== undefined;
+  const operatorBudget = hasArgumentBudget
+    ? normalizeBudget(budget, "budget argument")
+    : parseBudget();
+  const operatorBudgetSource = hasArgumentBudget
+    ? "argument"
+    : operatorBudget !== null
+      ? "env:AXTASK_DB_SIZE_BUDGET_BYTES"
+      : "unset";
 
   const pool = new pg.Pool({ connectionString, max: 1 });
   const client = await pool.connect();
@@ -212,7 +247,13 @@ export async function runCapacityCheck({ url, budget } = {}) {
       fetchTopTables(client),
       fetchNeonClusterHint(client),
     ]);
-    return buildReport(dbSize, operatorBudget, operatorBudgetSource, providerHint, topTables);
+    return buildReport(
+      dbSize,
+      operatorBudget,
+      operatorBudgetSource,
+      providerHint,
+      topTables,
+    );
   } finally {
     client.release();
     await pool.end();
@@ -228,7 +269,7 @@ async function main() {
     }
     if (report.level === "hard_fail") {
       console.error(
-        `[db-capacity] HARD FAIL: ${report.reason} Reduce DB size or raise AXTASK_DB_SIZE_BUDGET_BYTES.`,
+        `[db-capacity] HARD FAIL: ${report.reason} Reduce DB size or deliberately revise AXTASK_DB_SIZE_BUDGET_BYTES only after documenting the new operator limit.`,
       );
       process.exit(2);
     }
@@ -240,14 +281,12 @@ async function main() {
         process.exit(0);
       }
       console.error(
-        "[db-capacity] SOFT FAIL: ${report.reason} Set AXTASK_DB_CAPACITY_ACK=1 to acknowledge and proceed.",
+        `[db-capacity] SOFT FAIL: ${report.reason} Set AXTASK_DB_CAPACITY_ACK=1 only after operator review to acknowledge and proceed.`,
       );
       process.exit(1);
     }
     if (report.level === "warn") {
-      console.warn(
-        "[db-capacity] WARN: ${report.reason} Proceeding but consider cleanup.",
-      );
+      console.warn(`[db-capacity] WARN: ${report.reason} Proceeding.`);
     }
     process.exit(0);
   } catch (err) {
