@@ -141,3 +141,86 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 - **Last proof:** historical operator evidence on 2026-08-09 showed the service suspended after repeated crashes, but that state must not be treated as current without revalidation; no current live Render proof exists
 - **Next action:** operator opens the AxTask Render service and records the current service state, linked branch, health-check path, and auto-deploy mode without changing or exposing environment-secret values; do not resume or deploy while AXQ-004 remains incomplete
 - **Updated:** 2026-08-09
+
+---
+
+## Repository convergence and Lua architecture vision
+
+This lane is intentionally separate from AXQ-001 through AXQ-005. Repository-only harness convergence may proceed while production recovery is operator-blocked, but it must not mutate production or weaken any R0-R9 recovery gate.
+
+The target architecture is **less unnecessary process/state coupling, not serverless ideology and not a database purge**. Durable domain state may remain PostgreSQL-backed. `KEEP` is a valid architecture decision. Every stateful/runtime change must remain evidence-led, one surface and one migration seam at a time, under the registered stateful router and proof ceilings.
+
+Lua is incorporated as a **bounded embedded scripting layer controlled by the host**, not as a new application sovereign. The host owns the execution loop, critical state, rollback, cleanup, performance-sensitive work, and error boundary. Lua VM states are independent/disposable; script errors tunnel to the host; capabilities are deny-by-default; OS/IO/filesystem/network/process/dynamic loading are not implicit; every exposed host function is individually declared and tested; runtime type checks and explicit 1-index translation are required; JIT remains off by default until benchmark and deoptimization evidence justify a separate decision.
+
+Merging the Lua harness does **not** authorize a Lua dependency, Lua product files, a runtime adapter, JIT, or product behavior migration. Product/runtime Lua adoption is a later bounded seam and remains blocked until the current production baseline is recovered and the harness stack below has converged into `main`.
+
+Repository convergence order is serial where shared harness ownership collides:
+
+1. Repair, prove, and merge PR #121 — retention/capacity-defense harness foundation.
+2. Reconcile PR #123 onto the resulting `main`, repair its remaining routing defects, prove, and merge — deterministic one-fact stateful execution.
+3. Reconcile PR #125 onto the resulting `main`, preserve the Lua contracts and harness-only mutation boundary, rerun proof, and merge — Lua embedding control plane.
+4. Only after AXQ-005 and AXQ-008 are DONE may a separate sprint evaluate one bounded Lua runtime pilot through the stateful router.
+
+## AXQ-006 — Converge retention harness PR #121
+
+- **Status:** REVIEW
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** `feat/harness-log-retention-defense-20260809` / PR #121
+- **Scope:** repair the retention validator and its focused contract tests, preserve existing retention semantics, obtain fresh exact-head proof, resolve review threads, and merge #121 into `main`
+- **Forbidden:** product/runtime behavior changes, retention-window changes without separate evidence/authorization, production cleanup, Render mutation, force push, secret/raw-log tracking, modifications owned by #123 or #125
+- **Dependencies:** none
+- **References:** PR #121, `.ai/log-retention-contract.json`, `scripts/ai-harness/validate-log-retention.mjs`, `server/ai-harness/log-retention-harness-contract.test.ts`, `.github/workflows/harness-log-retention.yml`, `.ai/validator-registry.json`
+- **Acceptance gate:** all six current review defects are correctly repaired or disproven with evidence; all review threads are resolved; retention/harness/full repository checks pass on the final exact head; #121 merges into `main` with expected-head protection; queue proof records the merge SHA
+- **Gate:** six unresolved review threads remain despite green CI: robust Render service identification, retention-specific registry-field validation, formatting-independent semantic validation, explicit distinct sentinel coverage, complete policy/runner retention-window comparison, and rejection of commented-out runner entries
+- **Last proof:** workflow:31331019375 and workflow:31331019398 passed on head `a04d36d39c74f98f525caf13350898ad620c803e`, but review defects remain unresolved and therefore the PR is not merge-ready
+- **Next action:** OpenCode claims AXQ-006, fetches PR #121 exact head without force into an isolated worktree, repairs all six review findings in owned retention-harness files, runs the retention validator plus focused harness tests and selected full gates, pushes normally, resolves only proven-fixed threads, then merges #121 with expected-head protection if the final head is green and review-clean
+- **Updated:** 2026-08-09T22:34Z
+
+## AXQ-007 — Converge stateful single-fact harness PR #123
+
+- **Status:** BLOCKED
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** `harness/2026-08-09-stateful-task-execution-loop` / PR #123
+- **Scope:** after #121 merges, reconcile #123 onto current `main`, preserve retention wiring, repair the two remaining stateful-router review defects, rerun exact-head harness/full proof, resolve review threads, and merge #123 into `main`
+- **Forbidden:** bypassing AXQ-006, dropping #121 retention wiring during reconciliation, manual surface routing, proof-ceiling promotion, product/runtime mutation, provider selection, force push over unknown work, changing the Lua contract owned by #125
+- **Dependencies:** AXQ-006
+- **References:** PR #123, `.ai/stateful-execution-contract.json`, `.ai/architecture/surfaces/`, `scripts/ai-harness/next-stateful-task.mjs`, `scripts/ai-harness/validate-stateful-surface.mjs`, `server/ai-harness/stateful-task-loop-contract.test.ts`, `.github/workflows/harness-stateful-task-loop.yml`
+- **Acceptance gate:** #123 is based on the post-#121 `main`; blocked gaps stop routing before later open gaps; a surface cannot become `COMPLETED` without a matching canonical ledger decision; all review threads are resolved; exact-head stateful/harness/full checks pass; #123 merges to `main` with expected-head protection
+- **Gate:** blocked on AXQ-006; additionally two unresolved review threads remain on current head `810d66c6e8aca1ca80ba3f24094263f1c5e25947`
+- **Last proof:** workflow:31333023347 and workflow:31333023325 passed on `810d66c6e8aca1ca80ba3f24094263f1c5e25947`; earlier review findings were repaired, but two final routing/decision defects remain unresolved
+- **Next action:** after AXQ-006 records a merge SHA, OpenCode fetches current `main` and #123 without force, creates an isolated reconciliation worktree, preserves #121 changes, repairs blocked-gap precedence and ledger-decision completion enforcement with negative tests, retargets/reconciles #123 to `main`, runs exact-head stateful/harness/full gates, resolves proven-fixed threads, and merges #123 when green and review-clean
+- **Updated:** 2026-08-09T22:34Z
+
+## AXQ-008 — Converge Lua embedding harness PR #125
+
+- **Status:** BLOCKED
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** `harness/2026-08-09-lua-embedding-contract` / PR #125
+- **Scope:** after #123 merges, reconcile #125 onto current `main`, preserve the Lua embedding/sandbox/proof contracts and this convergence ledger, rerun exact-head Lua/harness/full proof, resolve any new review findings, and merge #125 into `main`
+- **Forbidden:** introducing a Lua runtime dependency, `.lua` product files, Lua runtime imports/markers, JIT, product behavior migration, OS/IO default access, wildcard host exposure, production mutation, or weakening the harness-only changed-path boundary
+- **Dependencies:** AXQ-007
+- **References:** PR #125, `.ai/lua-embedding-contract.json`, `.ai/lua-sandbox-capabilities.json`, `.ai/workflows/lua-embedding-integration.md`, `.ai/skills/lua-embedding-integration.md`, `scripts/ai-harness/validate-lua-embedding.mjs`, `server/ai-harness/lua-embedding-contract.test.ts`, `.github/workflows/harness-lua-embedding.yml`, `.ai/WORK_QUEUE.md`
+- **Acceptance gate:** #125 is based on the post-#123 `main`; Lua remains `harness-only`; changed-path enforcement still rejects unauthorized Lua product/runtime introduction; all review threads are resolved; exact-head Lua/harness/full repository checks pass; #125 merges into `main` with expected-head protection; queue records merge proof
+- **Gate:** blocked on AXQ-007; the pre-ledger head `e7e913e18128c9c6909b9a0cf056a2f01e78ecb4` was review-clean and fully green, but this ledger update creates a new head that must obtain fresh exact-head proof
+- **Last proof:** workflow:31335080246 and workflow:31335080226 passed on `e7e913e18128c9c6909b9a0cf056a2f01e78ecb4`; both prior #125 review threads are resolved; fresh proof is required after this queue commit
+- **Next action:** after AXQ-007 records a merge SHA, OpenCode fetches current `main` and current #125 head without force, creates an isolated reconciliation worktree, preserves the merged retention/stateful harness, reconciles #125 onto `main`, runs `git diff --check`, authority/harness/completeness/stateful/Lua validators, focused Lua tests and the selected full repository gates, resolves any new review findings, and merges #125 with expected-head protection when exact-head proof is green
+- **Updated:** 2026-08-09T22:34Z
+
+## AXQ-009 — Evaluate one bounded Lua runtime pilot
+
+- **Status:** BLOCKED
+- **Priority:** P2
+- **Owner:** unclaimed
+- **Branch / PR:** none
+- **Scope:** select and prove exactly one minimal product/runtime Lua integration seam using the merged stateful router and Lua embedding contract; keep domain behavior host-owned and preserve rollback
+- **Forbidden:** starting before AXQ-005 and AXQ-008 are DONE; broad “make AxTask Lua” rewrites; database replacement by ideology; default OS/IO/filesystem/network/process exposure; wildcard host APIs; hidden business logic in prompts; JIT without separate benchmark/deoptimization proof; multiple migration seams in one sprint
+- **Dependencies:** AXQ-005, AXQ-008
+- **References:** `.ai/lua-embedding-contract.json`, `.ai/lua-sandbox-capabilities.json`, `.ai/stateful-surface-ledger.json`, `.ai/stateful-execution-contract.json`, `.ai/workflows/lua-embedding-integration.md`, `.ai/workflows/stateful-architecture-migration.md`
+- **Acceptance gate:** the stateful router identifies one evidence-backed seam; the host/Lua API is explicitly allowlisted; VM lifecycle/error cleanup/type/index boundaries have executable tests; the pilot demonstrates only the proof level actually executed; rollback is explicit; no second seam is started
+- **Gate:** blocked until repository harness convergence completes and the current production baseline has recovered through AXQ-005
+- **Last proof:** harness-only Lua contract proof exists on PR #125; no Lua product/runtime implementation proof exists or is implied
+- **Next action:** when both dependencies are DONE, run the merged stateful router to select the first eligible Lua-related migration fact; do not choose a provider, adapter, or product seam manually before that routing evidence exists
+- **Updated:** 2026-08-09T22:34Z
