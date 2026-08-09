@@ -69,13 +69,13 @@ If individual request rows are themselves required for the preservation purpose,
 With `DATABASE_URL` pointed at loopback PostgreSQL:
 
 ```bash
-npm run db:evidence-export -- --email=user@example.com --json
+node scripts/db/export-account-evidence.mjs --email=user@example.com --json
 ```
 
 or:
 
 ```bash
-npm run db:evidence-export -- --user-id=<user-id> --json
+node scripts/db/export-account-evidence.mjs --user-id=<user-id> --json
 ```
 
 The default destination is:
@@ -93,7 +93,7 @@ Keep the application service suspended during incident recovery. Load `DATABASE_
 A non-loopback database is rejected unless both production-read flags are supplied:
 
 ```bash
-npm run db:evidence-export -- \
+node scripts/db/export-account-evidence.mjs \
   --email=user@example.com \
   --prod \
   --force-production \
@@ -106,7 +106,7 @@ Those flags authorize a **read-only export**, not deletion, migrations, provider
 For the full high-volume telemetry class:
 
 ```bash
-npm run db:evidence-export -- \
+node scripts/db/export-account-evidence.mjs \
   --email=user@example.com \
   --prod \
   --force-production \
