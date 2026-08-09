@@ -1,199 +1,114 @@
 /**
- * Contract tests for the extended db-size-audit.mjs with security_events forensics
- * and the new db-reclaim-api-request.mjs targeted recovery script.
+ * Static safety contracts for production DB forensics and targeted api_request recovery.
+ * These tests intentionally do not import the CLI scripts, so collection can never
+ * open a database connection as a side effect.
  */
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
-// Mock pg module
-const mockQuery = vi.fn();
-const mockConnect = vi.fn().mockResolvedValue({
-  query: mockQuery,
-  release: vi.fn(),
-});
-const mockEnd = vi.fn();
-const mockPool = vi.fn().mockImplementation(() => ({
-  connect: mockConnect,
-  end: mockEnd,
-}));
-
-vi.mock("pg", () => ({
-  default: mockPool,
-}));
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const auditSource = fs.readFileSync(
+  path.join(repoRoot, "scripts", "db-size-audit.mjs"),
+  "utf8",
+);
+const reclaimSource = fs.readFileSync(
+  path.join(repoRoot, "scripts", "db-reclaim-api-request.mjs"),
+  "utf8",
+);
 
 describe("[12-db-audit-forensics] db-size-audit.mjs --forensics", () => {
-  const mockClient = {
-    query: mockQuery,
-    release: vi.fn(),
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockConnect.mockResolvedValue(mockClient);
-    mockEnd.mockResolvedValue(undefined);
-  });
-
-  it("includes securityEventsForensics in report when --forensics flag is used", async () => {
-    // This test would require running the actual script with --forensics
-    // For now, verify the script exports the forensics function
-    const auditModule = await import("../../../scripts/db-size-audit.mjs");
-    // The script is a CLI, not a module export - verify it can be imported
-    expect(auditModule).toBeDefined();
+  it("is read-only and exposes security_events forensic evidence", () => {
+    expect(auditSource).toContain("securityEventsForensics");
+    expect(auditSource).toContain("security_events");
+    expect(auditSource).toContain("event_type");
+    expect(auditSource).toContain("trg_suppress_api_request_security_events");
+    expect(auditSource).toContain("9999_disable_api_request_security_events.sql");
+    expect(auditSource).toContain("n_live_tup");
+    expect(auditSource).toContain("n_dead_tup");
+    expect(auditSource).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(auditSource).not.toMatch(/\bTRUNCATE\b/i);
+    expect(auditSource).not.toMatch(/\bVACUUM\s+FULL\b/i);
   });
 });
 
-describe("[12-db-audit-forensics] db-reclaim-api-request.mjs contract", () => {
-  const mockClient = {
-    query: mockQuery,
-    release: vi.fn(),
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockConnect.mockResolvedValue(mockClient);
-    mockEnd.mockResolvedValue(undefined);
+describe("[12-db-audit-forensics] db-reclaim-api-request.mjs safety", () => {
+  it("is dry-run by default and requires explicit execute", () => {
+    expect(reclaimSource).toContain('const execute = args.has("execute")');
+    expect(reclaimSource).toContain("const dryRun = !execute");
   });
 
-  it("refuses to run without --confirm=YES when not in dry-run", async () => {
-    // The script checks this before connecting to DB
-    // Verify by checking the script source contains the guard
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain('confirm !== "YES"');
-    expect(script).toContain("refusing to run without --confirm=YES");
+  it("requires production intent and explicit confirmation for mutation", () => {
+    expect(reclaimSource).toContain("refusing mutation without --prod");
+    expect(reclaimSource).toContain('physicalReclaim ? "VACUUM_FULL" : "YES"');
+    expect(reclaimSource).toContain("--confirm=${expectedConfirmation}");
   });
 
-  it("refuses to run without --prod when not in dry-run", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("refusing to run without --prod");
+  it("treats only true loopback hosts as local", () => {
+    expect(reclaimSource).toContain("function isLoopbackDatabase");
+    expect(reclaimSource).toContain('"localhost"');
+    expect(reclaimSource).toContain('"127.0.0.1"');
+    expect(reclaimSource).toContain('"::1"');
+    expect(reclaimSource).not.toContain('host.startsWith("10.")');
+    expect(reclaimSource).not.toContain('host.startsWith("192.168.")');
+    expect(reclaimSource).not.toContain('host.endsWith(".local")');
   });
 
-  it("refuses to run against non-loopback DATABASE_URL without --force-production", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("isLocalDatabase");
-    expect(script).toContain("--force-production");
+  it("requires --force-production for non-loopback mutation", () => {
+    expect(reclaimSource).toContain("!isLoopbackDatabase(url) && !forceProduction");
+    expect(reclaimSource).toContain("--force-production");
   });
 
-  it("never truncates security_events", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).not.toContain("TRUNCATE TABLE security_events");
-    expect(script).toContain("event_type = 'api_request'");
+  it("never logs even a masked DATABASE_URL", () => {
+    expect(reclaimSource).not.toContain("maskedUrl");
+    expect(reclaimSource).not.toContain(":***@");
+    expect(reclaimSource).toContain('target=${isLoopbackDatabase(url) ? "loopback" : "non-loopback"}');
   });
 
-  it("preserves non-api_request rows", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("non_api_request");
-    expect(script).toContain("PRESERVED");
+  it("never truncates security_events or drops indexes", () => {
+    expect(reclaimSource).not.toMatch(/TRUNCATE\s+(TABLE\s+)?security_events/i);
+    expect(reclaimSource).not.toMatch(/DROP\s+INDEX/i);
+    expect(reclaimSource).toContain("event_type = 'api_request'");
   });
 
-  it("uses batched deletion with configurable batch size", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("batchSize");
-    expect(script).toContain("LIMIT ${batchSize}");
+  it("parameterizes retention and batch size", () => {
+    expect(reclaimSource).toContain("$1::int * interval '1 day'");
+    expect(reclaimSource).toContain("LIMIT $2");
+    expect(reclaimSource).toContain("[days, size]");
+    expect(reclaimSource).toContain("--batch-size");
+    expect(reclaimSource).toContain("--retention-days");
   });
 
-  it("supports --logical-only mode to skip VACUUM FULL", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("logicalOnly");
-    expect(script).toContain("VACUUM FULL");
+  it("commits each delete batch independently instead of one giant transaction", () => {
+    expect(reclaimSource).toContain("each bounded DELETE statement");
+    expect(reclaimSource).not.toContain('client.query("BEGIN")');
+    expect(reclaimSource).not.toContain('client.query("COMMIT")');
   });
 
-  it("supports --retention-days parameter", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("retentionDays");
-    expect(script).toContain("retention-days");
+  it("keeps physical reclaim a separate explicit operation", () => {
+    expect(reclaimSource).toContain('const physicalReclaim = args.has("vacuum-full")');
+    expect(reclaimSource).toContain("VACUUM_FULL");
+    expect(reclaimSource).toContain("wouldVacuumFull: physicalReclaim");
+    expect(reclaimSource).toContain('mode: "logical-cleanup"');
+    expect(reclaimSource).toContain("vacuumFull: false");
   });
 
-  it("emits before/after counts", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("BEFORE");
-    expect(script).toContain("AFTER");
-    expect(script).toContain("DELETED");
+  it("refuses VACUUM FULL before eligible logical cleanup is complete", () => {
+    expect(reclaimSource).toContain("refusing VACUUM FULL while");
+    expect(reclaimSource).toContain("run logical cleanup first");
   });
 
-  it("dry-run mutates nothing", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("dryRun");
-    expect(script).toContain("DRY RUN");
+  it("verifies meaningful non-api_request rows are preserved", () => {
+    expect(reclaimSource).toContain("nonApiRequest");
+    expect(reclaimSource).toContain("non-api_request count changed");
+    expect(reclaimSource).toContain("non_api_request_preserved");
   });
 
-  it("verifies non-api_request count unchanged after mutation", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("nonApiRequest");
-    expect(script).toContain("VERIFIED");
-  });
-
-  it("never logs DATABASE_URL", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("maskedUrl");
-    expect(script).toContain(":***@");
-  });
-
-  it("exits with code 3 if non-api_request rows were affected", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const script = fs.readFileSync(
-      path.resolve(__dirname, "../../../scripts/db-reclaim-api-request.mjs"),
-      "utf8"
-    );
-    expect(script).toContain("process.exit(3)");
+  it("validates CLI numeric bounds before SQL execution", () => {
+    expect(reclaimSource).toContain("function parseIntegerArg");
+    expect(reclaimSource).toContain("must be an integer between");
+    expect(reclaimSource).toContain("max: 50000");
   });
 });
