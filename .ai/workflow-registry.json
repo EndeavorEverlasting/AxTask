@@ -3,14 +3,50 @@
   "authorityRef": "axtask.agent-authority.v1",
   "registryId": "axtask.workflows.v1",
   "workflows": [
-    {"id":"axtask.repository-intake.v1","path":".ai/workflows/repository-intake.md","description":"Fresh-agent repository intake and first safe sprint selection."},
-    {"id":"axtask.pr-closeout.v1","path":".ai/workflows/pr-closeout.md","description":"Pull request convergence, repair, validation, and merge or closure."},
-    {"id":"axtask.failure-recovery.v1","path":".ai/workflows/failure-recovery.md","description":"Bounded diagnosis, repair, rerun, reporting, and handoff after a validator or workflow failure."},
-    {"id":"axtask.local-deployment-certification.v1","path":".ai/workflows/local-deployment-certification.md","description":"Disposable local production certification for a deployment candidate."},
-    {"id":"axtask.parallel-sprint-intake.v1","path":".ai/workflows/parallel-sprint-intake.md","description":"Parallel sprint intake, path overlap inspection, and collision ledger generation."},
-    {"id":"axtask.prompt-leap-routing.v1","path":".ai/workflows/prompt-leap-routing.md","description":"Task-demand classification and executor capability admission with deterministic routing."},
-    {"id":"axtask.account-backup-roundtrip-certification.v1","path":".ai/workflows/account-backup-roundtrip-certification.md","description":"Disposable PostgreSQL certification of the Backup Center semantic export/import round trip."},
-    {"id":"axtask.predeploy-cost-readiness.v1","path":".ai/workflows/predeploy-cost-readiness.md","description":"Repository-only deployment necessity, readiness-gate, and qualitative cost-exposure evaluation."},
-    {"id":"axtask.stateful-architecture-migration.v1","path":".ai/workflows/stateful-architecture-migration.md","description":"Evidence-first factoring for serverless/stateless migration with one owned seam, fail-closed KEEP defaults, and explicit proof ceilings."}
+    {
+      "id": "axtask.repository-intake.v1",
+      "path": ".ai/workflows/repository-intake.md",
+      "description": "Fresh-agent repository intake and first safe sprint selection."
+    },
+    {
+      "id": "axtask.pr-closeout.v1",
+      "path": ".ai/workflows/pr-closeout.md",
+      "description": "Pull request convergence, repair, validation, and merge or closure."
+    },
+    {
+      "id": "axtask.failure-recovery.v1",
+      "path": ".ai/workflows/failure-recovery.md",
+      "description": "Bounded diagnosis, repair, rerun, reporting, and handoff after a validator or workflow failure."
+    },
+    {
+      "id": "axtask.local-deployment-certification.v1",
+      "path": ".ai/workflows/local-deployment-certification.md",
+      "description": "Disposable local production certification for a deployment candidate."
+    },
+    {
+      "id": "axtask.parallel-sprint-intake.v1",
+      "path": ".ai/workflows/parallel-sprint-intake.md",
+      "description": "Parallel sprint intake, path overlap inspection, and collision ledger generation."
+    },
+    {
+      "id": "axtask.prompt-leap-routing.v1",
+      "path": ".ai/workflows/prompt-leap-routing.md",
+      "description": "Task-demand classification and executor capability admission with deterministic routing."
+    },
+    {
+      "id": "axtask.account-backup-roundtrip-certification.v1",
+      "path": ".ai/workflows/account-backup-roundtrip-certification.md",
+      "description": "Disposable PostgreSQL certification of the Backup Center semantic export/import round trip."
+    },
+    {
+      "id": "axtask.predeploy-cost-readiness.v1",
+      "path": ".ai/workflows/predeploy-cost-readiness.md",
+      "description": "Repository-only deployment necessity, readiness-gate, and qualitative cost-exposure evaluation."
+    },
+    {
+      "id": "axtask.stateful-architecture-migration.v1",
+      "path": ".ai/workflows/stateful-architecture-migration.md",
+      "description": "Evidence-first factoring for serverless/stateless migration with one owned seam, fail-closed KEEP defaults, and explicit proof ceilings."
+    }
   ]
 }

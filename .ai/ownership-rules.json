@@ -3,21 +3,85 @@
   "authorityRef": "axtask.agent-authority.v1",
   "registryId": "axtask.ownership.v1",
   "rules": [
-    {"surface":".ai/**","owner":"harness-maintenance","note":"Agent control plane, registries, schemas, workflows, skills, work queue, and stateful-surface ledger."},
-    {"surface":"scripts/ai-harness/**","owner":"harness-maintenance","note":"Executable harness validators, inspectors, selectors, and integration tooling."},
-    {"surface":"server/ai-harness/**","owner":"harness-maintenance","note":"Harness contract tests and negative completeness proofs."},
-    {"surface":"docs/architecture/STATEFUL_SURFACE_LEDGER.md","owner":"harness-maintenance","note":"Human companion to the machine stateful-surface ledger; architecture migration guardrail."},
-    {"surface":"AGENTS.md","owner":"harness-maintenance","note":"Canonical human-readable agent entry point."},
-    {"surface":"AGENT_GUARDRAILS.md","owner":"harness-maintenance","note":"Distinct safety policy."},
-    {"surface":"render.yaml","owner":"deployment-orchestration","note":"Render blueprint; health and ready paths; autoDeploy flag."},
-    {"surface":"scripts/production-start.mjs","owner":"deployment-orchestration","note":"Production startup sequence."},
-    {"surface":"scripts/deploy/**","owner":"deployment-orchestration","note":"Deployment checks, capacity guards, and local certification."},
-    {"surface":"scripts/db/**","owner":"database-ops","note":"Database size audit, retention, reclaim, backup, and evidence tooling."},
-    {"surface":"migrations/**","owner":"database-ops","note":"Ordered production DDL."},
-    {"surface":"package.json","owner":"shared-toolchain","note":"Dependency and command contract; requires broad review for deploy commands."},
-    {"surface":"shared/schema.ts","owner":"database-ops","note":"Drizzle schema source of truth."},
-    {"surface":"drizzle.config.ts","owner":"database-ops","note":"Drizzle-kit configuration."},
-    {"surface":"server/auth/**","owner":"security","note":"Authentication and session surfaces."},
-    {"surface":"tests/deploy/**","owner":"deployment-orchestration","note":"Deployment contracts and local certification tests."}
+    {
+      "surface": ".ai/**",
+      "owner": "harness-maintenance",
+      "note": "Agent control plane, registries, schemas, workflows, skills, work queue, and stateful-surface ledger."
+    },
+    {
+      "surface": "scripts/ai-harness/**",
+      "owner": "harness-maintenance",
+      "note": "Executable harness validators, inspectors, selectors, and integration tooling."
+    },
+    {
+      "surface": "server/ai-harness/**",
+      "owner": "harness-maintenance",
+      "note": "Harness contract tests and negative completeness proofs."
+    },
+    {
+      "surface": "docs/architecture/STATEFUL_SURFACE_LEDGER.md",
+      "owner": "harness-maintenance",
+      "note": "Human companion to the machine stateful-surface ledger; architecture migration guardrail."
+    },
+    {
+      "surface": "AGENTS.md",
+      "owner": "harness-maintenance",
+      "note": "Canonical human-readable agent entry point."
+    },
+    {
+      "surface": "AGENT_GUARDRAILS.md",
+      "owner": "harness-maintenance",
+      "note": "Distinct safety policy."
+    },
+    {
+      "surface": "render.yaml",
+      "owner": "deployment-orchestration",
+      "note": "Render blueprint; health and ready paths; autoDeploy flag."
+    },
+    {
+      "surface": "scripts/production-start.mjs",
+      "owner": "deployment-orchestration",
+      "note": "Production startup sequence."
+    },
+    {
+      "surface": "scripts/deploy/**",
+      "owner": "deployment-orchestration",
+      "note": "Deployment checks, capacity guards, and local certification."
+    },
+    {
+      "surface": "scripts/db/**",
+      "owner": "database-ops",
+      "note": "Database size audit, retention, reclaim, backup, and evidence tooling."
+    },
+    {
+      "surface": "migrations/**",
+      "owner": "database-ops",
+      "note": "Ordered production DDL."
+    },
+    {
+      "surface": "package.json",
+      "owner": "shared-toolchain",
+      "note": "Dependency and command contract; requires broad review for deploy commands."
+    },
+    {
+      "surface": "shared/schema.ts",
+      "owner": "database-ops",
+      "note": "Drizzle schema source of truth."
+    },
+    {
+      "surface": "drizzle.config.ts",
+      "owner": "database-ops",
+      "note": "Drizzle-kit configuration."
+    },
+    {
+      "surface": "server/auth/**",
+      "owner": "security",
+      "note": "Authentication and session surfaces."
+    },
+    {
+      "surface": "tests/deploy/**",
+      "owner": "deployment-orchestration",
+      "note": "Deployment contracts and local certification tests."
+    }
   ]
 }
