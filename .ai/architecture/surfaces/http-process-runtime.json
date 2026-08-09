@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "http-process-runtime",
+  "priority": 10,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": ["server/index.ts", "scripts/production-start.mjs", "render.yaml"],
+  "doNot": ["Do not remove or rewrite the server.", "Do not select a provider.", "Do not modify persistence, auth, or scheduled-work surfaces.", "Do not edit the aggregate ledger while this is an evidence task."],
+  "artifactPath": ".ai/architecture/surfaces/http-process-runtime.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "process-affinity",
+      "question": "Does the production HTTP runtime require persistent process affinity beyond ordinary request-scoped memory?",
+      "status": "open",
+      "exactFiles": ["server/index.ts", "scripts/production-start.mjs", "render.yaml"],
+      "evidence": [],
+      "blocker": null
+    },
+    {
+      "id": "long-lived-connections",
+      "question": "Does the current HTTP entry point create or require long-lived client connections that constrain function-style execution?",
+      "status": "open",
+      "exactFiles": ["server/index.ts", "package.json"],
+      "evidence": [],
+      "blocker": null
+    },
+    {
+      "id": "runtime-filesystem",
+      "question": "Does normal production request handling depend on writable local filesystem state?",
+      "status": "open",
+      "exactFiles": ["server/index.ts", "scripts/production-start.mjs"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs http-process-runtime",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "postgres-domain-state",
+  "priority": 30,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": ["shared/schema.ts", "drizzle.config.ts", "scripts/db/**", "docs/DB_RECOVERY_RUNBOOK.md"],
+  "doNot": ["Do not rewrite the schema for serverless aesthetics.", "Do not perform production cleanup or migrations.", "Do not treat the telemetry incident as proof that durable relational product state is unnecessary.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/postgres-domain-state.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "connection-lifecycle",
+      "question": "What database connection lifecycle is required by the current production launcher and schema tooling?",
+      "status": "open",
+      "exactFiles": ["scripts/production-start.mjs", "drizzle.config.ts", "package.json"],
+      "evidence": [],
+      "blocker": null
+    },
+    {
+      "id": "domain-vs-telemetry",
+      "question": "Which PostgreSQL data is durable product/domain state versus high-volume operational telemetry that can be treated as a separate architecture surface?",
+      "status": "open",
+      "exactFiles": ["shared/schema.ts", "scripts/db-size-audit.mjs", "docs/DB_RECOVERY_RUNBOOK.md"],
+      "evidence": [],
+      "blocker": null
+    },
+    {
+      "id": "transaction-requirements",
+      "question": "Which current persistence contracts require relational transactions or consistency across multiple writes?",
+      "status": "open",
+      "exactFiles": ["shared/schema.ts", "package.json"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs postgres-domain-state",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "integration-seams",
+  "priority": 80,
+  "status": "READY_FOR_DECISION",
+  "ownedPaths": [".ai/workflows/stateful-architecture-migration.md", ".ai/skills/stateful-architecture-migration.md", ".ai/stateful-surface-ledger.json"],
+  "doNot": ["Do not move product behavior into prompts or skills.", "Do not use harness prose as a substitute for executable application contracts.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/integration-seams.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "prompt-product-boundary",
+      "question": "Does the harness explicitly preserve application/domain behavior in executable code and contracts rather than prompt text?",
+      "status": "resolved",
+      "exactFiles": [".ai/workflows/stateful-architecture-migration.md", ".ai/skills/stateful-architecture-migration.md", ".ai/stateful-surface-ledger.json"],
+      "evidence": [
+        {
+          "source": ".ai/workflows/stateful-architecture-migration.md",
+          "finding": "The workflow explicitly requires application logic to remain in code and domain contracts rather than hidden in prompts.",
+          "proofLevel": "contract"
+        }
+      ],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs integration-seams",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

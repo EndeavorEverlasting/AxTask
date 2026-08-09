@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "auth-session-state",
+  "priority": 20,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": ["server/auth/**", "server/index.ts", "package.json"],
+  "doNot": ["Do not change authentication providers.", "Do not weaken cookie, CSRF, revocation, authorization, or step-up semantics.", "Do not expose secrets.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/auth-session-state.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "session-store",
+      "question": "Where is session continuity actually stored, and does it require affinity to one Node process?",
+      "status": "open",
+      "exactFiles": ["server/index.ts", "package.json"],
+      "evidence": [],
+      "blocker": null
+    },
+    {
+      "id": "revocation-step-up",
+      "question": "Which executable contracts preserve logout, revocation, authorization, and step-up behavior across runtime instances?",
+      "status": "open",
+      "exactFiles": ["server/index.ts", "AGENT_GUARDRAILS.md"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs auth-session-state",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "contractId": "axtask.stateful-task-execution.v1",
+  "mission": "Complete the next unresolved stateful fact. Do not regenerate or rethink the entire Stateful Surface Ledger when one evidence gap is enough.",
+  "surfaceDirectory": ".ai/architecture/surfaces",
+  "surfaceSchema": ".ai/stateful-surface-task.schema.json",
+  "routerCommand": "node scripts/ai-harness/next-stateful-task.mjs",
+  "validatorCommandTemplate": "node scripts/ai-harness/validate-stateful-surface.mjs <surface-id> --require=<gap-id>",
+  "selectionPolicy": {
+    "maxTasksReturned": 1,
+    "gapOrder": "array-order",
+    "skipBlocked": true,
+    "surfacePriority": [
+      "http-process-runtime",
+      "auth-session-state",
+      "postgres-domain-state",
+      "scheduled-background-work",
+      "cache-queue-runtime",
+      "filesystem-artifacts",
+      "deployment-orchestration",
+      "integration-seams"
+    ]
+  },
+  "actionBudget": {
+    "maxNonProductiveOperationsAfterRouting": 3,
+    "productiveActions": [
+      "inspect one of the exact files named by the current gap",
+      "update only the current surface artifact with repository evidence",
+      "run the current gap validator",
+      "record an exact blocker with an executable next action"
+    ],
+    "nonProductiveExamples": [
+      "repeating that the ledger will be written",
+      "re-reading the whole ledger without a new evidence question",
+      "debating formatting or CRLF noise after semantic equality is established",
+      "planning adjacent surfaces that the router did not select"
+    ]
+  },
+  "lineEndingNoisePolicy": {
+    "rule": "Out-of-scope CRLF/LF-only changes are noise, not owned work. Restore them immediately after proving there is no semantic diff.",
+    "command": "node scripts/ai-harness/restore-eol-noise.mjs <tracked-path> [<tracked-path> ...]",
+    "refuseWhen": "git diff --ignore-space-at-eol reports semantic content changes"
+  },
+  "globalForbidden": [
+    "Do not rewrite the complete ledger to answer one evidence question.",
+    "Do not select or introduce a serverless provider during evidence gathering.",
+    "Do not modify product/runtime code from an EVIDENCE_REQUIRED task.",
+    "Do not edit more than one stateful surface artifact per routed task.",
+    "Do not promote proof above what was actually executed.",
+    "Do not hide application behavior in prompts, skills, or reports."
+  ],
+  "completionRule": "The router advances only after the selected evidence gap is resolved and its validator passes. If no open gaps remain, it reports READY_FOR_DECISION surfaces; blocked gaps remain explicit blockers and are never silently skipped as complete."
+}

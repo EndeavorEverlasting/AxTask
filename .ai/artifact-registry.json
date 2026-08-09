@@ -198,6 +198,27 @@
       "validator": "node scripts/ai-harness/validate-stateful-architecture.mjs"
     },
     {
+      "id": "stateful-surface-task",
+      "pathPattern": ".ai/architecture/surfaces/<surface-id>.json",
+      "tracked": true,
+      "sanitized": true,
+      "producer": "axtask.stateful-architecture-migration.v1",
+      "generation": "Run node scripts/ai-harness/next-stateful-task.mjs and update only the emitted surface/gap with repository evidence.",
+      "namingConvention": "<surface-id>.json",
+      "schema": ".ai/stateful-surface-task.schema.json",
+      "validator": "node scripts/ai-harness/validate-stateful-surface.mjs <surface-id> --require=<gap-id>"
+    },
+    {
+      "id": "stateful-task-report",
+      "pathPattern": ".ai/runs/<run-id>/stateful-task-report.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.stateful-architecture-migration.v1",
+      "generation": "Render .ai/reports/stateful-task-report-template.md after the routed gap validator passes or an exact blocker is recorded.",
+      "namingConvention": "<run-id>/stateful-task-report.md",
+      "template": ".ai/reports/stateful-task-report-template.md"
+    },
+    {
       "id": "stateful-architecture-report",
       "pathPattern": ".ai/runs/<run-id>/stateful-architecture-report.md",
       "tracked": false,

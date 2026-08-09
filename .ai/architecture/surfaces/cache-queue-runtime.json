@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "cache-queue-runtime",
+  "priority": 50,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": ["package.json", "server/index.ts"],
+  "doNot": ["Do not infer active cache or queue behavior from dependencies alone.", "Do not introduce Redis, queues, KV, or brokers during evidence gathering.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/cache-queue-runtime.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "active-client-usage",
+      "question": "Do the current package and server entry point prove any active cache, queue, broker, or distributed coordination client?",
+      "status": "open",
+      "exactFiles": ["package.json", "server/index.ts"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs cache-queue-runtime",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

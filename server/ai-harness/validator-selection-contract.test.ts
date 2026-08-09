@@ -55,6 +55,7 @@ describe("AI harness validator selection", () => {
       "harness",
       "harness-infrastructure",
       "stateful-architecture",
+      "stateful-surface-task",
       "log-retention",
       "harness-tests",
       "release",

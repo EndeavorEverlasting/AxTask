@@ -11,26 +11,31 @@ A task asks to make AxTask serverless/stateless, remove a persistent server, cha
 ## Required inputs
 
 - `.ai/stateful-surface-ledger.json`
-- exact owned surface and migration seam
+- `.ai/stateful-execution-contract.json`
+- `.ai/architecture/surfaces/*.json`
 - current repo/branch/PR/collision evidence
-- implementation files and current validators
 - required proof level and proof ceiling
 
 ## Procedure
 
-1. Validate the ledger before reasoning from it.
-2. Locate the matching surface by ID and inspect its exact files.
-3. Gather repository evidence for process affinity, connection lifetime, persistence, scheduling, filesystem use, consumers, invariants, and collision paths.
-4. Keep `decisionStatus=provisional` and `disposition=keep` until evidence supports an explicit decision.
-5. When evidence is sufficient, set exactly one non-`keep` surface to `decisionStatus=approved` and run the stateful-architecture validator. `approved` is active authorization, not historical status.
-6. If approved for migration, execute one seam only. Do not broaden to adjacent stateful surfaces.
-7. Run the owning application validators and report strongest attained proof.
-8. After the seam's required implementation/proof gate is complete, set its `decisionStatus=completed`, update the operator report and evidence, and only then may a later sprint approve a different non-`keep` seam.
+1. Validate the canonical ledger and task artifacts.
+2. Run `node scripts/ai-harness/next-stateful-task.mjs` and accept exactly the one routed surface/gap as the current reasoning boundary.
+3. Inspect only the exact files emitted under `OWNED PATHS` and answer only the emitted question.
+4. Within three repository/tool operations after routing, perform a productive action: inspect a routed file, update the current surface artifact, run its validator, or record an exact blocker. Do not loop on statements that the ledger will be written.
+5. Update only the current gap in `.ai/architecture/surfaces/<surface-id>.json`. Keep the canonical ledger unchanged while the task is merely `EVIDENCE_REQUIRED`.
+6. Set the current gap to `resolved` only with concrete source, finding, and proof level; then run the exact `--require=<gap-id>` validator emitted by the router.
+7. Run the router again. Never manually jump to a later surface while an earlier open gap remains.
+8. When the surface reaches `READY_FOR_DECISION`, evaluate only that surface against the canonical ledger. KEEP is valid and remains the default until evidence justifies another disposition.
+9. Set exactly one non-`keep` surface to `decisionStatus=approved` only when the canonical migration guardrails are satisfied. `approved` is active authorization, not historical status.
+10. If approved for migration, execute one seam only. After required proof is complete, set `decisionStatus=completed` before another non-`keep` seam may be approved.
 
 ## Guardrails
 
 - Stateful does not mean bad.
 - KEEP is a successful outcome when it is the simplest correct architecture.
+- Complete the next unresolved ledger fact, not the whole ledger.
+- The router returns at most one task; do not broaden its scope.
+- `EVIDENCE_REQUIRED` never authorizes product/runtime mutation.
 - `approved` means active authorization; `completed` means historical evidence and does not authorize new mutation.
 - At most one non-`keep` surface may be `approved` at a time.
 - Do not choose or introduce a serverless provider before requirements are proven.
@@ -40,15 +45,16 @@ A task asks to make AxTask serverless/stateless, remove a persistent server, cha
 - Do not couple a DB incident to a conclusion that relational persistence is unnecessary.
 - Do not claim launcher/browser, behavior-observed, or live-runtime proof from static tests or builds.
 - Preserve unknown dirty work and parallel ownership; shared collision paths have one writer.
+- If an out-of-scope tracked path is only CRLF/LF noise, use `node scripts/ai-harness/restore-eol-noise.mjs <path>`; the helper refuses semantic changes.
 
 ## Outputs
 
-- evidence-backed ledger update;
-- one bounded implementation seam or an evidence-backed KEEP decision;
-- selected validator results;
-- `.ai/runs/<run-id>/stateful-architecture-report.md`;
-- commit/PR evidence and next executable action.
+- one evidence-backed per-surface artifact update;
+- exact current-gap validator result;
+- one bounded canonical ledger decision only after evidence gaps are resolved;
+- `.ai/runs/<run-id>/stateful-task-report.md`;
+- commit/PR evidence and the router's next executable action.
 
 ## Proof rules
 
-Contract/harness validation proves the migration rules are enforced. Static tests prove code contracts. Build proves buildability. Launcher/browser proof requires the real launcher/browser surface. Behavior observed requires actual observation. Live runtime proof requires the protected live environment. Never promote proof.
+Contract/harness validation proves the task loop and migration rules are enforced. Static tests prove code contracts. Build proves buildability. Launcher/browser proof requires the real launcher/browser surface. Behavior observed requires actual observation. Live runtime proof requires the protected live environment. Never promote proof.

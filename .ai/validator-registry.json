@@ -33,13 +33,24 @@
     {
       "id": "stateful-architecture",
       "command": "node scripts/ai-harness/validate-stateful-architecture.mjs",
-      "scope": "stateful-surface ledger, serverless/stateless factoring, deterministic routing, report, and proof-boundary completeness",
+      "scope": "canonical stateful-surface decisions, serverless/stateless factoring, deterministic routing, report, and proof-boundary completeness",
       "required": true,
       "selection": {
-        "paths": [".ai/stateful-surface-ledger.json", ".ai/stateful-surface-ledger.schema.json", ".ai/workflows/stateful-architecture-migration.md", ".ai/skills/stateful-architecture-migration.md", ".ai/reports/stateful-architecture-report-template.md", "docs/architecture/STATEFUL_SURFACE_LEDGER.md", "scripts/ai-harness/validate-stateful-architecture.mjs", "server/ai-harness/stateful-architecture-contract.test.ts", ".ai/harness.json", ".ai/workflow-registry.json", ".ai/capability-registry.json", ".ai/trigger-registry.json", ".ai/artifact-registry.json", ".ai/validator-registry.json", ".ai/codebase-map.json", ".ai/ownership-rules.json", ".githooks/**"],
+        "paths": [".ai/stateful-surface-ledger.json", ".ai/stateful-surface-ledger.schema.json", ".ai/stateful-execution-contract.json", ".ai/stateful-surface-task.schema.json", ".ai/architecture/surfaces/**", ".ai/workflows/stateful-architecture-migration.md", ".ai/skills/stateful-architecture-migration.md", ".ai/reports/stateful-architecture-report-template.md", ".ai/reports/stateful-task-report-template.md", "docs/architecture/STATEFUL_SURFACE_LEDGER.md", "scripts/ai-harness/validate-stateful-architecture.mjs", "scripts/ai-harness/validate-stateful-surface.mjs", "scripts/ai-harness/next-stateful-task.mjs", "scripts/ai-harness/restore-eol-noise.mjs", "server/ai-harness/stateful-architecture-contract.test.ts", "server/ai-harness/stateful-task-loop-contract.test.ts", ".ai/harness.json", ".ai/workflow-registry.json", ".ai/capability-registry.json", ".ai/trigger-registry.json", ".ai/artifact-registry.json", ".ai/validator-registry.json", ".ai/codebase-map.json", ".ai/ownership-rules.json", ".githooks/**"],
         "workflows": ["axtask.stateful-architecture-migration.v1"]
       },
       "requires": ["authority", "harness", "harness-infrastructure"]
+    },
+    {
+      "id": "stateful-surface-task",
+      "command": "node scripts/ai-harness/validate-stateful-surface.mjs --all",
+      "scope": "tracked per-surface stateful evidence gaps, exact-file boundaries, placeholder rejection, and one-fact completion semantics",
+      "required": true,
+      "selection": {
+        "paths": [".ai/stateful-execution-contract.json", ".ai/stateful-surface-task.schema.json", ".ai/architecture/surfaces/**", "scripts/ai-harness/validate-stateful-surface.mjs", "scripts/ai-harness/next-stateful-task.mjs", "scripts/ai-harness/restore-eol-noise.mjs", "server/ai-harness/stateful-task-loop-contract.test.ts", ".ai/workflows/stateful-architecture-migration.md", ".ai/skills/stateful-architecture-migration.md", ".githooks/**"],
+        "workflows": ["axtask.stateful-architecture-migration.v1"]
+      },
+      "requires": ["authority", "harness", "harness-infrastructure", "stateful-architecture"]
     },
     {
       "id": "log-retention",
@@ -76,11 +87,11 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/log-retention-harness-contract.test.ts",
-      "scope": "negative, completeness, integration, readiness, stateful-architecture, retention, and local certification contracts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/stateful-task-loop-contract.test.ts server/ai-harness/log-retention-harness-contract.test.ts",
+      "scope": "negative, completeness, integration, readiness, stateful-architecture, single-fact task-loop, retention, and local certification contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
-      "requires": ["authority", "harness", "harness-infrastructure", "stateful-architecture", "log-retention"]
+      "requires": ["authority", "harness", "harness-infrastructure", "stateful-architecture", "stateful-surface-task", "log-retention"]
     },
     {
       "id": "collision-inspection",

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "scheduled-background-work",
+  "priority": 40,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": ["render.yaml", "scripts/db-retention.mjs", "docs/SCHEDULED_RESOURCE_CONTROLS.md"],
+  "doNot": ["Do not enable disabled jobs.", "Do not change retention windows or production scheduling.", "Do not change retry/idempotency semantics implicitly.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/scheduled-background-work.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "scheduler-ownership",
+      "question": "Which recurring jobs are provider-scheduled versus process-started, and which are intentionally disabled?",
+      "status": "open",
+      "exactFiles": ["render.yaml", "docs/SCHEDULED_RESOURCE_CONTROLS.md"],
+      "evidence": [],
+      "blocker": null
+    },
+    {
+      "id": "retention-idempotency",
+      "question": "What idempotency and bounded-work guarantees exist for the active retention job?",
+      "status": "open",
+      "exactFiles": ["scripts/db-retention.mjs", "docs/DB_RETENTION_POLICY.md"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs scheduled-background-work",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

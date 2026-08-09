@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "filesystem-artifacts",
+  "priority": 60,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": [".ai/artifact-registry.json", "scripts/production-start.mjs", "server/index.ts"],
+  "doNot": ["Do not move all filesystem use to object storage by default.", "Do not track private runtime artifacts.", "Do not change backup/evidence confidentiality boundaries.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/filesystem-artifacts.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "runtime-write-paths",
+      "question": "Does normal production request/runtime behavior require writable local filesystem state, distinct from build, test, operator, or ignored evidence output?",
+      "status": "open",
+      "exactFiles": [".ai/artifact-registry.json", "scripts/production-start.mjs", "server/index.ts"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs filesystem-artifacts",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

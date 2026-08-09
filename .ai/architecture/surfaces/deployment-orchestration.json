@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "surfaceId": "deployment-orchestration",
+  "priority": 70,
+  "status": "EVIDENCE_REQUIRED",
+  "ownedPaths": ["render.yaml", "Dockerfile", "scripts/production-start.mjs", "package.json"],
+  "doNot": ["Do not change providers during evidence gathering.", "Do not weaken startup, health, migration, or capacity gates.", "Do not mutate live provider state.", "Do not modify another surface artifact."],
+  "artifactPath": ".ai/architecture/surfaces/deployment-orchestration.json",
+  "proofCeiling": "contract",
+  "evidenceGaps": [
+    {
+      "id": "provider-neutral-runtime-requirements",
+      "question": "Which runtime capabilities are genuinely required independent of Render so a later deployment adapter can be evaluated without provider-first redesign?",
+      "status": "open",
+      "exactFiles": ["render.yaml", "Dockerfile", "scripts/production-start.mjs", "package.json"],
+      "evidence": [],
+      "blocker": null
+    }
+  ],
+  "validator": "node scripts/ai-harness/validate-stateful-surface.mjs deployment-orchestration",
+  "nextCommand": "node scripts/ai-harness/next-stateful-task.mjs"
+}

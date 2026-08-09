@@ -119,6 +119,32 @@
       "tests": ["server/ai-harness/stateful-architecture-contract.test.ts"],
       "proofLevel": "harness",
       "status": "available"
+    },
+    {
+      "id": "stateful-single-fact-routing",
+      "name": "Stateful single-fact task routing",
+      "canonicalOwner": "harness-maintenance",
+      "activation": "A stateful/runtime evidence task would otherwise require an agent to reason across the complete ledger or multiple surfaces.",
+      "description": "Emit exactly one unresolved evidence gap with exact files, one tracked surface artifact, one validator, one completion gate, and one next command.",
+      "command": "node scripts/ai-harness/next-stateful-task.mjs",
+      "outputs": ["stdout", ".ai/architecture/surfaces/<surface-id>.json"],
+      "guardrails": ["max one routed task", "EVIDENCE_REQUIRED never authorizes product mutation", "three-operation action budget", "no adjacent-surface planning while a routed gap is open"],
+      "tests": ["server/ai-harness/stateful-task-loop-contract.test.ts"],
+      "proofLevel": "harness",
+      "status": "available"
+    },
+    {
+      "id": "line-ending-noise-repair",
+      "name": "Bounded line-ending noise repair",
+      "canonicalOwner": "harness-maintenance",
+      "activation": "A tracked out-of-scope path is dirty and semantic diff inspection indicates only CRLF/LF or at-EOL whitespace noise.",
+      "description": "Restore only explicitly named tracked worktree paths after git proves no semantic diff remains; refuse content changes and untracked paths.",
+      "command": "node scripts/ai-harness/restore-eol-noise.mjs <tracked-path>",
+      "outputs": ["cleaned explicit worktree path or refusal"],
+      "guardrails": ["explicit paths only", "tracked files only", "refuse semantic changes", "never touch index or commits"],
+      "tests": ["server/ai-harness/stateful-task-loop-contract.test.ts"],
+      "proofLevel": "command-ack",
+      "status": "available"
     }
   ]
 }
