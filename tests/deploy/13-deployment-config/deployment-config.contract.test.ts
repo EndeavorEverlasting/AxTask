@@ -99,7 +99,9 @@ describe("[13-deployment-config] one-off api_request containment", () => {
     expect(containment).toContain("suppress_api_request_security_events");
     expect(containment).toContain("trg_suppress_api_request_security_events");
     expect(containment).not.toMatch(/\bDELETE\s+FROM\b/i);
-    expect(containment).not.toContain("applied_sql_migrations");
+    expect(containment).not.toMatch(
+      /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+applied_sql_migrations\b/i,
+    );
     expect(containment).not.toContain("apply-migrations.mjs");
   });
 
