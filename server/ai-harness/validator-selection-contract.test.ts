@@ -55,6 +55,7 @@ describe("AI harness validator selection", () => {
       "harness",
       "harness-infrastructure",
       "stateful-architecture",
+      "log-retention",
       "harness-tests",
       "release",
       "tests",
@@ -65,7 +66,18 @@ describe("AI harness validator selection", () => {
   it("selects deploy contracts and their broad prerequisites", () => {
     const plan = selectValidators(REGISTRY, { changedPaths: ["render.yaml"] });
 
-    expect(ids(plan)).toEqual(["release", "typecheck", "tests", "build", "deploy", "docs-contracts"]);
+    expect(ids(plan)).toEqual([
+      "authority",
+      "harness",
+      "harness-infrastructure",
+      "log-retention",
+      "release",
+      "typecheck",
+      "tests",
+      "build",
+      "deploy",
+      "docs-contracts",
+    ]);
     expect(plan.unmatchedPaths).toEqual([]);
   });
 
