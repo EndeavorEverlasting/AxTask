@@ -32,6 +32,24 @@ describe("[12-db-audit-forensics] db-size-audit.mjs --forensics", () => {
     expect(auditSource).not.toMatch(/\bTRUNCATE\b/i);
     expect(auditSource).not.toMatch(/\bVACUUM\s+FULL\b/i);
   });
+
+  it("measures TOAST as a relation instead of an invalid relation fork", () => {
+    expect(auditSource).toContain("reltoastrelid");
+    expect(auditSource).toContain("pg_indexes_size('public.security_events'::regclass)");
+    expect(auditSource).not.toContain("pg_relation_size('security_events', 'toast')");
+  });
+
+  it("does not manufacture physical-bloat bytes from heap/live-row averages", () => {
+    expect(auditSource).toContain("physicalBloatBytes: null");
+    expect(auditSource).toContain("Dead-tuple statistics can indicate pressure");
+    expect(auditSource).not.toContain("expectedHeapSize = forensics.liveRows * avgTupleSize");
+    expect(auditSource).not.toContain("bloatBytes = forensics.heapSize - expectedHeapSize");
+  });
+
+  it("treats only origin/always triggers as active normal-session containment", () => {
+    expect(auditSource).toContain('["O", "A"].includes');
+    expect(auditSource).toContain("triggerEnableCode");
+  });
 });
 
 describe("[12-db-audit-forensics] db-reclaim-api-request.mjs safety", () => {
