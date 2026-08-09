@@ -244,7 +244,7 @@ function orderByFor(columns) {
 async function discoverTables(client) {
   const result = await client.query(`
     SELECT c.table_name,
-           array_agg(c.column_name ORDER BY c.ordinal_position) AS columns
+           array_agg(c.column_name::text ORDER BY c.ordinal_position)::text[] AS columns
     FROM information_schema.columns c
     JOIN information_schema.tables t
       ON t.table_schema = c.table_schema
@@ -254,10 +254,17 @@ async function discoverTables(client) {
     GROUP BY c.table_name
     ORDER BY c.table_name
   `);
-  return result.rows.map((row) => ({
-    tableName: row.table_name,
-    columns: new Set(row.columns || []),
-  }));
+  return result.rows.map((row) => {
+    if (!Array.isArray(row.columns)) {
+      throw new Error(
+        `information_schema column discovery for ${row.table_name} did not return text[]`,
+      );
+    }
+    return {
+      tableName: row.table_name,
+      columns: new Set(row.columns),
+    };
+  });
 }
 
 async function resolveAccount(client, args) {
