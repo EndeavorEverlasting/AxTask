@@ -56,11 +56,26 @@ assert.match(`${stalePin.stdout}\n${stalePin.stderr}`, /contract pin drifted|exa
 
 const missingDoneProof = runFixture((root) => {
   const queuePath = path.join(root, ".ai/WORK_QUEUE.md");
-  const blocks = fs.readFileSync(queuePath, "utf8").split(/(?=^## AXQ-\d{3,} — )/m);
-  const doneIndex = blocks.findIndex((block) => /^- \*\*Status:\*\* DONE$/m.test(block));
-  assert.notEqual(doneIndex, -1, "fixture must contain at least one DONE task");
-  blocks[doneIndex] = blocks[doneIndex].replace(/^- \*\*Last proof:\*\* .*$/m, "- **Last proof:** none");
-  fs.writeFileSync(queuePath, blocks.join(""), "utf8");
+  const source = fs.readFileSync(queuePath, "utf8").trimEnd();
+  const regressionTask = `
+
+## AXQ-999 — Regression fixture rejects DONE without durable proof
+
+- **Status:** DONE
+- **Priority:** P3
+- **Owner:** repo-ledger-regression-fixture
+- **Branch / PR:** fixture-only
+- **Scope:** synthetic validator fixture for strict DONE proof rejection
+- **Forbidden:** product mutation; deployment mutation; production state changes
+- **Dependencies:** none
+- **References:** .ai/WORK_QUEUE.md
+- **Acceptance gate:** the native AxTask queue validator rejects this synthetic DONE task because durable proof is absent
+- **Gate:** none
+- **Last proof:** none
+- **Next action:** none; no safe actionable work remains
+- **Updated:** 2026-08-09
+`;
+  fs.writeFileSync(queuePath, `${source}${regressionTask}\n`, "utf8");
 });
 assert.notEqual(missingDoneProof.status, 0, "DONE without durable proof unexpectedly passed");
 assert.match(`${missingDoneProof.stdout}\n${missingDoneProof.stderr}`, /DONE requires durable Last proof|DONE Last proof must include a durable evidence token/);
