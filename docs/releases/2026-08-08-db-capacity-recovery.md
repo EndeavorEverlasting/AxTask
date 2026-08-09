@@ -1,161 +1,123 @@
 # Sprint: AxTask Production Database Recovery and Capacity-Guard Repair
 
-**Date:** 2026-08-08
-**Branch:** `fix/2026-08-08-db-capacity-recovery`
-**Base:** `0536e75` (origin/main)
+**Date:** 2026-08-09  
+**Branch:** `fix/2026-08-08-db-capacity-recovery`  
+**Base:** `0536e75` (`origin/main`)
 
----
+## Incident evidence
 
-## Summary
+Render startup measured a **36.20 GB** PostgreSQL database with
+`public.security_events` at **36.19 GB** while normal product tables were measured
+in KB/MB. The live event-type composition has not yet been audited, so historical
+`api_request` telemetry remains the leading repository-supported hypothesis rather
+than a claimed production fact.
 
-This sprint repairs the deployment blocker caused by a 36.20 GB database (36.19 GB from `security_events` table containing unbounded `api_request` telemetry) and rebuilds the capacity guard to never confuse operator budgets with provider limits.
+Production Render remains **SUSPENDED**. This sprint performs no Render resume,
+Neon write, production migration, cleanup, or physical reclaim.
 
-**Production Render remains SUSPENDED. No production mutations performed.**
+## Delivered
 
----
+### Capacity guard
 
-## Changes
+`scripts/deploy/check-db-capacity.mjs` now distinguishes three concepts:
 
-### 1. Capacity Guard Redesign (`scripts/deploy/check-db-capacity.mjs`)
+- actual database size
+- optional explicit operator operational/spend budget
+- provider-reported capacity hint
 
-**Before:** Hardcoded 512 MB default → HARD_FAIL at 36 GB (362% of invented ceiling)
-**After:** No default budget → REPORT-ONLY mode when unset; explicit operator budget enables thresholds
+If no operator budget is configured, the gate is report-only. It never invents a
+512 MB/10 GiB ceiling. If a budget is present but malformed, the gate fails closed
+instead of silently disabling the operator limit. Provider hints are reported
+separately and never become the utilization denominator automatically.
 
-| Behavior | Before | After |
-|----------|--------|-------|
-| No `AXTASK_DB_SIZE_BUDGET_BYTES` | Invents 512 MB → HARD_FAIL | Reports size + provider hint, no failure |
-| Explicit budget set | Uses it | Uses it, labeled "OPERATOR BUDGET" |
-| Provider hint (`neon.max_cluster_size`) | Silent, may replace budget | Reported separately, labeled "PROVIDER HINT" |
-| Output | Human-only | Machine-readable JSON with all fields |
+### Read-only forensics
 
-**Machine-readable fields:**
-```json
-{
-  "dbSize": 36190000000,
-  "operatorBudget": 10737418240,
-  "operatorBudgetSource": "env:AXTASK_DB_SIZE_BUDGET_BYTES",
-  "providerHint": "16 TB",
-  "fraction": 3.37,
-  "utilizationPercent": "337.0",
-  "verdict": "hard_fail",
-  "reason": "Database size >= 90% of explicit operator budget.",
-  "level": "hard_fail",
-  "exitCode": 2
-}
-```
+`scripts/db-size-audit.mjs --forensics` reports `security_events` relation/heap/
+index/TOAST size, live/dead tuples, event-type counts/timestamps, suppression-trigger
+state, migration-9999 ledger state, and bloat evidence.
 
-### 2. Security Events Forensics (`scripts/db-size-audit.mjs --forensics`)
+### One-off containment
 
-New `--forensics` flag adds deep-dive for `security_events`:
-- Relation/heap/index/TOAST size breakdown
-- Estimated/live/dead row counts from `pg_stat_user_tables`
-- `event_type` counts with oldest/newest timestamps
-- Trigger `trg_suppress_api_request_security_events` existence + enabled status
-- Migration 9999 recorded status
-- Bloat analysis (avg tuple size, expected vs actual heap, dead tuple ratio)
-- Live-row vs dead-tuple bloat distinction
+`scripts/db-contain-api-request.mjs` is a new dry-run-by-default operator command.
+With explicit production/non-loopback authorization it installs/verifies only the
+`api_request` suppression function and trigger. It deletes no rows, invokes no
+general migration runner, bypasses no migration airlock, and does not forge the
+migration ledger.
 
-### 3. Targeted api_request Recovery (`scripts/db-reclaim-api-request.mjs`)
+### Targeted logical cleanup
 
-New safe alternative to `db-reclaim.mjs`:
+`scripts/db-reclaim-api-request.mjs` deletes only eligible
+`event_type='api_request'` rows. Each bounded DELETE batch commits independently;
+there is no encompassing giant transaction. CLI retention/batch parameters are
+validated and SQL parameters are bound.
 
-| Safety Feature | Implementation |
-|----------------|----------------|
-| Dry-run default | `--execute` required to mutate |
-| Explicit confirm | `--confirm=YES` required |
-| Production intent | `--prod` or `NODE_ENV=production` required |
-| Loopback only | Refuses non-loopback unless `--force-production` |
-| Preserves non-api_request | Verified before/after counts |
-| Batched deletion | 5000 rows/batch (configurable) |
-| Logical-only mode | `--logical-only` skips VACUUM FULL |
-| Retention window | `--retention-days=N` (default 1) |
-| Idempotent | Re-running deletes 0 rows |
+### Physical reclaim is separate
 
-### 4. Deployment Config Correction (`render.yaml`, `scripts/production-start.mjs`)
+`VACUUM FULL` is never a side effect of logical cleanup. It requires a separate
+`--vacuum-full --execute --confirm=VACUUM_FULL` maintenance-window invocation and
+refuses to run while eligible historical `api_request` rows remain.
 
-**render.yaml:**
-- Removed baked `AXTASK_DB_SIZE_BUDGET_BYTES=10737418240`
-- Added commented example with explicit operator guidance
-- Clear distinction: operator budget ≠ provider hint
+### Normal startup remains fail-closed
 
-**production-start.mjs:**
-- Added `AXTASK_DB_RECOVERY_MODE=true` for emergency containment
-- Recovery mode runs ONLY migration 9999 (suppresses api_request), exits without starting server
-- Capacity gate failure now suggests recovery mode
-- Normal startup order unchanged: env → capacity → migrations → drizzle → server
+An earlier draft added `AXTASK_DB_RECOVERY_MODE` to `production-start.mjs` and
+called the general migration runner with the migration airlock bypassed. Focused
+review rejected that design before PR creation because it could apply every pending
+migration while claiming to run only migration 9999.
 
-### 5. Test Coverage
+The hardened branch removes that mode entirely. Normal startup remains:
 
-| Test Suite | Command | Coverage |
-|------------|---------|----------|
-| Capacity gate contract | `npm run test:deploy:capacity-gate` | 11 scenarios |
-| DB audit forensics | `npm run test:deploy:db-audit-forensics` | Script guards |
-| Deployment config | `npm run test:deploy:deployment-config` | render.yaml + recovery mode |
-| Full deploy suite | `npm run test:deploy` | All gates |
+`environment -> explicit capacity policy -> normal migrations -> guarded Drizzle -> server`
 
-### 6. Documentation
+Recovery mutations are separate operator commands only.
 
-- `docs/DB_RECOVERY_RUNBOOK.md` — Complete R0–R9 recovery procedure
-- Exact commands, expected output, rollback, proof ceiling
-- AI harness integration notes
+### Render configuration
 
----
+- no baked `AXTASK_DB_SIZE_BUDGET_BYTES`
+- malformed explicit budgets fail closed in code
+- `autoDeploy: false` during the incident/re-entry window
+- `/health` remains DB-free
+- `SKIP_DB_PUSH_ON_START=true` remains intact
 
-## Validation
+## Tests
 
-```bash
-npm ci                    # Clean install
-npm run check             # TypeScript compile
-npm run test:deploy       # Full deploy test suite
-npm run build             # Production build
-```
+Focused contracts cover:
 
-All tests must pass locally against disposable PostgreSQL before any production action.
+- absent vs valid vs malformed explicit operator budgets
+- 75/85/90 threshold semantics
+- provider-hint separation
+- read-only forensics surface
+- strict loopback/non-loopback mutation gates
+- no URL logging
+- bounded independent delete batches
+- separate physical reclaim confirmation
+- no startup recovery/airlock bypass
+- one-off containment with no historical deletion
+- controlled Render auto-deploy posture
 
----
+The full repository CI remains authoritative for merge. Local handoff evidence before
+GitHub hardening reported TypeScript compile plus 140 deploy-contract tests passing;
+GitHub CI must rerun on the repaired exact head.
 
-## Migration Notes
+## Operator workflow
 
-**No schema migrations required.** Migration 9999 already exists on main and remains in force.
+`docs/DB_RECOVERY_RUNBOOK.md` defines R0–R9:
 
-**Operator action required for production:**
-1. Set `AXTASK_DB_SIZE_BUDGET_BYTES` in Render env to match actual Neon plan
-2. Run recovery procedure (R0–R7) against disposable local PostgreSQL first
-3. Only then authorize Render resume/deploy
+1. Render suspended
+2. read-only production forensics
+3. containment status decision
+4. backup/restore proof
+5. targeted logical cleanup if justified by R1
+6. physical reclaim only if needed and separately authorized
+7. capacity-policy rerun
+8. local production certification
+9. one controlled Render resume/deploy and observation
 
----
+The current Render 10 GiB environment value must not be treated as provider truth.
+After cleanup, remove it or replace it only if the operator deliberately chooses an
+operational/spend ceiling from current provider/budget evidence.
 
-## Rollback
+## Proof ceiling
 
-- Logical cleanup is idempotent and safe to re-run
-- Physical reclaim (`VACUUM FULL`) requires backup restoration (R3)
-- Migration 9999 trigger must NEVER be dropped — it's the containment safety boundary
-
----
-
-## Files Changed
-
-```
-scripts/deploy/check-db-capacity.mjs          # Redesigned capacity gate
-scripts/db-size-audit.mjs                     # Added --forensics mode
-scripts/db-reclaim-api-request.mjs            # NEW: Targeted recovery script
-scripts/production-start.mjs                  # Added recovery mode
-render.yaml                                   # Removed baked budget, added guidance
-package.json                                  # Added test scripts
-tests/deploy/11-capacity-gate/                # NEW: Capacity gate tests
-tests/deploy/12-db-audit-forensics/           # NEW: Forensics/recovery tests
-tests/deploy/13-deployment-config/            # NEW: Deployment config tests
-docs/DB_RECOVERY_RUNBOOK.md                   # NEW: Operator runbook
-```
-
----
-
-## Next Steps (Operator)
-
-1. Review `docs/DB_RECOVERY_RUNBOOK.md`
-2. Provision disposable local PostgreSQL
-3. Seed with `security_events` (api_request + meaningful audit rows)
-4. Run R1–R7 locally to prove recovery path
-5. Set `AXTASK_DB_SIZE_BUDGET_BYTES` in Render to match Neon plan
-6. Authorize single Render resume/deploy
-7. Observe 24h (R9)
+Repository/CI and disposable-local evidence only. This branch cannot claim live
+production event composition, backup success, cleanup, physical shrink, deployment,
+or production acceptance.
