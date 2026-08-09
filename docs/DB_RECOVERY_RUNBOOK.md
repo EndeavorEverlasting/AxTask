@@ -1,215 +1,264 @@
 # AxTask Database Recovery Runbook
-## Production Database Capacity Emergency — 36.20 GB security_events Bloat
 
-**Incident Date:** 2026-08-08
-**Status:** Render SUSPENDED — DO NOT RESUME
-**Root Cause:** Unbounded `api_request` telemetry writes to `security_events` (36.19 GB of 36.20 GB total)
+## Production database capacity incident
 
----
+**Incident date:** 2026-08-09  
+**Current provider state:** Render web service suspended by operator  
+**Production mutation status:** none performed by this repository sprint
 
-## A. Diagnosis
+## Verified live evidence
 
-### Evidence
-```
-Total database size: 36.20 GB
-security_events: 36.19 GB (99.97%)
-All other tables: < 1 MB each
-```
+The failed Render startup reported:
 
-### Root Cause Analysis
-- **NOT** repository image size (Git/Docker assets are ~MB)
-- **IS** PostgreSQL database storage bloat from `security_events` table
-- `event_type='api_request'` rows: one per normal `/api/*` response
-- Migration `9999_disable_api_request_security_events.sql` suppresses NEW inserts but logical DELETE does not physically shrink storage
-- Capacity gate (`check-db-capacity.mjs`) compared against hardcoded 512 MB default, not actual Neon plan
+- database size: **36.20 GB**
+- `public.security_events`: **36.19 GB**
+- `public.tasks`: **0.4 MB**
+- `public.coin_transactions`: **0.2 MB**
+- other listed application tables: roughly **0.1–0.2 MB each**
+- `neon.max_cluster_size`: **16TB** provider hint
+- capacity gate compared the database against an explicitly configured **10.00 GB operator budget** and hard-failed
 
-### Key Distinction
-| Concept | Value | Source |
-|---------|-------|--------|
-| Git/Docker assets | ~50 MB | Repository |
-| PostgreSQL database | 36.20 GB | `pg_database_size()` |
-| Operator budget | 10 GB (example) | `AXTASK_DB_SIZE_BUDGET_BYTES` (must be explicit) |
-| Provider hint | 16 TB | `neon.max_cluster_size` |
+This proves the deployment blocker is PostgreSQL storage concentrated in
+`security_events`. It does **not** yet prove which `event_type` accounts for the
+live rows. Repository history makes historical `api_request` telemetry the leading
+hypothesis, but R1 must verify the production event mix before deletion.
 
----
+Repository/Docker assets are not included in `pg_database_size()` unless the
+application separately stored those bytes inside PostgreSQL.
 
-## B. Explicit Distinction: Git/Docker ≠ PostgreSQL Storage
+## Recovery rules
 
-```
-Repository (Git)          PostgreSQL Database
-─────────────────         ───────────────────
-Source code               Tables + indexes
-Dockerfile                WAL files
-Assets                    TOAST tables
-~MB                       ~GB (unbounded without retention)
-```
+- Keep Render suspended through R7.
+- Do not use `AXTASK_SKIP_DB_CAPACITY_CHECK` as a shortcut.
+- Do not run `db:push` or general production migrations to escape the incident.
+- Do not truncate `security_events`.
+- Do not delete any non-`api_request` security event as part of this recovery.
+- Do not treat `neon.max_cluster_size` as a billing-plan allowance.
+- Do not reuse 10 GiB as an operator budget merely because an old repository
+  comment used that number.
+- Normal `scripts/production-start.mjs` never performs recovery mutations.
 
-**Never** confuse:
-- `docker build` size → build artifact
-- `git clone` size → source history
-- `pg_database_size()` → actual database footprint
+## R0 — Render suspended
 
----
+**Gate:** production web service is visibly `Suspended`; auto-deploy is off.
 
-## C. Recovery Gates (R0–R9)
+Repository `render.yaml` also keeps `autoDeploy: false` during this recovery so a
+merge to `main` cannot be treated as deployment authorization.
 
-### R0: Render Suspended ✓
-- [ ] Render service `axtask-prod` is **Suspended** in dashboard
-- [ ] No auto-deploy can trigger
-- [ ] `/health` probe will fail (expected)
+## R1 — read-only production forensics
 
-### R1: Read-Only Production Audit
+Run only after loading `DATABASE_URL` through the operator's normal secret path:
+
 ```bash
-# Run against production DATABASE_URL (READ-ONLY)
 node scripts/db-size-audit.mjs --forensics --json > production-audit.json
 ```
-**Expected output:**
-- `security_events` relation size: ~36 GB
-- `event_type` breakdown showing `api_request` dominant
-- `trg_suppress_api_request_security_events`: exists, enabled=O
-- `migration 9999`: RECORDED in `applied_sql_migrations`
-- Dead tuple ratio: low (live-row bloat, not dead-tuple bloat)
 
-### R2: Containment Verified ✓
-- [ ] Migration 9999 applied (trigger suppresses NEW `api_request` inserts)
-- [ ] Application-side gate `SECURITY_API_REQUEST_LOGGING` is `false` (default)
-- [ ] No new `api_request` rows being written
+The audit is SELECT-only. Preserve the resulting artifact outside Git if it contains
+operational metadata that should not be committed.
 
-### R3: Backup/Rollback Evidence
+Required evidence:
+
+- total DB size
+- `security_events` relation/heap/index/TOAST size
+- estimated live/dead tuples
+- event-type counts and oldest/newest timestamps
+- state of `trg_suppress_api_request_security_events`
+- whether migration `9999_disable_api_request_security_events.sql` is recorded
+
+**Decision:** do not perform targeted cleanup unless R1 confirms that
+`api_request` is the removable historical class.
+
+## R2 — containment status
+
+If R1 shows `trg_suppress_api_request_security_events` exists and is enabled,
+containment is already present; record that evidence and do not mutate it.
+
+If the trigger is missing or disabled, do not use normal startup to repair it.
+After R3 backup/rollback evidence exists, use the one-off containment tool.
+
+Dry run:
+
 ```bash
-# Create verified backup before any mutation
-npm run db:backup:preflight  # Verifies backup can be created
-npm run db:backup            # Creates encrypted, compressed dump
+node scripts/db-contain-api-request.mjs --json
 ```
-**Verify:** `npm run db:restore:test` against disposable local PostgreSQL
 
-### R4: Targeted Logical Cleanup (api_request only)
+Authorized non-loopback execution:
+
 ```bash
-# DRY RUN FIRST
-node scripts/db-reclaim-api-request.mjs --dry-run --retention-days=1
-
-# EXECUTE (requires explicit confirmation)
-node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --retention-days=1
+node scripts/db-contain-api-request.mjs --execute --confirm=CONTAIN_API_REQUEST --prod --force-production --json
 ```
-**Safety guarantees:**
-- ONLY deletes `event_type='api_request'` rows older than 1 day
-- PRESERVES all other security events (auth, admin, archetype, etc.)
-- Batched deletion (5000 rows/batch) — no long-running transaction
-- Emits before/after counts
-- Verifies non-api_request count unchanged
 
-### R5: Physical Reclaim (if required)
+That command installs/verifies only the suppression function and trigger. It:
+
+- deletes no historical rows
+- does not invoke the general migration runner
+- does not bypass the migration airlock
+- does not modify `applied_sql_migrations`
+- does not start AxTask
+
+## R3 — backup and rollback proof
+
+Before any production deletion or DDL recovery action:
+
 ```bash
-# Only if logical cleanup doesn't shrink database enough
-node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --retention-days=1
-# (VACUUM FULL runs automatically unless --logical-only)
+npm run db:backup:preflight
+npm run db:backup
 ```
-**Warning:** `VACUUM FULL` requires exclusive lock on `security_events` — downtime for writes to that table.
 
-**Alternative (Neon):** Neon's `pg_repack` or storage compaction may be safer — investigate before `VACUUM FULL`.
+Then restore the backup into a disposable local PostgreSQL instance and run the
+repository's restore verification workflow.
 
-### R6: Capacity Gate Rerun
+**Gate:** a current backup exists and a disposable restore proof is recorded.
+
+## R4 — targeted logical cleanup
+
+Only after R1 confirms historical `api_request` rows are the removable class and
+R2/R3 are complete.
+
+Dry run first:
+
+```bash
+node scripts/db-reclaim-api-request.mjs --retention-days=1 --json
+```
+
+Authorized non-loopback logical cleanup:
+
+```bash
+node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --force-production --retention-days=1 --json
+```
+
+Safety properties:
+
+- deletes only `event_type='api_request'` older than the selected retention window
+- each bounded DELETE batch commits independently
+- default batch size is 5000 and is bounded by the CLI validator
+- verifies non-`api_request` count is unchanged
+- never runs `VACUUM FULL` as a side effect
+- never prints `DATABASE_URL`
+
+Re-run the R1 audit after logical cleanup.
+
+## R5 — physical reclaim, only if needed
+
+Logical DELETE makes pages reusable inside PostgreSQL but may not reduce the
+physical relation enough for the chosen operational policy.
+
+First run the physical-reclaim dry run:
+
+```bash
+node scripts/db-reclaim-api-request.mjs --vacuum-full --json
+```
+
+If physical shrink is still required, choose the provider-supported maintenance
+method after reviewing current Neon guidance. `VACUUM FULL` requires an exclusive
+lock and is therefore a separate maintenance-window operation, never an automatic
+follow-on to deletion.
+
+Repository command, only when explicitly authorized:
+
+```bash
+node scripts/db-reclaim-api-request.mjs --vacuum-full --execute --confirm=VACUUM_FULL --prod --force-production --json
+```
+
+The command refuses physical reclaim while eligible historical `api_request` rows
+remain.
+
+## R6 — capacity policy and gate
+
+Run:
+
 ```bash
 node scripts/deploy/check-db-capacity.mjs
 ```
-**Expected:** Level OK or WARN (no longer HARD_FAIL)
 
-### R7: Local Production Certification
+Interpretation:
+
+- **budget unset:** report-only; actual size and provider hint are reported
+- **valid explicit budget:** 75/85/90% warn/soft/hard thresholds apply
+- **malformed explicit budget:** fatal configuration error; the limit is not silently disabled
+- provider hint is informational and never becomes the denominator automatically
+
+`AXTASK_DB_SIZE_BUDGET_BYTES` is an operator-selected operational/spend ceiling,
+not a discovered Neon physical limit. If the current Render value was added from
+the obsolete 10 GiB assumption, remove it or replace it only after the operator
+deliberately chooses a current threshold from provider/budget evidence.
+
+## R7 — local production certification
+
+Against disposable local PostgreSQL:
+
 ```bash
-# Against disposable local PostgreSQL seeded with production-like data
 AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs
 ```
-**Must pass:** `/health`, `/ready`, `/` serves client shell
 
-### R8: Authorized Single Render Resume/Deploy
-- [ ] Operator explicitly authorizes
-- [ ] `AXTASK_DB_SIZE_BUDGET_BYTES` set in Render env to match Neon plan (e.g., 10737418240 for 10 GB)
-- [ ] Resume Render service → triggers deploy
-- [ ] Deploy runs: env gate → capacity gate (now passes) → migrations → server
+Also run the repository deploy validators and build. Local evidence must prove:
 
-### R9: Observation Window
-- [ ] Monitor `/api/admin/db-size` (admin + step-up) for 24h
-- [ ] Verify `api_request` count stops advancing
-- [ ] Verify `api_error` (5xx) still records and notifies admins
-- [ ] Verify retention cron (`db-retention.mjs`) runs nightly
+- production launcher starts against disposable PostgreSQL
+- `/health` returns 200 without DB dependency
+- `/ready` returns 200 against disposable DB
+- client shell serves
+- recovery scripts remain fail-closed and production-inert by default
 
----
+Proof ceiling remains **local-runtime**.
 
-## D. Exact Commands, Expected Output, Rollback, Proof Ceiling
+## R8 — one authorized Render resume/deploy
 
-### Command: Production Audit
-```bash
-DATABASE_URL=<prod-url> node scripts/db-size-audit.mjs --forensics --json
-```
-**Expected JSON keys:** `database`, `topTables`, `securityEventsForensics.{relationSize,heapSize,eventTypeCounts,triggerExists,migration9999Recorded,bloatAnalysis}`
+Prerequisites:
 
-### Command: Targeted Cleanup (Dry Run)
-```bash
-DATABASE_URL=<local-disposable-url> node scripts/db-reclaim-api-request.mjs --dry-run --retention-days=1
-```
-**Expected:** `dryRun: true`, `deleted: <count>`, `vacuumFull: true`
+- R0–R7 recorded
+- exact `main` SHA recorded
+- Render branch = `main`
+- health check = `/health`
+- auto-deploy remains off for the recovery window
+- environment gate verified
+- capacity-policy decision recorded
+- operator explicitly authorizes one live attempt
 
-### Command: Targeted Cleanup (Execute)
-```bash
-DATABASE_URL=<local-disposable-url> node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --retention-days=1
-```
-**Expected:** `dryRun: false`, `deleted: <count>`, `after.nonApiRequest === before.nonApiRequest`
+Resume once and observe logs. Do not queue a second deploy if resume already starts
+one.
 
-### Command: Recovery Mode Startup
-```bash
-AXTASK_DB_RECOVERY_MODE=true npm run start
-```
-**Expected:** Runs migration 9999 only, exits 0, prints next steps
+Expected startup order:
 
-### Rollback Procedure
-1. **Logical cleanup:** Idempotent — re-running deletes 0 additional rows
-2. **Physical reclaim:** `VACUUM FULL` not reversible — rely on backup (R3)
-3. **Migration 9999:** NEVER drop trigger during rollback — it's the safety boundary
-
-### Proof Ceiling
-| Step | Proof Level |
-|------|-------------|
-| R1 Audit | Repository evidence |
-| R3 Backup | Repository + local restore test |
-| R4 Cleanup | Local disposable PostgreSQL |
-| R7 Cert | Local-runtime proof |
-| R8 Deploy | Deployment authorization (operator) |
-| R9 Observe | Live-runtime proof (24h) |
-
-**This runbook establishes repository evidence only.** Live deployment requires separate operator authorization.
-
----
-
-## E. AI Harness Integration
-
-This recovery workflow is a **special workflow** that cannot be claimed complete from repository tests alone.
-
-### Harness Registration
-```json
-{
-  "id": "axtask.db-recovery.v1",
-  "trigger": "capacity-emergency",
-  "workflow": "axtask.failure-recovery.v1",
-  "requiredGates": ["R1", "R3", "R4", "R6", "R7"],
-  "proofCeiling": "local-runtime"
-}
+```text
+Environment gate
+DB capacity gate
+SQL migrations
+Drizzle push skipped on Render/non-interactive startup
+server start
+/health 200
 ```
 
-### Validator Updates
-- `test:deploy:capacity-gate` — verifies gate contract
-- `test:deploy:db-audit-forensics` — verifies audit script contract
-- `test:deploy:deployment-config` — verifies recovery mode wiring
-- `predeploy-cost-readiness` — must emit `NOT_READY_REPOSITORY` until R7 passes
+## R9 — observation window
 
----
+After live recovery:
 
-## Next Production Command (DO NOT EXECUTE)
+- verify `api_request` count does not advance
+- verify meaningful `api_error`/auth/admin events still work
+- verify DB size trend is stable
+- verify scheduled retention behavior
+- decide separately whether/when to re-enable auto-deploy
 
-```bash
-# After R7 passes and operator authorizes:
-# 1. Set AXTASK_DB_SIZE_BUDGET_BYTES=10737418240 in Render env
-# 2. Resume Render service 'axtask-prod'
-# 3. Monitor deploy logs for: [db-capacity] Level: OK
-```
+## Rollback boundaries
 
-**This command is documented for operator use only. Do not execute from this repository.**
+- containment trigger installation is idempotent; do not drop it during an app rollback
+- targeted logical cleanup is destructive and depends on R3 backup for rollback
+- `VACUUM FULL` is not a data rollback mechanism; it is physical compaction after logical cleanup
+- normal migrations continue to own `applied_sql_migrations`; recovery scripts do not forge migration state
+
+## Proof ceiling
+
+Repository tests can prove the tools and safety contracts. They cannot prove:
+
+- current production event composition
+- successful backup/restore
+- production cleanup
+- production physical reclaim
+- deployment completion
+- live observation
+
+Those require R1/R3/R4/R5/R8/R9 evidence respectively.
+
+## Next production action after this branch is merged
+
+**R1 only:** keep Render suspended and run the read-only forensics audit. Do not
+perform containment or deletion until the audit result is reviewed.
