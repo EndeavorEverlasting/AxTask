@@ -5,9 +5,7 @@ This project is safe to **run and test live on your machine** (local dev server,
 Risk appears when you **push commits to the remote branch that your hosting or CI/CD treats as production** (or as the automatic deploy target). A push there can trigger builds, releases, or simply merge unfinished work into the line everyone else assumes is stable.
 
 > **AxTask / Render specifics.** During the active database-recovery window,
-> `render.yaml` is configured with `autoDeploy: false`. `main` remains the
-> accepted production source branch, but a merge to `main` must **not** be
-> interpreted as authorization to resume or deploy the suspended Render service.
+> `render.yaml` is configured with `autoDeploy: false`. `main` remains the accepted production source branch, but a merge to `main` must **not** be interpreted as authorization to resume or deploy the suspended Render service.
 > Recovery follows `docs/DB_RECOVERY_RUNBOOK.md` R0–R9, with an explicit operator
 > gate before the single live resume/deploy attempt. Safety in normal startup is
 > still delegated to [`scripts/production-start.mjs`](../scripts/production-start.mjs):
