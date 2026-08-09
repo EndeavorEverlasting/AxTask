@@ -1,0 +1,32 @@
+name: Repo Ledger Adoption
+
+on:
+  pull_request:
+    paths:
+      - '.ai/repo-ledger-adoption.json'
+      - '.ai/WORK_QUEUE.md'
+      - 'scripts/ai-harness/validate-work-queue.mjs'
+      - 'scripts/ai-harness/validate-repo-ledger-adoption.mjs'
+      - '.github/workflows/repo-ledger-adoption.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.ai/repo-ledger-adoption.json'
+      - '.ai/WORK_QUEUE.md'
+      - 'scripts/ai-harness/validate-work-queue.mjs'
+      - 'scripts/ai-harness/validate-repo-ledger-adoption.mjs'
+      - '.github/workflows/repo-ledger-adoption.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate AxTask work queue and shared adoption pin
+        run: node scripts/ai-harness/validate-repo-ledger-adoption.mjs
+      - name: Check patch whitespace
+        run: git diff --check
