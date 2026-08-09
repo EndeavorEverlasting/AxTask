@@ -10,20 +10,17 @@
  * are detected. Render/Docker startup is non-interactive, so that class of
  * prompt can crash deploys before the app binds.
  *
+ * Database recovery is intentionally NOT a startup mode. A failed capacity gate
+ * leaves normal startup fail-closed. Read-only forensics, one-off containment,
+ * targeted logical cleanup, and physical reclaim are separate operator commands
+ * documented in docs/DB_RECOVERY_RUNBOOK.md. This prevents a Render restart from
+ * silently bypassing the migration airlock or performing destructive recovery.
+ *
  * Default production posture:
  *   SKIP_DB_PUSH_ON_START=true, Render detection, or non-interactive terminal → skip drizzle-kit push.
  *
  * Operator override only:
  *   AXTASK_ALLOW_DB_PUSH_ON_START=true
- *
- * RECOVERY MODE:
- *   AXTASK_DB_RECOVERY_MODE=true — runs ONLY the containment migration (9999)
- *   to suppress api_request telemetry, then exits. Does NOT start the server.
- *   Requires explicit operator intent. Cannot be activated accidentally.
- *   Use when capacity gate blocks normal startup but containment migration
- *   must run to stop the bleed.
- *
- * See docs/SCHEMA_EVOLUTION_PIPELINE.md for the schema evolution model.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -46,9 +43,6 @@ const nonInteractive = process.stdin.isTTY !== true || process.stdout.isTTY !== 
 const shouldSkipDbPush =
   explicitSkipDbPush || (!explicitAllowDbPush && (runningOnRender || nonInteractive));
 
-// RECOVERY MODE: explicit operator-invoked containment migration only
-const recoveryMode = process.env.AXTASK_DB_RECOVERY_MODE === "true";
-
 if (!existsSync(distIndex)) {
   console.error("[production-start] dist/index.js not found. Run npm run build first.");
   process.exit(1);
@@ -65,36 +59,11 @@ if (envGate.status !== 0) {
   process.exit(envGate.status ?? 1);
 }
 
-if (recoveryMode) {
-  console.warn("[production-start] RECOVERY MODE: AXTASK_DB_RECOVERY_MODE=true");
-  console.warn("[production-start] Running containment migration ONLY (9999_disable_api_request_security_events.sql)");
-  console.warn("[production-start] This mode is for emergency capacity recovery — server will NOT start.");
-
-  // In recovery mode, skip the capacity gate to allow the containment migration to run
-  // The containment migration (9999) suppresses new api_request inserts and deletes old ones
-  console.log("[production-start] SQL migrations (apply-migrations.mjs) — containment only…");
-  const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs")], {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...process.env, MIGRATION_SKIP_AIRLOCK: "true" }, // Allow without backup in recovery
-  });
-  if (m.status !== 0) process.exit(m.status ?? 1);
-
-  console.log("[production-start] Containment migration applied. Exiting recovery mode.");
-  console.log("[production-start] Next steps:");
-  console.log("[production-start]  1. Run targeted api_request cleanup: node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod");
-  console.log("[production-start]  2. Re-run capacity gate: node scripts/deploy/check-db-capacity.mjs");
-  console.log("[production-start]  3. Resume normal deploy.");
-  process.exit(0);
-}
-
-// DB capacity gate (Phase J): runs BEFORE migrations. This catches the
-// Neon 512 MB failure class that killed a prior manual deploy *before* we
-// start modifying the schema, so a capacity miss is a clean abort rather
-// than a half-migrated database. Exit codes: 0 ok, 1 soft fail
-// (ACK-able via AXTASK_DB_CAPACITY_ACK=1), 2 hard fail (never proceeds).
-// Skippable with AXTASK_SKIP_DB_CAPACITY_CHECK=true — use only when you
-// have already verified capacity out-of-band.
+// Capacity is evaluated only against an explicit operator budget. Provider hints
+// are reported separately and never become an invented billing/physical limit.
+// The gate runs before migrations so a deliberate operator limit fails cleanly
+// before schema mutation. Recovery from a capacity incident is a separate,
+// operator-invoked workflow and is never performed by normal startup.
 if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
   console.warn("[production-start] AXTASK_SKIP_DB_CAPACITY_CHECK=true — skipping DB capacity gate.");
 } else {
@@ -108,8 +77,12 @@ if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
     console.error(
       `[production-start] DB capacity gate exited with status ${cap.status} — aborting before migrations.`,
     );
-    console.error("[production-start] If this is a capacity emergency caused by api_request telemetry bloat,");
-    console.error("[production-start] run recovery mode: AXTASK_DB_RECOVERY_MODE=true npm run start");
+    console.error(
+      "[production-start] Keep production suspended. Run: node scripts/db-size-audit.mjs --forensics",
+    );
+    console.error(
+      "[production-start] If api_request containment is missing, use the one-off db-contain-api-request.mjs workflow only after operator authorization.",
+    );
     process.exit(cap.status ?? 1);
   }
 }
@@ -145,8 +118,6 @@ if (shouldSkipDbPush) {
     stdio: ["ignore", "inherit", "pipe"],
     env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
   });
-  // Suppress harmless TTY warning from drizzle-kit spinners/prompts in non-interactive CI.
-  // Fatal prompt failures still return non-zero and stop startup unless explicitly skipped.
   if (p.stderr) {
     const stderrStr = p.stderr.toString("utf8");
     const filtered = stderrStr
