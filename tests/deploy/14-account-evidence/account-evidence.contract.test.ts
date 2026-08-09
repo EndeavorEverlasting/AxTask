@@ -21,6 +21,16 @@ describe("[14-account-evidence] exporter safety contract", () => {
     expect(source).toContain("ROLLBACK");
   });
 
+  it("makes the resolved account identity artifact mandatory before generic discovery", () => {
+    expect(source).toContain('const identityOutputFile = path.join(exportDir, "users.jsonl")');
+    expect(source).toContain("SELECT * FROM public.users WHERE id = current_setting('axtask.evidence_user_id') ORDER BY id");
+    expect(source).toContain('linkingPaths: ["users.id=resolved-account"]');
+    expect(source).toContain("identityArtifact.rowCount !== 1");
+    expect(source).toContain("resolved account identity export must contain exactly one users row");
+    expect(source).toContain('if (tableName === "users") continue');
+    expect(source).toContain("identityArtifact:");
+  });
+
   it("discovers only public base tables and records every non-exported table", () => {
     expect(source).toContain("t.table_type = 'BASE TABLE'");
     expect(source).toContain("c.table_schema = 'public'");
