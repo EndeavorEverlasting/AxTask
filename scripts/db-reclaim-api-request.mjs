@@ -2,7 +2,9 @@
 /**
  * Targeted api_request telemetry cleanup for security_events.
  *
- * Logical cleanup and physical reclaim are deliberately separate operations:
+ * Logical cleanup and physical reclaim are deliberately separate operations.
+ * Production execution assumes the application service is suspended and requires
+ * the api_request suppression trigger to be origin-active before and after work.
  *
  *   # read-only dry run (default)
  *   node scripts/db-reclaim-api-request.mjs --retention-days=1
@@ -19,11 +21,12 @@
  *   - non-loopback mutation additionally requires --force-production
  *   - logical cleanup requires --confirm=YES
  *   - physical reclaim requires --vacuum-full AND --confirm=VACUUM_FULL
+ *   - production mutation requires origin-active api_request containment
  *   - VACUUM FULL never runs as a side effect of logical cleanup
  *   - never TRUNCATEs security_events and never drops indexes
  *   - never logs DATABASE_URL, even masked
  *   - deletes only event_type='api_request' rows older than the retention window
- *   - verifies the non-api_request row count is unchanged
+ *   - non-api_request counts are observational, not treated as an atomic snapshot
  *
  * Env: DATABASE_URL (required)
  */
@@ -87,7 +90,6 @@ function isLoopbackDatabase(url) {
 
 function assertMutationAuthorized(url) {
   if (dryRun) return;
-
   const expectedConfirmation = physicalReclaim ? "VACUUM_FULL" : "YES";
   if (confirm !== expectedConfirmation) {
     throw new Error(
@@ -110,7 +112,7 @@ async function getCounts(client) {
        COUNT(*)::bigint AS total,
        COUNT(*) FILTER (WHERE event_type = 'api_request')::bigint AS api_request_total,
        COUNT(*) FILTER (WHERE event_type IS DISTINCT FROM 'api_request')::bigint AS non_api_request
-     FROM security_events`,
+     FROM public.security_events`,
   );
   return {
     total: Number(rows[0].total),
@@ -122,7 +124,7 @@ async function getCounts(client) {
 async function getEligibleApiRequestCount(client, days) {
   const { rows } = await client.query(
     `SELECT COUNT(*)::bigint AS count
-       FROM security_events
+       FROM public.security_events
       WHERE event_type = 'api_request'
         AND created_at < now() - ($1::int * interval '1 day')`,
     [days],
@@ -137,6 +139,31 @@ async function getRelationSize(client) {
   return Number(rows[0].bytes);
 }
 
+async function getContainmentState(client) {
+  const { rows } = await client.query(
+    `SELECT tgenabled
+       FROM pg_trigger
+      WHERE tgrelid = 'public.security_events'::regclass
+        AND tgname = 'trg_suppress_api_request_security_events'
+        AND NOT tgisinternal`,
+  );
+  if (rows.length === 0) return { exists: false, enabled: false, code: null };
+  const code = rows[0].tgenabled;
+  return {
+    exists: true,
+    enabled: ["O", "A"].includes(code),
+    code,
+  };
+}
+
+function assertContainmentActive(state, phase) {
+  if (!state.exists || !state.enabled) {
+    throw new Error(
+      `refusing ${phase}: api_request containment trigger is not origin-active (exists=${state.exists} code=${state.code ?? "n/a"}); run R2 containment first`,
+    );
+  }
+}
+
 async function runBatchedDelete(client, days, size) {
   let totalDeleted = 0;
   let batchNumber = 0;
@@ -146,10 +173,10 @@ async function runBatchedDelete(client, days, size) {
     // Intentionally no encompassing BEGIN/COMMIT: each bounded DELETE statement
     // commits independently so millions of rows do not become one giant transaction.
     const result = await client.query(
-      `DELETE FROM security_events
+      `DELETE FROM public.security_events
         WHERE ctid IN (
           SELECT ctid
-            FROM security_events
+            FROM public.security_events
            WHERE event_type = 'api_request'
              AND created_at < now() - ($1::int * interval '1 day')
            LIMIT $2
@@ -169,7 +196,7 @@ async function runBatchedDelete(client, days, size) {
 
 async function runVacuumFull(client) {
   log(
-    "[reclaim-api-request] VACUUM FULL requested explicitly; this requires an exclusive table lock.",
+    "[reclaim-api-request] VACUUM FULL requested explicitly; PostgreSQL will acquire an exclusive table lock for the rewrite.",
   );
   await client.query("VACUUM FULL public.security_events");
 }
@@ -181,7 +208,6 @@ function emitReport(report) {
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
-
   assertMutationAuthorized(url);
 
   log(
@@ -194,24 +220,28 @@ async function main() {
     const before = await getCounts(client);
     const eligibleBefore = await getEligibleApiRequestCount(client, retentionDays);
     const sizeBefore = await getRelationSize(client);
+    const containmentBefore = await getContainmentState(client);
 
     if (dryRun) {
       const report = {
         dryRun: true,
         mode: physicalReclaim ? "physical-reclaim" : "logical-cleanup",
+        containment: containmentBefore,
         before: { ...before, eligibleApiRequest: eligibleBefore, relationBytes: sizeBefore },
         wouldDelete: physicalReclaim ? 0 : eligibleBefore,
         wouldVacuumFull: physicalReclaim,
-        nonApiRequestPreserved: before.nonApiRequest,
+        verificationSemantics: "Counts are observational; mutation mode requires containment to stay origin-active.",
       };
       log(
         physicalReclaim
-          ? "[reclaim-api-request] DRY RUN: would run VACUUM FULL only; no rows would be deleted."
-          : `[reclaim-api-request] DRY RUN: would delete ${eligibleBefore} eligible api_request rows in batches; VACUUM FULL would NOT run.`,
+          ? "[reclaim-api-request] DRY RUN: would require active containment and zero eligible rows, then run VACUUM FULL only."
+          : `[reclaim-api-request] DRY RUN: would require active containment and delete ${eligibleBefore} eligible api_request rows in independent batches.`,
       );
       emitReport(report);
       return 0;
     }
+
+    assertContainmentActive(containmentBefore, physicalReclaim ? "physical reclaim" : "logical cleanup");
 
     if (physicalReclaim) {
       if (eligibleBefore > 0) {
@@ -220,50 +250,66 @@ async function main() {
         );
       }
       await runVacuumFull(client);
-      const sizeAfter = await getRelationSize(client);
-      const after = await getCounts(client);
-      if (after.nonApiRequest !== before.nonApiRequest) {
+      const containmentAfter = await getContainmentState(client);
+      const eligibleAfter = await getEligibleApiRequestCount(client, retentionDays);
+      assertContainmentActive(containmentAfter, "physical reclaim verification");
+      if (eligibleAfter !== 0) {
         throw new Error(
-          `non-api_request count changed during physical reclaim: before=${before.nonApiRequest} after=${after.nonApiRequest}`,
+          `physical reclaim completed but ${eligibleAfter} eligible api_request rows are present; containment/maintenance coordination changed during the operation`,
         );
       }
+      const sizeAfter = await getRelationSize(client);
+      const after = await getCounts(client);
       emitReport({
         dryRun: false,
         mode: "physical-reclaim",
-        before: { ...before, relationBytes: sizeBefore },
-        after: { ...after, relationBytes: sizeAfter },
+        containmentBefore,
+        containmentAfter,
+        before: { ...before, eligibleApiRequest: eligibleBefore, relationBytes: sizeBefore },
+        after: { ...after, eligibleApiRequest: eligibleAfter, relationBytes: sizeAfter },
         deleted: 0,
         vacuumFull: true,
+        verificationSemantics: "Containment and zero eligible rows were rechecked after the exclusive rewrite.",
       });
       return 0;
     }
 
     const deleted = await runBatchedDelete(client, retentionDays, batchSize);
+    const containmentAfter = await getContainmentState(client);
     const after = await getCounts(client);
     const eligibleAfter = await getEligibleApiRequestCount(client, retentionDays);
     const sizeAfter = await getRelationSize(client);
 
-    if (after.nonApiRequest !== before.nonApiRequest) {
+    assertContainmentActive(containmentAfter, "logical cleanup verification");
+    if (eligibleAfter !== 0) {
       throw new Error(
-        `non-api_request count changed: before=${before.nonApiRequest} after=${after.nonApiRequest}`,
+        `logical cleanup did not converge: ${eligibleAfter} eligible api_request rows remain; committed batches are idempotent and the cleanup can be retried after containment is rechecked`,
       );
     }
-    if (eligibleAfter !== 0) {
-      throw new Error(`logical cleanup incomplete: ${eligibleAfter} eligible api_request rows remain`);
+
+    const nonApiDelta = after.nonApiRequest - before.nonApiRequest;
+    if (nonApiDelta !== 0) {
+      log(
+        `[reclaim-api-request] NOTE: non_api_request count changed by ${nonApiDelta}; this command's DELETE predicate cannot target those rows, so the delta is treated as concurrent external activity rather than an atomic preservation check.`,
+      );
     }
 
     log(
-      `[reclaim-api-request] VERIFIED deleted=${deleted} non_api_request_preserved=${after.nonApiRequest}`,
+      `[reclaim-api-request] VERIFIED deleted=${deleted} eligible_after=0 containment=${containmentAfter.code}`,
     );
     emitReport({
       dryRun: false,
       mode: "logical-cleanup",
+      containmentBefore,
+      containmentAfter,
       before: { ...before, eligibleApiRequest: eligibleBefore, relationBytes: sizeBefore },
       after: { ...after, eligibleApiRequest: eligibleAfter, relationBytes: sizeAfter },
+      nonApiRequestDelta: nonApiDelta,
       deleted,
       vacuumFull: false,
       retentionDays,
       batchSize,
+      verificationSemantics: "Each DELETE can only target api_request; non-api counts remain observational under concurrency.",
     });
     return 0;
   } finally {
