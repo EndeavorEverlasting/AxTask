@@ -14,8 +14,8 @@
  *   AXTASK_DB_SIZE_BUDGET_BYTES    - Operator budget in bytes (optional).
  *                                    When set, enables threshold classification.
  *                                    When unset, gate is REPORT-ONLY.
- *                                    When present but malformed, the gate fails
- *                                    closed with exit 3 instead of silently
+ *                                    When present but malformed/empty, the gate
+ *                                    fails closed with exit 3 instead of silently
  *                                    disabling the operator limit.
  *   AXTASK_DB_CAPACITY_ACK         - "1" to acknowledge a soft-fail warning
  *                                    and let a deploy proceed. Only relevant
@@ -90,7 +90,9 @@ async function fetchNeonClusterHint(client) {
 }
 
 function normalizeBudget(raw, source) {
-  if (raw === undefined || raw === null || raw === "") return null;
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
+    throw new Error(`${source} is explicitly configured but empty; unset it for report-only mode or provide a positive byte count`);
+  }
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`${source} must be a positive finite byte count; received ${JSON.stringify(raw)}`);
@@ -99,10 +101,9 @@ function normalizeBudget(raw, source) {
 }
 
 function parseBudget() {
-  return normalizeBudget(
-    process.env.AXTASK_DB_SIZE_BUDGET_BYTES,
-    "AXTASK_DB_SIZE_BUDGET_BYTES",
-  );
+  const key = "AXTASK_DB_SIZE_BUDGET_BYTES";
+  if (!Object.prototype.hasOwnProperty.call(process.env, key)) return null;
+  return normalizeBudget(process.env[key], key);
 }
 
 function printReport(report) {
