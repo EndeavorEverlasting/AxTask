@@ -9,145 +9,33 @@
     "runtimeImplementation": null,
     "runtimeAdapter": null,
     "providerSelected": null,
-    "note": "This harness contract does not prove that Lua is present in the AxTask product runtime."
-  },
-  "architecture": {
-    "integrationMode": "embedded-library",
-    "hostControlsMainLoop": true,
-    "scriptControlsMainLoop": false,
-    "hostOwnsCriticalState": true,
-    "performancePartition": {
-      "criticalCodeOwner": "host",
-      "luaRole": "bounded-dynamic-logic",
-      "movingCriticalCodeToLuaRequiresBenchmark": true
+    "note": "This harness contract does not prove that Lua is present in the AxTask product runtime.",
+    "harnessOnlyMutationPolicy": {
+      "allowedChangedPathPatterns": [".ai/**", ".githooks/**", ".github/workflows/harness-lua-embedding.yml", "scripts/ai-harness/**", "server/ai-harness/**", "docs/releases/**"],
+      "forbiddenFileExtensions": [".lua"],
+      "forbiddenDependencyNamePattern": "lua|luajit|fengari|wasmoon",
+      "forbiddenProductMarkers": ["luaL_newstate", "lua_newstate", "lua_close", "LuaFactory", "LuaEngine", "LuaState", "LuaJIT", "fengari", "wasmoon"],
+      "rule": "While adoption.phase is harness-only, Lua-specific product/runtime mutation is forbidden. Non-Lua product changes are not blocked by this harness."
     }
   },
-  "stateIsolation": {
-    "independentVmStatesRequired": true,
-    "sharedMutableVmStateDefault": "forbidden",
-    "resetByDestroyingState": true,
-    "closeStateRequired": true,
-    "hostMemoryUnaffectedByStateDestroyRequired": true
-  },
-  "errorHandling": {
-    "scriptMayRaise": true,
-    "hostCatchRequired": true,
-    "cleanupBeforePropagationRequired": true,
-    "rollbackOwnedByHost": true,
-    "uncaughtScriptErrorMayTerminateHost": false
-  },
-  "execution": {
-    "bytecodePolicy": "precompile-or-load-explicitly",
-    "interpreterBaseline": "small-vm-loop-is-acceptable",
-    "jitDefaultEnabled": false,
-    "jitAdoptionRequires": [
-      "benchmark evidence",
-      "deoptimization and stack-reconstruction proof",
-      "separate runtime validation"
-    ],
-    "hiddenCompilationMagicAllowed": false
-  },
-  "types": {
-    "languageTyping": "dynamic",
-    "runtimeBoundaryChecksRequired": true,
-    "internalTypeDisciplineRequired": true,
-    "hostBoundaryContractsRequired": true,
-    "implicitCrossBoundaryCoercion": "forbidden"
-  },
-  "sandbox": {
-    "exposureMode": "allowlist",
-    "capabilityManifest": ".ai/lua-sandbox-capabilities.json",
-    "defaultHostFunctions": "none",
-    "defaultDeniedLibraries": [
-      "os",
-      "io"
-    ],
-    "wildcardExposureAllowed": false,
-    "filesystemAccessDefault": "denied",
-    "networkAccessDefault": "denied",
-    "processAccessDefault": "denied",
-    "dynamicCodeLoadingDefault": "denied"
-  },
-  "semantics": {
-    "luaSequenceIndexBase": 1,
-    "hostIndexTranslation": "explicit-only",
-    "featurePolicy": "exclude-by-default",
-    "hostFirstRule": "If a requirement is clearer, safer, or more maintainable in the host, keep it in the host instead of expanding the scripting layer."
-  },
-  "aiAuditability": {
-    "readableNonMagicalSnippetsRequired": true,
-    "hiddenHostLookupAllowed": false,
-    "generatedSnippetMustDeclareCapabilities": true,
-    "generatedSnippetMustBeReviewableWithoutRuntimeIntrospection": true
-  },
+  "architecture": {"integrationMode":"embedded-library","hostControlsMainLoop":true,"scriptControlsMainLoop":false,"hostOwnsCriticalState":true,"performancePartition":{"criticalCodeOwner":"host","luaRole":"bounded-dynamic-logic","movingCriticalCodeToLuaRequiresBenchmark":true}},
+  "stateIsolation": {"independentVmStatesRequired":true,"sharedMutableVmStateDefault":"forbidden","resetByDestroyingState":true,"closeStateRequired":true,"hostMemoryUnaffectedByStateDestroyRequired":true},
+  "errorHandling": {"scriptMayRaise":true,"hostCatchRequired":true,"cleanupBeforePropagationRequired":true,"rollbackOwnedByHost":true,"uncaughtScriptErrorMayTerminateHost":false},
+  "execution": {"bytecodePolicy":"precompile-or-load-explicitly","interpreterBaseline":"small-vm-loop-is-acceptable","jitDefaultEnabled":false,"jitAdoptionRequires":["benchmark evidence","deoptimization and stack-reconstruction proof","separate runtime validation"],"hiddenCompilationMagicAllowed":false},
+  "types": {"languageTyping":"dynamic","runtimeBoundaryChecksRequired":true,"internalTypeDisciplineRequired":true,"hostBoundaryContractsRequired":true,"implicitCrossBoundaryCoercion":"forbidden"},
+  "sandbox": {"exposureMode":"allowlist","capabilityManifest":".ai/lua-sandbox-capabilities.json","defaultHostFunctions":"none","defaultDeniedLibraries":["os","io"],"wildcardExposureAllowed":false,"filesystemAccessDefault":"denied","networkAccessDefault":"denied","processAccessDefault":"denied","dynamicCodeLoadingDefault":"denied"},
+  "semantics": {"luaSequenceIndexBase":1,"hostIndexTranslation":"explicit-only","featurePolicy":"exclude-by-default","hostFirstRule":"If a requirement is clearer, safer, or more maintainable in the host, keep it in the host instead of expanding the scripting layer."},
+  "aiAuditability": {"readableNonMagicalSnippetsRequired":true,"hiddenHostLookupAllowed":false,"generatedSnippetMustDeclareCapabilities":true,"generatedSnippetMustBeReviewableWithoutRuntimeIntrospection":true},
   "implementationGates": [
-    {
-      "id": "stateful-seam",
-      "requirement": "A future product implementation must be inside one evidence-backed approved migration seam from the stateful architecture workflow.",
-      "proof": "stateful architecture validator and routed surface artifact"
-    },
-    {
-      "id": "host-api",
-      "requirement": "Every host function exposed to Lua must be individually allowlisted with owner, inputs, outputs, preconditions, forbidden behavior, guardrails, tests, and proof ceiling.",
-      "proof": ".ai/lua-sandbox-capabilities.json"
-    },
-    {
-      "id": "vm-lifecycle",
-      "requirement": "The host must create independent Lua states for the declared isolation boundary and close each state on success, script error, cancellation, and host failure paths.",
-      "proof": "implementation tests plus runtime observation"
-    },
-    {
-      "id": "error-tunnel",
-      "requirement": "Script errors must cross into the host as caught failures so host cleanup and rollback remain authoritative.",
-      "proof": "negative implementation tests plus runtime observation"
-    },
-    {
-      "id": "sandbox",
-      "requirement": "OS and IO access remain unavailable unless an explicit separately reviewed capability is registered; undeclared host access fails closed.",
-      "proof": "sandbox contract tests plus runtime observation"
-    },
-    {
-      "id": "type-boundary",
-      "requirement": "Host/Lua inputs and outputs must have runtime checks and documented internal type discipline; implicit cross-boundary coercion is forbidden.",
-      "proof": "boundary contract tests"
-    },
-    {
-      "id": "performance",
-      "requirement": "Performance-critical work remains host-owned unless benchmark evidence justifies a bounded exception; JIT is not a default adoption shortcut.",
-      "proof": "benchmark artifact when applicable"
-    },
-    {
-      "id": "runtime-proof",
-      "requirement": "Repository and harness proof may not be promoted to sandbox, behavior, or live-runtime proof.",
-      "proof": "registered runtime-proof artifact at the attained environment"
-    }
+    {"id":"stateful-seam","requirement":"A future product implementation must be inside one evidence-backed approved migration seam from the stateful architecture workflow.","proof":"stateful architecture validator and routed surface artifact"},
+    {"id":"host-api","requirement":"Every host function exposed to Lua must be individually allowlisted with owner, inputs, outputs, preconditions, forbidden behavior, guardrails, tests, and proof ceiling.","proof":".ai/lua-sandbox-capabilities.json"},
+    {"id":"vm-lifecycle","requirement":"The host must create independent Lua states for the declared isolation boundary and close each state on success, script error, cancellation, and host failure paths.","proof":"implementation tests plus runtime observation"},
+    {"id":"error-tunnel","requirement":"Script errors must cross into the host as caught failures so host cleanup and rollback remain authoritative.","proof":"negative implementation tests plus runtime observation"},
+    {"id":"sandbox","requirement":"OS and IO access remain unavailable unless an explicit separately reviewed capability is registered; undeclared host access fails closed.","proof":"sandbox contract tests plus runtime observation"},
+    {"id":"type-boundary","requirement":"Host/Lua inputs and outputs must have runtime checks and documented internal type discipline; implicit cross-boundary coercion is forbidden.","proof":"boundary contract tests"},
+    {"id":"performance","requirement":"Performance-critical work remains host-owned unless benchmark evidence justifies a bounded exception; JIT is not a default adoption shortcut.","proof":"benchmark artifact when applicable"},
+    {"id":"runtime-proof","requirement":"Repository and harness proof may not be promoted to sandbox, behavior, or live-runtime proof.","proof":"registered runtime-proof artifact at the attained environment"}
   ],
-  "proof": {
-    "currentCeiling": "harness",
-    "harnessCanProve": [
-      "embedding design rules are registered",
-      "sandbox capability policy is deny-by-default",
-      "workflow, skill, validators, hooks, artifacts, and reports are wired"
-    ],
-    "harnessCannotProve": [
-      "Lua is installed or linked into the AxTask product runtime",
-      "a runtime sandbox is effective against hostile scripts",
-      "VM states are actually released under load",
-      "script errors are caught in the deployed host",
-      "JIT or interpreter performance",
-      "live production behavior"
-    ]
-  },
-  "forbidden": [
-    "Product code mutation while adoption.phase is harness-only.",
-    "Letting Lua own the host process main loop.",
-    "Opening OS or IO access by default.",
-    "Wildcard or implicit host-function exposure.",
-    "Sharing mutable Lua VM state across isolation boundaries without a separately approved contract.",
-    "Allowing script errors to bypass host cleanup or rollback.",
-    "Moving performance-critical work into Lua without benchmark evidence.",
-    "Enabling JIT by default or claiming deoptimization safety without runtime proof.",
-    "Hiding application behavior in prompts, metaprogramming, or unregistered host lookups.",
-    "Treating this harness contract as evidence that Lua is already implemented."
-  ]
+  "proof": {"currentCeiling":"harness","harnessCanProve":["embedding design rules are registered","sandbox capability policy is deny-by-default","workflow, skill, validators, hooks, artifacts, and reports are wired"],"harnessCannotProve":["Lua is installed or linked into the AxTask product runtime","a runtime sandbox is effective against hostile scripts","VM states are actually released under load","script errors are caught in the deployed host","JIT or interpreter performance","live production behavior"]},
+  "forbidden": ["Product code mutation while adoption.phase is harness-only.","Letting Lua own the host process main loop.","Opening OS or IO access by default.","Wildcard or implicit host-function exposure.","Sharing mutable Lua VM state across isolation boundaries without a separately approved contract.","Allowing script errors to bypass host cleanup or rollback.","Moving performance-critical work into Lua without benchmark evidence.","Enabling JIT by default or claiming deoptimization safety without runtime proof.","Hiding application behavior in prompts, metaprogramming, or unregistered host lookups.","Treating this harness contract as evidence that Lua is already implemented."]
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -15,8 +16,50 @@ function phrase(h,n,l,e){if(!h.toLowerCase().includes(n.toLowerCase()))e.push(`$
 function fields(v,fs_,l,e){if(!v||typeof v!=="object"||Array.isArray(v)){e.push(`${l}: expected object`);return;} for(const f of fs_)if(!Object.prototype.hasOwnProperty.call(v,f))e.push(`${l}: missing ${f}`)}
 function shape(v,s,l,e){if(!s||typeof s!=="object")return e.push(`${l}: invalid schema`);if(s.type==="object"||s.required||s.properties){if(!v||typeof v!=="object"||Array.isArray(v))return e.push(`${l}: expected object`);for(const f of arr(s.required))if(!Object.prototype.hasOwnProperty.call(v,f))e.push(`${l}: missing required property ${f}`);for(const[k,c]of Object.entries(s.properties??{}))if(Object.prototype.hasOwnProperty.call(v,k))shape(v[k],c,`${l}.${k}`,e);}else if(s.type==="array"){if(!Array.isArray(v))return e.push(`${l}: expected array`);if(Number.isInteger(s.minItems)&&v.length<s.minItems)e.push(`${l}: expected at least ${s.minItems} item(s)`);if(s.items)v.forEach((x,i)=>shape(x,s.items,`${l}[${i}]`,e));}else if(s.type==="string"&&typeof v!=="string")e.push(`${l}: expected string`);if(Array.isArray(s.enum)&&!s.enum.some(x=>JSON.stringify(x)===JSON.stringify(v)))e.push(`${l}: value is not in declared enum`)}
 const forbiddenName=v=>{const n=String(v??"").trim().toLowerCase();return n==="*"||n==="os"||n==="io"||n.startsWith("os.")||n.startsWith("io.")};
+function globMatch(rel, pattern) {
+  const p = pattern.replace(/\\/g,"/").replace(/[.+^${}()|[\]\\]/g,"\\$&").replace(/\*\*/g,"§§").replace(/\*/g,"[^/]*").replace(/§§/g,".*");
+  return new RegExp(`^${p}$`).test(rel.replace(/\\/g,"/"));
+}
+function changedPathsFromArgs(root) {
+  const out=[];
+  for(let i=0;i<process.argv.length;i++){
+    const arg=process.argv[i];
+    if(arg.startsWith("--changed=")) out.push(arg.slice(10));
+    if(arg.startsWith("--changed-file=")) {
+      const f=path.resolve(root,arg.slice(15));
+      if(fs.existsSync(f)) out.push(...fs.readFileSync(f,"utf8").split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
+    }
+  }
+  if(out.length===0){
+    try{out.push(...execFileSync("git",["diff","--cached","--name-only"],{cwd:root,encoding:"utf8",stdio:["ignore","pipe","ignore"]}).split(/\r?\n/).map(x=>x.trim()).filter(Boolean));}catch{}
+  }
+  return [...new Set(out.map(x=>x.replace(/\\/g,"/")))];
+}
+function enforceHarnessOnlyMutationPolicy(root,c,changedPaths,errors){
+  if(c?.adoption?.phase!=="harness-only"||changedPaths.length===0)return;
+  const p=c.adoption?.harnessOnlyMutationPolicy??{};
+  const allowed=arr(p.allowedChangedPathPatterns);
+  const exts=new Set(arr(p.forbiddenFileExtensions).map(x=>String(x).toLowerCase()));
+  let depRe; try{depRe=new RegExp(String(p.forbiddenDependencyNamePattern??"a^"),"i");}catch{errors.push("lua contract: invalid forbiddenDependencyNamePattern");return;}
+  const markers=arr(p.forbiddenProductMarkers).filter(text);
+  for(const rel of changedPaths){
+    if(allowed.some(pattern=>globMatch(rel,pattern)))continue;
+    if(exts.has(path.extname(rel).toLowerCase())) errors.push(`lua harness-only product mutation: forbidden Lua file changed: ${rel}`);
+    if(rel==="package.json"){
+      const pkg=json(root,"package.json",errors);
+      if(pkg){const names=[...Object.keys(pkg.dependencies??{}),...Object.keys(pkg.devDependencies??{}),...Object.keys(pkg.optionalDependencies??{})];for(const n of names)if(depRe.test(n))errors.push(`lua harness-only product mutation: Lua runtime dependency ${n} is forbidden`);}
+    }
+    const abs=path.join(root,rel);
+    if(fs.existsSync(abs)&&fs.statSync(abs).isFile()&&/\.(?:[cm]?[jt]sx?|mjs|cjs|json|ya?ml)$/i.test(rel)){
+      const body=fs.readFileSync(abs,"utf8");
+      for(const marker of markers) if(body.includes(marker)){errors.push(`lua harness-only product mutation: ${rel} contains runtime marker ${marker}`);break;}
+      const importLike=/(?:from\s*|require\s*\(|import\s*\()\s*["'][^"']*(?:lua|luajit|fengari|wasmoon)[^"']*["']/i;
+      if(importLike.test(body)) errors.push(`lua harness-only product mutation: ${rel} imports a Lua runtime/module`);
+    }
+  }
+}
 
-export function validateLuaEmbedding(root=ROOT){
+export function validateLuaEmbedding(root=ROOT, options={}){
  root=path.resolve(root); const errors=[],warnings=[];
  const c=json(root,".ai/lua-embedding-contract.json",errors),cs=json(root,".ai/lua-embedding-contract.schema.json",errors),m=json(root,".ai/lua-sandbox-capabilities.json",errors),ms=json(root,".ai/lua-sandbox-capabilities.schema.json",errors),h=json(root,".ai/harness.json",errors),wr=json(root,".ai/workflow-registry.json",errors),cr=json(root,".ai/capability-registry.json",errors),tr=json(root,".ai/trigger-registry.json",errors),ar=json(root,".ai/artifact-registry.json",errors),vr=json(root,".ai/validator-registry.json",errors),map=json(root,".ai/codebase-map.json",errors);
  const wf=txt(root,".ai/workflows/lua-embedding-integration.md",errors),skill=txt(root,".ai/skills/lua-embedding-integration.md",errors),report=txt(root,".ai/reports/lua-integration-report-template.md",errors),preCommit=txt(root,".githooks/pre-commit",errors),prePush=txt(root,".githooks/pre-push",errors);
@@ -24,6 +67,7 @@ export function validateLuaEmbedding(root=ROOT){
  for(const[label,v]of[["contract",c],["contract schema",cs],["manifest",m],["manifest schema",ms]])if(v&&v.authorityRef!==A)errors.push(`lua ${label}: authorityRef mismatch`);
  if(c){
   if(c.contractId!=="axtask.lua-embedding.v1")errors.push("lua contract: contractId mismatch"); if(c.adoption?.phase!=="harness-only")errors.push("lua contract: this sprint must remain adoption.phase=harness-only"); if(c.adoption?.productMutationAuthorized!==false)errors.push("lua contract: harness-only must not authorize product mutation"); for(const f of["runtimeImplementation","runtimeAdapter","providerSelected"])if(c.adoption?.[f]!==null)errors.push(`lua contract: harness-only ${f} must remain null`); if(!String(c.adoption?.note??"").toLowerCase().includes("does not prove"))errors.push("lua contract: adoption note must state that harness does not prove runtime presence");
+  const hp=c.adoption?.harnessOnlyMutationPolicy??{}; if(arr(hp.allowedChangedPathPatterns).length<6||!arr(hp.forbiddenFileExtensions).includes(".lua")||arr(hp.forbiddenProductMarkers).length<5||!text(hp.forbiddenDependencyNamePattern))errors.push("lua contract: harness-only mutation policy is incomplete");
   if(c.architecture?.integrationMode!=="embedded-library")errors.push("lua contract: integrationMode must be embedded-library"); if(c.architecture?.hostControlsMainLoop!==true)errors.push("lua contract: host must control the main loop"); if(c.architecture?.scriptControlsMainLoop!==false)errors.push("lua contract: Lua must not control the host main loop"); if(c.architecture?.hostOwnsCriticalState!==true)errors.push("lua contract: host must own critical state"); if(c.architecture?.performancePartition?.criticalCodeOwner!=="host"||c.architecture?.performancePartition?.luaRole!=="bounded-dynamic-logic"||c.architecture?.performancePartition?.movingCriticalCodeToLuaRequiresBenchmark!==true)errors.push("lua contract: performance partition must remain host-first and benchmark-gated");
   if(c.stateIsolation?.independentVmStatesRequired!==true||c.stateIsolation?.sharedMutableVmStateDefault!=="forbidden"||c.stateIsolation?.resetByDestroyingState!==true)errors.push("lua contract: independent disposable VM states are required"); if(c.stateIsolation?.closeStateRequired!==true)errors.push("lua contract: VM state close/destroy is required"); if(c.stateIsolation?.hostMemoryUnaffectedByStateDestroyRequired!==true)errors.push("lua contract: VM destroy must not own unrelated host memory");
   if(c.errorHandling?.hostCatchRequired!==true)errors.push("lua contract: host catch is required"); if(c.errorHandling?.scriptMayRaise!==true||c.errorHandling?.cleanupBeforePropagationRequired!==true||c.errorHandling?.rollbackOwnedByHost!==true||c.errorHandling?.uncaughtScriptErrorMayTerminateHost!==false)errors.push("lua contract: script errors must tunnel through host cleanup/rollback");
@@ -40,7 +84,8 @@ export function validateLuaEmbedding(root=ROOT){
  const hc=ids(h?.components); for(const x of["lua-embedding-contract","lua-embedding-contract-schema","lua-sandbox-capabilities","lua-sandbox-capabilities-schema","lua-embedding-workflow","lua-embedding-skill","lua-embedding-validator","lua-integration-report","lua-embedding-contract-test","lua-embedding-ci"])if(!hc.has(x))errors.push(`.ai/harness.json: missing Lua component ${x}`); if(!arr(h?.skills).includes("axtask.skill.lua-embedding-integration.v1"))errors.push(".ai/harness.json: missing Lua skill registration"); if(!arr(h?.hookPolicy?.preCommitRuns).includes("lua-embedding")||!arr(h?.hookPolicy?.prePushRuns).includes("lua-embedding"))errors.push(".ai/harness.json: hooks must register lua-embedding");
  if(entry(wr?.workflows,"axtask.lua-embedding-integration.v1")?.path!==".ai/workflows/lua-embedding-integration.md")errors.push(".ai/workflow-registry.json: Lua workflow path mismatch"); const cap=entry(cr?.capabilities,"lua-embedding-contract-validation"); if(cap?.command!=="node scripts/ai-harness/validate-lua-embedding.mjs"||cap?.status!=="available")errors.push(".ai/capability-registry.json: Lua capability registration mismatch"); if(entry(tr?.triggers,"lua-embedding-requested")?.workflowId!=="axtask.lua-embedding-integration.v1")errors.push(".ai/trigger-registry.json: lua-embedding-requested must route to the Lua workflow"); if(entry(ar?.artifacts,"lua-embedding-contract")?.tracked!==true||entry(ar?.artifacts,"lua-sandbox-capabilities")?.tracked!==true||entry(ar?.artifacts,"lua-integration-report")?.template!==".ai/reports/lua-integration-report-template.md")errors.push(".ai/artifact-registry.json: Lua artifacts are incomplete"); const lv=entry(vr?.validators,"lua-embedding"); if(lv?.command!=="node scripts/ai-harness/validate-lua-embedding.mjs"||!arr(lv?.selection?.workflows).includes("axtask.lua-embedding-integration.v1"))errors.push(".ai/validator-registry.json: Lua validator registration mismatch"); if(entry(map?.commands,"lua-embedding")?.command!=="node scripts/ai-harness/validate-lua-embedding.mjs")errors.push(".ai/codebase-map.json: missing lua-embedding command"); for(const x of[".ai/lua-embedding-contract.json",".ai/lua-sandbox-capabilities.json"])if(!arr(map?.configurations).some(y=>y?.path===x))errors.push(`.ai/codebase-map.json: missing Lua configuration ${x}`); if(!arr(map?.knownTraps).some(x=>String(x).includes("Lua")&&String(x).includes("harness")))errors.push(".ai/codebase-map.json: knownTraps must bound Lua harness proof");
  for(const x of["## Trigger","## Inputs","## Preconditions","## Factoring rules","## Steps","## Validation","## Outputs","## Stop conditions","## Proof ceiling","## Handoff"])if(!wf.includes(x))errors.push(`Lua workflow missing ${x}`); for(const x of["host owns the main execution loop","independent Lua VM states","OS and IO access remain unavailable","JIT stays disabled by default","Lua sequences are 1-indexed"])phrase(wf,x,"Lua workflow",errors); for(const x of["## Use when","## Required inputs","## Procedure","## Guardrails","## Outputs","## Proof rules"])if(!skill.includes(x))errors.push(`Lua skill missing ${x}`); for(const x of["Lua is a library embedded by the host","OS and IO access are deny-by-default","Independent VM states","JIT is not a default architecture requirement"])phrase(skill,x,"Lua skill",errors); for(const x of["## LUA INTEGRATION STATE","## HOST / SCRIPT BOUNDARY","## VM STATE / CLEANUP","## ERROR TUNNEL","## SANDBOX ALLOWLIST","## TYPE DISCIPLINE","## EXECUTION / JIT","## VALIDATION","## PROOF","## GAPS / RISKS","## NEXT ACTION"])if(!report.includes(x))errors.push(`Lua report template missing ${x}`); if(!report.includes("Do not include secrets"))errors.push("Lua report template must contain sanitization guidance"); if(!preCommit.includes("validate-lua-embedding.mjs"))errors.push(".githooks/pre-commit must run validate-lua-embedding.mjs"); if(!prePush.includes("validate-lua-embedding.mjs")||!prePush.includes("lua-embedding-contract.test.ts"))errors.push(".githooks/pre-push must run Lua validator and contract test");
- return{contractId:c?.contractId??null,adoptionPhase:c?.adoption?.phase??null,hostFunctions:arr(m?.hostFunctions).length,openedLibraries:arr(m?.openedLibraries).length,errors,warnings};
+ enforceHarnessOnlyMutationPolicy(root,c,options.changedPaths??[],errors);
+ return{contractId:c?.contractId??null,adoptionPhase:c?.adoption?.phase??null,hostFunctions:arr(m?.hostFunctions).length,openedLibraries:arr(m?.openedLibraries).length,changedPathsChecked:(options.changedPaths??[]).length,errors,warnings};
 }
-function main(){const arg=process.argv.find(x=>x.startsWith("--root="));const r=validateLuaEmbedding(arg?arg.slice(7):ROOT);if(process.argv.includes("--json"))process.stdout.write(`${JSON.stringify(r,null,2)}\n`);if(r.errors.length){if(!process.argv.includes("--json")){console.error(`[lua-embedding] FAIL contract=${r.contractId??"unknown"}`);r.errors.forEach(e=>console.error(`- ${e}`));}process.exitCode=1;}else if(!process.argv.includes("--json"))console.log(`[lua-embedding] PASS contract=${r.contractId} phase=${r.adoptionPhase} hostFunctions=${r.hostFunctions}`)}
+function main(){const rootArg=process.argv.find(x=>x.startsWith("--root="));const root=path.resolve(rootArg?rootArg.slice(7):ROOT);const r=validateLuaEmbedding(root,{changedPaths:changedPathsFromArgs(root)});if(process.argv.includes("--json"))process.stdout.write(`${JSON.stringify(r,null,2)}\n`);if(r.errors.length){if(!process.argv.includes("--json")){console.error(`[lua-embedding] FAIL contract=${r.contractId??"unknown"}`);r.errors.forEach(e=>console.error(`- ${e}`));}process.exitCode=1;}else if(!process.argv.includes("--json"))console.log(`[lua-embedding] PASS contract=${r.contractId} phase=${r.adoptionPhase} hostFunctions=${r.hostFunctions} changedPaths=${r.changedPathsChecked}`)}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)main();

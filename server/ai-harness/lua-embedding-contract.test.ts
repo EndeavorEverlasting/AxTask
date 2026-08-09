@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,7 +9,7 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "..", "..");
 const validator = path.join(repoRoot, "scripts/ai-harness/validate-lua-embedding.mjs");
 const tempRoots: string[] = [];
-const run = (root = repoRoot) => spawnSync(process.execPath, [validator, `--root=${root}`, "--json"], { cwd: repoRoot, encoding: "utf8" });
+const run = (root = repoRoot, extraArgs: string[] = []) => spawnSync(process.execPath, [validator, `--root=${root}`, "--json", ...extraArgs], { cwd: repoRoot, encoding: "utf8" });
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "axtask-lua-embedding-")); tempRoots.push(root);
   cpSync(path.join(repoRoot, ".ai"), path.join(root, ".ai"), { recursive: true });
@@ -19,6 +19,9 @@ function fixture() {
 }
 function change(root: string, rel: string, mutate: (v: any) => void) {
   const f = path.join(root, rel); const v = JSON.parse(readFileSync(f, "utf8")); mutate(v); writeFileSync(f, `${JSON.stringify(v, null, 2)}\n`);
+}
+function write(root: string, rel: string, content: string) {
+  const f = path.join(root, rel); mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, content);
 }
 afterEach(() => { while (tempRoots.length) rmSync(tempRoots.pop()!, { recursive: true, force: true }); });
 
@@ -56,5 +59,17 @@ describe("Lua embedding harness contract", () => {
   });
   it("rejects zero-based Lua sequence semantics", () => {
     const root=fixture(); change(root,".ai/lua-embedding-contract.json",v=>v.semantics.luaSequenceIndexBase=0); const r=run(root); expect(r.status).toBe(1); expect(r.stdout).toContain("Lua sequence index base must be 1");
+  });
+  it("rejects a changed Lua product file while harness-only", () => {
+    const root=fixture(); write(root,"server/runtime.lua","return 1\n"); const r=run(root,["--changed=server/runtime.lua"]); expect(r.status).toBe(1); expect(r.stdout).toContain("forbidden Lua file changed");
+  });
+  it("rejects a Lua runtime dependency while harness-only", () => {
+    const root=fixture(); write(root,"package.json",JSON.stringify({dependencies:{wasmoon:"1.0.0"}},null,2)); const r=run(root,["--changed=package.json"]); expect(r.status).toBe(1); expect(r.stdout).toContain("Lua runtime dependency wasmoon is forbidden");
+  });
+  it("rejects Lua runtime markers in changed product code while harness-only", () => {
+    const root=fixture(); write(root,"server/runtime.ts","const engine = new LuaFactory();\n"); const r=run(root,["--changed=server/runtime.ts"]); expect(r.status).toBe(1); expect(r.stdout).toContain("contains runtime marker LuaFactory");
+  });
+  it("does not block unrelated product changes", () => {
+    const root=fixture(); write(root,"server/ordinary.ts","export const value = 1;\n"); const r=run(root,["--changed=server/ordinary.ts"]); expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
   });
 });
