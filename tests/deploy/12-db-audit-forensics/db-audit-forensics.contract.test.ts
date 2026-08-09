@@ -113,15 +113,25 @@ describe("[12-db-audit-forensics] db-reclaim-api-request.mjs safety", () => {
     expect(reclaimSource).toContain("vacuumFull: false");
   });
 
-  it("refuses VACUUM FULL before eligible logical cleanup is complete", () => {
-    expect(reclaimSource).toContain("refusing VACUUM FULL while");
-    expect(reclaimSource).toContain("run logical cleanup first");
+  it("requires origin-active containment around mutation and verification", () => {
+    expect(reclaimSource).toContain("function getContainmentState");
+    expect(reclaimSource).toContain('["O", "A"].includes(code)');
+    expect(reclaimSource).toContain("assertContainmentActive(containmentBefore");
+    expect(reclaimSource).toContain("assertContainmentActive(containmentAfter");
   });
 
-  it("verifies meaningful non-api_request rows are preserved", () => {
-    expect(reclaimSource).toContain("nonApiRequest");
-    expect(reclaimSource).toContain("non-api_request count changed");
-    expect(reclaimSource).toContain("non_api_request_preserved");
+  it("refuses VACUUM FULL before logical cleanup and rechecks after rewrite", () => {
+    expect(reclaimSource).toContain("refusing VACUUM FULL while");
+    expect(reclaimSource).toContain("run logical cleanup first");
+    expect(reclaimSource).toContain("physical reclaim completed but");
+    expect(reclaimSource).toContain("eligibleAfter !== 0");
+  });
+
+  it("does not pretend non-api counts are an atomic concurrency invariant", () => {
+    expect(reclaimSource).toContain("nonApiRequestDelta");
+    expect(reclaimSource).toContain("concurrent external activity");
+    expect(reclaimSource).toContain("DELETE predicate cannot target those rows");
+    expect(reclaimSource).not.toContain("non_api_request_preserved");
   });
 
   it("validates CLI numeric bounds before SQL execution", () => {
