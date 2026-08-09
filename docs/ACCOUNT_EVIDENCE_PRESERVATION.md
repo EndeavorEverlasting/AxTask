@@ -2,13 +2,13 @@
 
 ## Purpose
 
-AxTask's ordinary Backup Center export is a restore-oriented semantic bundle. It is intentionally smaller than the database and does not preserve the full audit/event history. During a storage incident, that distinction matters: database cleanup must not destroy account-linked records before a preservation artifact exists.
+AxTask's ordinary Backup Center export is a restore-oriented semantic bundle. It is intentionally smaller than the database and does not preserve the full audit/event history. During a storage incident, database cleanup must not destroy account-linked records before a portable preservation artifact exists.
 
-This workflow creates a **read-only account evidence bundle** under `.backups/evidence/` before destructive retention or reclaim work.
+This workflow creates a **read-only account evidence bundle** before destructive retention or reclaim work.
 
 It is a technical preservation mechanism, not a determination of legal admissibility, chain-of-custody sufficiency, or legal-hold obligations. If records are subject to a formal legal hold, follow the applicable legal process in addition to this technical export.
 
-## What the exporter preserves
+## Export scope and truth boundary
 
 `scripts/db/export-account-evidence.mjs` opens one PostgreSQL transaction as:
 
@@ -16,173 +16,195 @@ It is a technical preservation mechanism, not a determination of legal admissibi
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 ```
 
-Within that single snapshot it:
+Within that snapshot it:
 
-- resolves exactly one account by `--user-id` or `--email`;
-- discovers concrete public base tables and exports rows directly linked through `user_id`, `actor_user_id`, `target_user_id`, or `deleted_by`;
-- includes task-, invoice-, and attachment-linked rows where the table carries the corresponding foreign key;
+- resolves exactly one account by user ID or email;
+- discovers concrete `public` base tables;
+- exports rows linked by `user_id`, any `*_user_id` role column, or known unsuffixed user-role columns;
+- exports rows linked by `task_id` or any `*_task_id` column;
+- follows explicit shared shopping-list, DM-conversation, task-reminder, community-post, invoice, and attachment-asset relationships;
 - exports meaningful account-linked `security_events` row-for-row;
-- hashes every JSONL artifact;
-- writes a manifest containing counts, first/last timestamps where available, per-file SHA-256 values, source Git commit, and a non-secret database target fingerprint;
-- writes `manifest.sha256` so the manifest itself can be verified after it leaves the database provider.
+- lists **every discovered table that produced no artifact** in the manifest with a reason;
+- records the linking path for every exported table;
+- hashes every JSONL artifact and the manifest;
+- records source Git commit and a non-secret database target fingerprint.
+
+This is an **account-scoped preservation bundle**, not an exhaustive database dump. Review `excludedTables` and each artifact's `linkingPaths` for the preservation purpose at hand.
+
+### Shared / third-party scope
+
+Role/action columns such as `actor_user_id`, `sender_user_id`, `recipient_user_id`, `created_by_user_id`, `purchased_by_user_id`, and `deleted_by`, plus shared-list/conversation/post relationships, can select records authored by or concerning another user. Treat the resulting bundle as private evidence. The manifest records this scope explicitly.
 
 ### Incomplete-export sentinel
 
-As soon as an export directory is created, the exporter writes:
+The exporter writes `EXPORT_INCOMPLETE` as soon as the output directory is created. It fsyncs evidence files and directory metadata and removes the sentinel only after the read-only snapshot commits and the hashed manifest has been durably written.
 
-```text
-EXPORT_INCOMPLETE
-```
+**Never remove `EXPORT_INCOMPLETE` manually.** A directory containing it is not a valid preservation bundle.
 
-That file remains present on any database, filesystem, hashing, or manifest failure. It is removed only after the read-only database snapshot commits successfully and the hashed manifest has been written.
+## Known credential-bearing exclusions and redactions
 
-**Never treat a directory containing `EXPORT_INCOMPLETE` as a valid preservation bundle.** A complete bundle must have the sentinel absent and `manifest.sha256` must verify.
-
-### Credential-bearing data is not copied into the portable account bundle
-
-The following ephemeral/secret-bearing tables are excluded by default:
+The portable account bundle explicitly excludes these known ephemeral/secret-bearing tables:
 
 - `session`
 - `password_reset_tokens`
 - `mfa_challenges`
 - `user_push_subscriptions`
 
-The account row also omits password/TOTP/provider-auth secret fields. The manifest records excluded tables and redacted columns. A raw database dump is the separate disaster-recovery artifact when complete physical database preservation is required.
+The account row explicitly redacts password/TOTP/provider-auth secret fields, and `idempotency_keys.key` is redacted.
 
-## `api_request` policy
+This is an explicit denylist, **not a claim that every future credential-bearing field is automatically recognized**. Review the manifest and current schema before relying on a new schema version. The raw database dump is a separate disaster-recovery artifact and can contain secrets, so protect it accordingly.
+
+## High-volume `api_request` policy
 
 The August 2026 incident showed that `security_events` can be overwhelmingly dominated by `api_request` telemetry. Exporting that class row-for-row by default could reproduce a tens-of-gigabytes storage problem on the operator machine.
 
-The default is therefore:
+Default:
 
 ```text
 --api-request-mode=summary
 ```
 
-That mode exports non-`api_request` security events row-for-row and preserves the account-linked `api_request` class as:
+Summary mode exports non-`api_request` security events row-for-row and preserves the account-linked `api_request` class as:
 
 - row count;
 - first/last timestamp;
-- first/last tamper-evident chain anchors (`prev_hash` / `event_hash`);
-- daily row counts.
+- UTC daily row counts;
+- first/last tamper-evident chain anchors (`prev_hash` / `event_hash`).
 
-No `api_request` row is deleted by the exporter. The source database is read-only throughout the export.
+No source row is deleted. If individual request rows are required for the preservation purpose, explicitly use `--api-request-mode=all` and ensure the destination has sufficient protected capacity. `--api-request-mode=exclude` is also available, but the manifest records that explicit choice.
 
-If individual request rows are themselves required for the preservation purpose, explicitly select:
-
-```text
---api-request-mode=all
-```
-
-`--api-request-mode=exclude` is available only when an operator intentionally wants no `api_request` content; the manifest records that policy.
-
-## Local/disposable use
+## Local / disposable use
 
 With `DATABASE_URL` pointed at loopback PostgreSQL:
 
 ```bash
-node scripts/db/export-account-evidence.mjs --email=user@example.com --json
+ACCOUNT_EMAIL='user@example.com'
+node scripts/db/export-account-evidence.mjs --email="$ACCOUNT_EMAIL" --json
 ```
 
 or:
 
 ```bash
-node scripts/db/export-account-evidence.mjs --user-id=<user-id> --json
+ACCOUNT_USER_ID='00000000-0000-0000-0000-000000000000'
+node scripts/db/export-account-evidence.mjs --user-id="$ACCOUNT_USER_ID" --json
 ```
 
-The default destination is:
-
-```text
-.backups/evidence/account-evidence-<timestamp>-<account-prefix>/
-```
-
-`.backups/` is repository-ignored because these artifacts may contain private account data.
+The local default destination is `.backups/evidence/`, which is repository-ignored. Git-ignore is **not** a confidentiality control.
 
 ## Production read-only export
 
-Keep the application service suspended during incident recovery. Load `DATABASE_URL` through the normal secret path; never paste it into a tracked file or shell history if your environment can avoid that.
+Keep the application service suspended during incident recovery. Load `DATABASE_URL` through the normal secret path.
 
-A non-loopback database is rejected unless both production-read flags are supplied:
+A non-loopback export is rejected unless:
+
+- `--prod` is affirmative;
+- `--force-production` is affirmative;
+- `--output-dir` is an explicit **absolute** path.
+
+The operator must choose an encrypted/protected destination they control. For example:
 
 ```bash
+ACCOUNT_EMAIL='user@example.com'
+EVIDENCE_DIR='/mnt/encrypted/axtask-evidence'
 node scripts/db/export-account-evidence.mjs \
-  --email=user@example.com \
+  --email="$ACCOUNT_EMAIL" \
   --prod \
   --force-production \
+  --output-dir="$EVIDENCE_DIR" \
   --api-request-mode=summary \
   --json
 ```
 
-Those flags authorize a **read-only export**, not deletion, migrations, provider changes, or Render resume.
-
-For the full high-volume telemetry class:
+For full high-volume telemetry rows:
 
 ```bash
+ACCOUNT_EMAIL='user@example.com'
+EVIDENCE_DIR='/mnt/encrypted/axtask-evidence'
 node scripts/db/export-account-evidence.mjs \
-  --email=user@example.com \
+  --email="$ACCOUNT_EMAIL" \
   --prod \
   --force-production \
+  --output-dir="$EVIDENCE_DIR" \
   --api-request-mode=all \
   --batch-size=1000 \
   --json
 ```
 
-Use `--output-dir=<path>` when the evidence should be written directly to a mounted encrypted disk or another operator-owned destination.
+These flags authorize a **read-only export only**. They do not authorize deletion, migrations, provider changes, or Render resume.
 
 ## Verification
 
-Before hashing anything, confirm the directory does **not** contain `EXPORT_INCOMPLETE`.
+1. Wait for the exporter to exit successfully with status 0.
+2. Confirm `EXPORT_INCOMPLETE` is absent. **Never delete the sentinel yourself.** If it exists, discard or quarantine that partial directory and rerun the exporter to a new directory.
+3. Verify the manifest hash.
 
-From the export directory:
+On a Unix-like shell, from the completed export directory:
 
 ```bash
 sha256sum -c manifest.sha256
 ```
 
-Then verify each file hash against `manifest.json`. On PowerShell, use `Get-FileHash -Algorithm SHA256` for the individual files and manifest.
+On PowerShell, use `Get-FileHash -Algorithm SHA256` for `manifest.json` and the individual files, comparing them with `manifest.sha256` and `manifest.json`.
 
-Preserve at least two independently controlled copies before deleting source records. A practical pattern is:
+4. Verify every artifact SHA-256 recorded in `manifest.json`.
+5. Verify the manifest identifies the expected account, database fingerprint, linking policy, `api_request` policy, and excluded-table set.
 
-1. encrypted local/offline copy;
-2. a second independent object-storage or backup-provider copy.
+## Attachment object bytes
 
-AxTask's existing backup subsystem already supports S3-compatible targets for restore-oriented account backups. This evidence exporter intentionally stops at producing a portable filesystem artifact so the preservation copy is not coupled to one particular cloud provider or SDK.
+The account evidence bundle preserves database rows and attachment metadata/storage keys, but **does not copy attachment object bytes**. The manifest records `attachmentObjectBytesIncluded: false`.
+
+If attachment files are part of the required record set, separately replicate those object bytes to protected storage, hash them, and retain a copy manifest that maps each object/storage key to its SHA-256. That object-copy proof is required before destructive cleanup when attachments are in scope.
+
+## Two-copy preservation floor
+
+Before source deletion, preserve **two independently controlled copies** of the completed account evidence bundle. A practical pattern is:
+
+1. encrypted local/offline storage;
+2. an independent object-storage or backup-provider copy.
+
+Verify hashes after each copy. A copy that has not been verified does not satisfy this gate.
+
+AxTask's existing backup subsystem supports S3-compatible targets for restore-oriented account backups. The evidence exporter intentionally emits provider-neutral filesystem artifacts instead of coupling preservation to one cloud SDK.
 
 ## Raw database backup remains separate
 
-Before destructive production cleanup, also run the existing database airlock backup:
+Before destructive production cleanup, also run:
 
 ```bash
 npm run db:backup:preflight
 npm run db:backup
 ```
 
-The custom-format `pg_dump` is the database-level rollback artifact. The account evidence bundle is the human/audit-focused portable artifact. Neither substitutes for the other.
+Then prove the raw backup can restore into disposable PostgreSQL using the repository recovery workflow.
+
+The custom-format `pg_dump` is the database-level rollback artifact. The account evidence bundle is the account/audit-focused portable artifact. **Neither substitutes for the other.**
 
 ## Provider independence model
 
-The target architecture is intentionally provider-replaceable:
+The target architecture is deliberately provider-replaceable:
 
-- **PostgreSQL:** hot application state; `DATABASE_URL` remains the abstraction boundary.
-- **Portable account evidence:** JSONL + SHA-256 manifest outside the database provider.
-- **Raw recovery backup:** PostgreSQL custom-format dump outside the database provider.
-- **Attachments/object assets:** preserve their storage keys and separately replicate the object bytes when those objects are part of the required record set.
-- **High-volume telemetry:** keep only the operationally useful hot window in Postgres after preservation; archive or summarize older telemetry according to explicit retention policy.
+- **PostgreSQL:** hot application state behind `DATABASE_URL`;
+- **portable account evidence:** JSONL + SHA-256 manifest outside the database provider;
+- **raw recovery backup:** PostgreSQL custom-format dump outside the database provider;
+- **attachment/object assets:** storage keys in the DB plus independently replicated bytes when those objects matter;
+- **high-volume telemetry:** only the useful hot window in Postgres after preservation, with older telemetry archived or summarized under an explicit retention policy.
 
-Moving from one serverless PostgreSQL vendor to another does not by itself create provider independence. Independence comes from tested exports, independently stored backups, and a restore path that does not depend on the original provider remaining available.
+Moving from one serverless PostgreSQL vendor to another does not itself create provider independence. Independence comes from tested exports, independently stored backups, and a restore path that does not depend on the original provider remaining available.
 
-## Completion evidence before cleanup
+## Completion gate before cleanup
 
-Do not advance database recovery to destructive logical cleanup until all applicable items are recorded:
+Do not advance to destructive logical cleanup until all applicable items are recorded:
 
-- account evidence export directory exists;
-- `EXPORT_INCOMPLETE` is absent;
+- exporter exited successfully;
+- `EXPORT_INCOMPLETE` is absent without manual removal;
 - `manifest.sha256` verifies;
-- the manifest identifies the expected account and database fingerprint;
+- every per-file hash verifies;
+- expected account/database fingerprint and account-link policy are reviewed;
 - meaningful security-event files are present;
-- the `api_request` policy is explicitly recorded;
+- the `api_request` preservation policy is explicit;
+- **two independently controlled, hash-verified account-evidence copies exist**;
 - current raw DB backup exists;
-- raw DB backup has passed the repository's disposable restore verification;
-- at least one preservation copy exists outside the database provider.
+- raw DB backup passed disposable restore verification;
+- when attachments are in scope, attachment object bytes were separately copied and hash-verified against an object-copy manifest.
 
-Only after these gates should the operator evaluate targeted `api_request` cleanup from `docs/DB_RECOVERY_RUNBOOK.md`.
+Only after these gates should the operator evaluate targeted `api_request` cleanup in `docs/DB_RECOVERY_RUNBOOK.md`.
