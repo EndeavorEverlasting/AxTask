@@ -31,9 +31,12 @@ describe("[14-account-evidence] exporter safety contract", () => {
     expect(source).toContain("identityArtifact:");
   });
 
-  it("discovers only public base tables and records every non-exported table", () => {
+  it("discovers public base-table columns as text[] and fails closed on parser drift", () => {
     expect(source).toContain("t.table_type = 'BASE TABLE'");
     expect(source).toContain("c.table_schema = 'public'");
+    expect(source).toContain("array_agg(c.column_name::text ORDER BY c.ordinal_position)::text[] AS columns");
+    expect(source).toContain("!Array.isArray(row.columns)");
+    expect(source).toContain("did not return text[]");
     expect(source).toContain('reason: "no-account-link-resolver"');
     expect(source).toContain('reason: "known-ephemeral-or-secret-bearing-table"');
     expect(source).toContain("excludedTables: skippedTables");
