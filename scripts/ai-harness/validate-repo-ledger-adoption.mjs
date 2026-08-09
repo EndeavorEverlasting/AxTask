@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const manifestPath = path.join(repoRoot, ".ai", "repo-ledger-adoption.json");
-const expectedContractCommit = "3188d577dbda1994c0629c1416ae3362198812dd";
+const expectedContractCommit = "429237aa41d8712d71859865c9be407ca23d8580";
 const expectedDonorCommit = "9351c952b057ae4520b1ea0d388e1d8908f4c093";
 const expectedDonorPaths = [
   ".ai/README.md",
@@ -66,7 +66,7 @@ if (manifest.authority?.contractOwner !== "EndeavorEverlasting/BlacksmithGuild")
 if (manifest.authority?.noCircularAuthority !== true) fail("noCircularAuthority must be true");
 if (manifest.proofCeiling !== "repository_harness_only") fail("adoption proof ceiling drifted");
 
-for (const badRef of ["main", "master", "HEAD", "feat/repo-ledger", "v1.0.0", "3188d577dbda"]) {
+for (const badRef of ["main", "master", "HEAD", "feat/repo-ledger", "v1.0.0", "429237aa41d8"]) {
   if (isExactCommit(badRef)) fail(`symbolic/short stale-reference probe unexpectedly accepted '${badRef}'`);
 }
 
