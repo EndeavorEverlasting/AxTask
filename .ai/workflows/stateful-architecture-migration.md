@@ -21,8 +21,8 @@ Use when a task proposes serverless, stateless, function-style, edge, managed-sc
 1. Stateful does not mean bad. KEEP is a valid final decision.
 2. The target is less unnecessary state/process coupling, not 100% serverless purity.
 3. Every affected surface starts from the ledger. A `provisional` entry fails closed to `keep`.
-4. A migration may proceed only when the ledger decision is `approved`, evidence is current, and the sprint owns the named migration seam.
-5. Use one migration seam per sprint. Do not combine request-runtime, persistence, auth/session, background work, and deployment-provider rewrites when their files or proof contracts collide.
+4. `approved` means the currently active migration authorization. A migration may proceed only when its decision is `approved`, evidence is current, and the sprint owns the named migration seam. After the seam is implemented and its required proof is recorded, set `decisionStatus` to `completed`; completed decisions are historical evidence and do not authorize further mutation.
+5. Use one migration seam per sprint. At most one non-`keep` surface may remain `approved` at a time. Do not combine request-runtime, persistence, auth/session, background work, and deployment-provider rewrites when their files or proof contracts collide.
 6. Skills describe reusable workflow guidance. Capabilities expose reusable operations. Triggers deterministically route conditions. Application logic remains in code and domain contracts, not hidden in prompts.
 7. Do not choose a serverless provider before the ledger proves the required runtime capabilities and the owned seam.
 8. Prefer deletion when evidence proves a component is unnecessary; prefer externalization only when state is required but process affinity is not; keep stateful behavior when that is the simplest correct architecture.
@@ -33,11 +33,11 @@ Use when a task proposes serverless, stateless, function-style, edge, managed-sc
 1. Run repository intake and reconcile `.ai/WORK_QUEUE.md`, current main, open PRs, and collisions.
 2. Validate the current ledger before mutation: `node scripts/ai-harness/validate-stateful-architecture.mjs`.
 3. Inspect the owned surface's exact files and contracts. Record evidence in the ledger; do not infer active behavior from dependency names alone.
-4. Update exactly the owned ledger entry. Promote `decisionStatus` from `provisional` to `approved` only with concrete evidence, bounded prerequisites, collision paths, validators, and proof ceiling.
+4. Update exactly the owned ledger entry. Promote `decisionStatus` from `provisional` to `approved` only with concrete evidence, bounded prerequisites, collision paths, validators, and proof ceiling. Before promotion, prove there is no other non-`keep` `approved` surface.
 5. If the approved disposition is `keep`, record why and stop architecture mutation for that surface.
 6. If the disposition is `replace`, `externalize`, or `delete`, implement only the named migration seam. Preserve API/domain/auth/data invariants.
 7. Select and execute validators. Static validation is not runtime proof.
-8. Update the ledger with post-change evidence and strongest attained proof.
+8. Update the ledger with post-change evidence and strongest attained proof. When the authorized seam's required implementation/proof gate is complete, set its `decisionStatus` to `completed` before approving another non-`keep` seam.
 9. Commit/push/PR under normal repository rules and produce the registered stateful-architecture operator report.
 10. Continue through the next safe checkpoint; do not stop merely because a PR exists or CI is green.
 

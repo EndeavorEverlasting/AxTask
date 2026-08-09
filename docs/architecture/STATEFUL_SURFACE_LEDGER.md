@@ -11,7 +11,8 @@ Reduce unnecessary process and state coupling **without** treating “serverless
 3. gather repository evidence;
 4. approve one bounded migration seam;
 5. implement and validate that seam;
-6. repeat only after the previous contract remains proven.
+6. mark that migration `completed` so it remains historical evidence without staying active;
+7. repeat only after the previous contract remains proven.
 
 **Stateful does not mean bad. KEEP is a valid final decision.**
 
@@ -23,10 +24,12 @@ A provisional entry **cannot authorize implementation**. Before an agent can rep
 
 - inspect the listed files and current contracts;
 - record concrete evidence, consumers, invariants, and collision paths;
-- change the ledger to `decisionStatus: approved`;
+- change exactly one non-`keep` surface to `decisionStatus: approved`;
 - name exactly one seam;
 - name prerequisites, forbidden changes, validators, and proof ceiling;
 - pass `node scripts/ai-harness/validate-stateful-architecture.mjs`.
+
+`approved` means the seam is actively authorized. After the implementation and required proof gate are complete, change that surface to `decisionStatus: completed`. Completed decisions remain in the ledger as historical architecture evidence but do **not** authorize more mutation. At most one non-`keep` surface may be `approved` at a time.
 
 Agents must not choose a serverless provider as a substitute for this evidence.
 
@@ -80,7 +83,7 @@ The machine ledger currently treats the following as `KEEP / provisional` unless
 - deployment/startup orchestration;
 - cache/queue dependencies pending concrete usage evidence.
 
-The harness/application integration-seam rule is `KEEP / approved`: prompts and agent routing remain orchestration only, while product behavior stays executable in code/domain contracts.
+The harness/application integration-seam rule is `KEEP / approved`: prompts and agent routing remain orchestration only, while product behavior stays executable in code/domain contracts. Because its disposition is `keep`, it is not a migration authorization.
 
 These are not claims that every component must remain forever. They are a deliberate ban on architecture-by-vibe.
 
@@ -98,7 +101,7 @@ For every surface record:
 - invariants and stable contracts;
 - evidence;
 - `keep | replace | externalize | delete`;
-- `provisional | approved`;
+- `provisional | approved | completed`;
 - rationale and one migration seam;
 - prerequisites and forbidden changes;
 - validators, proof ceiling, and collision paths.

@@ -22,15 +22,17 @@ A task asks to make AxTask serverless/stateless, remove a persistent server, cha
 2. Locate the matching surface by ID and inspect its exact files.
 3. Gather repository evidence for process affinity, connection lifetime, persistence, scheduling, filesystem use, consumers, invariants, and collision paths.
 4. Keep `decisionStatus=provisional` and `disposition=keep` until evidence supports an explicit decision.
-5. When evidence is sufficient, update the surface and run the stateful-architecture validator.
+5. When evidence is sufficient, set exactly one non-`keep` surface to `decisionStatus=approved` and run the stateful-architecture validator. `approved` is active authorization, not historical status.
 6. If approved for migration, execute one seam only. Do not broaden to adjacent stateful surfaces.
 7. Run the owning application validators and report strongest attained proof.
-8. Update the operator report, ledger evidence, commit/PR state, and exact next action.
+8. After the seam's required implementation/proof gate is complete, set its `decisionStatus=completed`, update the operator report and evidence, and only then may a later sprint approve a different non-`keep` seam.
 
 ## Guardrails
 
 - Stateful does not mean bad.
 - KEEP is a successful outcome when it is the simplest correct architecture.
+- `approved` means active authorization; `completed` means historical evidence and does not authorize new mutation.
+- At most one non-`keep` surface may be `approved` at a time.
 - Do not choose or introduce a serverless provider before requirements are proven.
 - Do not translate application/domain behavior into prompt text.
 - Do not change auth/session, data consistency, retry/idempotency, or API contracts implicitly.
