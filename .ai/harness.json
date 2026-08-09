@@ -7,6 +7,7 @@
     {"id":"rules","type":"repo-rules","path":"AGENTS.md"},
     {"id":"guardrails","type":"repo-rules","path":"AGENT_GUARDRAILS.md"},
     {"id":"authority","type":"authority","path":".ai/authority.json"},
+    {"id":"work-queue","type":"coordination-ledger","path":".ai/WORK_QUEUE.md"},
     {"id":"map","type":"codebase-map","path":".ai/codebase-map.json"},
     {"id":"workflow-registry","type":"workflow-registry","path":".ai/workflow-registry.json"},
     {"id":"intake","type":"workflow","path":".ai/workflows/repository-intake.md"},
@@ -28,6 +29,7 @@
     {"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},
     {"id":"runtime-proof-skill","type":"skill","path":".ai/skills/runtime-proof.md"},
     {"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},
+    {"id":"work-queue-validator","type":"validator","path":"scripts/ai-harness/validate-work-queue.mjs"},
     {"id":"inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-repo.mjs"},
     {"id":"collision-inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-pr-collisions.mjs"},
     {"id":"contract-impact-inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-contract-impact.mjs"},
@@ -62,8 +64,8 @@
     "automaticInstall": false,
     "installer": "node scripts/ai-harness/install-hooks.mjs",
     "hookPath": ".githooks",
-    "runs": ["authority", "harness"],
-    "preCommitRuns": ["node-provenance", "node-runtime", "axios-guard", "authority", "harness"],
-    "prePushRuns": ["authority", "harness", "harness-infrastructure", "harness-tests"]
+    "runs": ["authority", "harness", "work-queue"],
+    "preCommitRuns": ["node-provenance", "node-runtime", "axios-guard", "authority", "harness", "work-queue"],
+    "prePushRuns": ["authority", "harness", "harness-infrastructure", "work-queue", "harness-tests"]
   }
 }
