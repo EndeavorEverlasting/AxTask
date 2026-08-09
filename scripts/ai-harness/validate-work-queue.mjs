@@ -66,6 +66,15 @@ function fail(message) {
   errors.push(message);
 }
 
+function hasDurableProofReference(proof) {
+  return [
+    /\b(?:commit|merge):[0-9a-f]{7,40}\b/i,
+    /\b(?:workflow|run):#?\d+\b/i,
+    /\bartifact:\S+/i,
+    /\boperator-proof:\S+/i,
+  ].some((pattern) => pattern.test(proof));
+}
+
 if (!fs.existsSync(queuePath)) {
   console.error(`[work-queue] missing: ${path.relative(repoRoot, queuePath)}`);
   process.exit(1);
@@ -83,9 +92,17 @@ for (const phrase of [
   if (!source.includes(phrase)) fail(`missing queue contract phrase: ${phrase}`);
 }
 
+const canonicalHeadingPattern = /^## (AXQ-\d{3,}) — (.+)$/;
+const allAxqHeadings = [...source.matchAll(/^##\s+(AXQ-[^\n]*)$/gm)];
+for (const heading of allAxqHeadings) {
+  if (!canonicalHeadingPattern.test(heading[0])) {
+    fail(`malformed AXQ heading: '${heading[0]}' (expected '## AXQ-### — Title')`);
+  }
+}
+
 const headingRegex = /^## (AXQ-\d{3,}) — (.+)$/gm;
 const matches = [...source.matchAll(headingRegex)];
-if (matches.length === 0) fail("queue must contain at least one AXQ task block");
+if (matches.length === 0) fail("queue must contain at least one canonical AXQ task block");
 
 const ids = new Set();
 for (let index = 0; index < matches.length; index += 1) {
@@ -101,16 +118,22 @@ for (let index = 0; index < matches.length; index += 1) {
   if (!title) fail(`${id}: title is empty`);
 
   const fields = new Map();
-  for (const fieldMatch of block.matchAll(/^- \*\*([^*]+):\*\*\s*(.*)$/gm)) {
+  for (const fieldMatch of block.matchAll(/^- \*\*([^*]+):\*\*[ \t]*(.*)$/gm)) {
     fields.set(fieldMatch[1].trim(), fieldMatch[2].trim());
   }
 
   for (const field of requiredFields) {
-    if (!fields.has(field)) fail(`${id}: missing field '${field}'`);
+    if (!fields.has(field)) {
+      fail(`${id}: missing field '${field}'`);
+      continue;
+    }
+    if (!fields.get(field)?.trim()) {
+      fail(`${id}: required field '${field}' must not be blank`);
+    }
   }
 
-  const status = fields.get("Status");
-  const priority = fields.get("Priority");
+  const status = fields.get("Status") || "";
+  const priority = fields.get("Priority") || "";
   const owner = fields.get("Owner") || "";
   const gate = fields.get("Gate") || "";
   const proof = fields.get("Last proof") || "";
@@ -132,7 +155,13 @@ for (let index = 0; index < matches.length; index += 1) {
     fail(`${id}: ${status} requires an exact Gate`);
   }
   if (status === "DONE") {
-    if (!proof || proof === "none") fail(`${id}: DONE requires durable Last proof`);
+    if (!proof || proof === "none") {
+      fail(`${id}: DONE requires durable Last proof`);
+    } else if (!hasDurableProofReference(proof)) {
+      fail(
+        `${id}: DONE Last proof must include a durable evidence token (commit:<sha>, merge:<sha>, workflow:<id>, run:<id>, artifact:<ref>, or operator-proof:<ref>)`,
+      );
+    }
     if (gate !== "none") fail(`${id}: DONE requires Gate: none`);
     if (nextAction !== "none; no safe actionable work remains") {
       fail(`${id}: DONE requires the canonical no-work-remains Next action`);
