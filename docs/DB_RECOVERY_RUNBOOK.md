@@ -33,6 +33,7 @@ application separately stored those bytes inside PostgreSQL.
 - Do not run `db:push` or general production migrations to escape the incident.
 - Do not truncate `security_events`.
 - Do not delete any non-`api_request` security event as part of this recovery.
+- Do not begin destructive cleanup until the account evidence gate and raw DB backup/restore gate are both complete.
 - Do not treat `neon.max_cluster_size` as a billing-plan allowance.
 - Do not reuse 10 GiB as an operator budget merely because an old repository comment used that number.
 - Normal `scripts/production-start.mjs` never performs recovery mutations.
@@ -66,6 +67,52 @@ Required evidence:
 
 **Decision:** do not perform targeted cleanup unless R1 confirms that
 `api_request` is the removable historical class.
+
+## R1.5 — account evidence preservation
+
+Before deleting historical rows, create a portable account-focused evidence bundle
+from the same source database while Render remains suspended.
+
+The exporter uses a single `REPEATABLE READ READ ONLY` transaction, streams
+account-linked records to JSONL, hashes every artifact, and writes a SHA-256
+manifest under the ignored `.backups/evidence/` tree.
+
+Recommended first pass:
+
+```bash
+node scripts/db/export-account-evidence.mjs \
+  --email=<account-email> \
+  --prod \
+  --force-production \
+  --api-request-mode=summary \
+  --json
+```
+
+The default `summary` policy preserves meaningful account-linked security events
+row-for-row while preserving the high-volume `api_request` class as count,
+time-range, daily-count, and tamper-evident first/last hash-chain anchors. It does
+not delete or modify source rows.
+
+If individual `api_request` rows are themselves required for the preservation
+purpose and sufficient external storage is available, explicitly use:
+
+```bash
+node scripts/db/export-account-evidence.mjs \
+  --email=<account-email> \
+  --prod \
+  --force-production \
+  --api-request-mode=all \
+  --batch-size=1000 \
+  --json
+```
+
+Verify `manifest.sha256`, verify the per-file hashes recorded in `manifest.json`,
+and preserve at least one copy outside the database provider before R4.
+
+**Gate:** the account evidence manifest verifies and its preservation policy is
+recorded. See `docs/ACCOUNT_EVIDENCE_PRESERVATION.md` for exclusions, redactions,
+provider-portability guidance, and the distinction between account evidence and a
+raw database dump.
 
 ## R2 — containment status
 
@@ -111,10 +158,17 @@ repository's restore verification workflow.
 
 **Gate:** a current backup exists and a disposable restore proof is recorded.
 
+The raw database dump and R1.5 account evidence bundle are complementary:
+
+- raw DB dump = database-level rollback artifact;
+- account evidence bundle = portable account/audit artifact with explicit hashes and provider-independent files.
+
+Neither substitutes for the other before destructive cleanup.
+
 ## R4 — targeted logical cleanup
 
 Only after R1 confirms historical `api_request` rows are the removable class and
-R2/R3 are complete. Keep Render suspended while cleanup runs.
+**R1.5, R2, and R3 are complete**. Keep Render suspended while cleanup runs.
 
 Dry run first:
 
@@ -210,7 +264,7 @@ Proof ceiling remains **local-runtime**.
 
 Prerequisites:
 
-- R0–R7 recorded
+- R0–R7 recorded, including R1.5 account-evidence preservation
 - exact `main` SHA recorded
 - Render branch = `main`
 - health check = `/health`
@@ -246,7 +300,7 @@ After live recovery:
 ## Rollback boundaries
 
 - containment trigger installation is idempotent; do not drop it during an app rollback
-- targeted logical cleanup is destructive and depends on R3 backup for rollback
+- targeted logical cleanup is destructive and depends on both R1.5 account evidence and R3 raw backup for preservation/rollback
 - `VACUUM FULL` is not a data rollback mechanism; it is physical compaction after logical cleanup
 - normal migrations continue to own `applied_sql_migrations`; recovery scripts do not forge migration state
 
@@ -255,15 +309,18 @@ After live recovery:
 Repository tests can prove the tools and safety contracts. They cannot prove:
 
 - current production event composition
+- successful production account evidence export/copy verification
 - successful backup/restore
 - production cleanup
 - production physical reclaim
 - deployment completion
 - live observation
 
-Those require R1/R3/R4/R5/R8/R9 evidence respectively.
+Those require R1/R1.5/R3/R4/R5/R8/R9 evidence respectively.
 
 ## Next production action after this branch is merged
 
-**R1 only:** keep Render suspended and run the read-only forensics audit. Do not
-perform containment or deletion until the audit result is reviewed.
+**R1 then R1.5 only:** keep Render suspended, run the read-only forensics audit,
+then create and verify the read-only account evidence bundle. Do not perform
+containment mutation or deletion until those results are reviewed and R3 raw
+backup/restore proof is complete.
