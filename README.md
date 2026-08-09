@@ -7,9 +7,11 @@
 
 ## 🔄 Current Work / Agent Queue
 
-**[Open the shared AxTask work queue →](.ai/WORK_QUEUE.md)**
+**For users:** **[Open the shared AxTask work queue →](.ai/WORK_QUEUE.md)**
 
-Users and agents use this stateful ledger to see the current work, claim tasks, record blockers and durable proof, and keep work moving through validation, review, and merge. **If you want to help with AxTask right now, start here.**
+**For agents:** **[Start with the AI harness intake →](.ai/README.md)**, which loads the repository authority and operating rules before routing you to the shared queue.
+
+The queue is the stateful coordination ledger for current work: users can review or update tasks, while agents claim work through the harness and record blockers, durable proof, and continuation state as they move through validation, review, and merge. **If you want to help with AxTask right now, start with the link appropriate to you above.**
 
 ## Overview
 
