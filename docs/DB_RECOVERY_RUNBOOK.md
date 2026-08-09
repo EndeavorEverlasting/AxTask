@@ -74,52 +74,69 @@ Before deleting historical rows, create a portable account-focused evidence bund
 from the same source database while Render remains suspended.
 
 The exporter uses a single `REPEATABLE READ READ ONLY` transaction, streams
-account-linked records to JSONL, hashes every artifact, and writes a SHA-256
-manifest under the ignored `.backups/evidence/` tree.
+account-linked records to JSONL, fsyncs evidence files and directory metadata,
+hashes every artifact, and writes a SHA-256 manifest.
 
-Recommended first pass:
+For production, the output directory must be an explicit absolute path on
+operator-controlled protected storage:
 
 ```bash
+ACCOUNT_EMAIL='user@example.com'
+EVIDENCE_DIR='/mnt/encrypted/axtask-evidence'
 node scripts/db/export-account-evidence.mjs \
-  --email=<account-email> \
+  --email="$ACCOUNT_EMAIL" \
   --prod \
   --force-production \
+  --output-dir="$EVIDENCE_DIR" \
   --api-request-mode=summary \
   --json
 ```
 
 The default `summary` policy preserves meaningful account-linked security events
 row-for-row while preserving the high-volume `api_request` class as count,
-time-range, daily-count, and tamper-evident first/last hash-chain anchors. It does
-not delete or modify source rows.
+time-range, UTC daily-count, and tamper-evident first/last hash-chain anchors. It
+does not delete or modify source rows.
 
 If individual `api_request` rows are themselves required for the preservation
-purpose and sufficient external storage is available, explicitly use:
+purpose and sufficient protected external storage is available:
 
 ```bash
+ACCOUNT_EMAIL='user@example.com'
+EVIDENCE_DIR='/mnt/encrypted/axtask-evidence'
 node scripts/db/export-account-evidence.mjs \
-  --email=<account-email> \
+  --email="$ACCOUNT_EMAIL" \
   --prod \
   --force-production \
+  --output-dir="$EVIDENCE_DIR" \
   --api-request-mode=all \
   --batch-size=1000 \
   --json
 ```
 
 The exporter writes `EXPORT_INCOMPLETE` immediately after creating its output
-directory. That sentinel remains on every interrupted or failed export and is
-removed only after the read-only snapshot commits and the hashed manifest exists.
-A directory containing `EXPORT_INCOMPLETE` is not preservation evidence.
+directory. It removes that sentinel only after a successful read-only snapshot,
+durable artifact writes, and manifest creation. **Never remove the sentinel
+manually.** If the command fails or the sentinel remains, the directory is not
+preservation evidence.
 
-Verify that `EXPORT_INCOMPLETE` is absent, verify `manifest.sha256`, verify the
-per-file hashes recorded in `manifest.json`, and preserve at least one copy outside
-the database provider before R4.
+After a successful exit:
 
-**Gate:** the account evidence bundle has no incomplete sentinel, its manifest
-verifies, and its preservation policy is recorded. See
-`docs/ACCOUNT_EVIDENCE_PRESERVATION.md` for exclusions, redactions,
-provider-portability guidance, and the distinction between account evidence and a
-raw database dump.
+1. confirm `EXPORT_INCOMPLETE` is absent;
+2. verify `manifest.sha256`;
+3. verify every per-file hash in `manifest.json`;
+4. review the manifest's account-linking policy and `excludedTables` list;
+5. create **two independently controlled copies** and verify hashes after each copy.
+
+The JSONL bundle includes attachment database metadata/storage keys but not object
+bytes. When attachment files are part of the required record set, separately copy
+the object bytes to protected storage, hash them, and retain an object-copy manifest
+before R4.
+
+**Gate:** the account evidence bundle is complete and hash-verified, two
+independently controlled verified copies exist, and any in-scope attachment object
+bytes have their own verified copy manifest. See
+`docs/ACCOUNT_EVIDENCE_PRESERVATION.md` for the full scope, exclusions,
+third-party/shared-record boundary, and provider-portability procedure.
 
 ## R2 — containment status
 
@@ -328,6 +345,6 @@ Those require R1/R1.5/R3/R4/R5/R8/R9 evidence respectively.
 ## Next production action after this branch is merged
 
 **R1 then R1.5 only:** keep Render suspended, run the read-only forensics audit,
-then create and verify the read-only account evidence bundle. Do not perform
-containment mutation or deletion until those results are reviewed and R3 raw
-backup/restore proof is complete.
+then create and verify the read-only account evidence bundle and two independent
+copies. Do not perform containment mutation or deletion until those results are
+reviewed and R3 raw backup/restore proof is complete.
