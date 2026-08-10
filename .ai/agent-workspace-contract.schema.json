@@ -49,10 +49,13 @@
     "cleanup": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statusRequired", "cleanWorktreeRequired", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
+      "required": ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
       "properties": {
         "statusRequired": {"const": "REMOVE"},
         "cleanWorktreeRequired": {"const": true},
+        "lineEndingOnlyTrackedNoiseAllowed": {"const": true},
+        "stagedOrUntrackedChangesAllowed": {"const": false},
+        "semanticTrackedChangesAllowed": {"const": false},
         "headAncestorOf": {"const": "origin/main"},
         "forceRemovalAllowed": {"const": false},
         "deleteBranch": {"const": false},
