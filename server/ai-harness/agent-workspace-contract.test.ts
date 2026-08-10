@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import contract from "../../.ai/agent-workspace-contract.json";
-import { assessDeletionEligibility, diagnoseWorkspaces, isTempLikeWorkspace, resolveManagedRoot } from "../../scripts/ai-harness/workspaces.mjs";
+import { assessDeletionEligibility, diagnoseWorkspaces, isTempLikeWorkspace, managedRootProblem, resolveManagedRoot } from "../../scripts/ai-harness/workspaces.mjs";
 import { validateAgentWorkspaceContract, validateAgentWorkspacePolicy } from "../../scripts/ai-harness/validate-agent-workspaces.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -16,8 +16,14 @@ describe("agent workspace ownership harness", () => {
     expect(resolveManagedRoot("/work/AxTask", {} as NodeJS.ProcessEnv)).toBe(path.resolve("/work/AxTask-worktrees"));
   });
 
-  it("honors an explicit workspace-root override", () => {
+  it("honors an explicit disjoint workspace-root override", () => {
     expect(resolveManagedRoot("/work/AxTask", { AXTASK_AGENT_WORKSPACE_ROOT: "/managed/axtask" } as NodeJS.ProcessEnv)).toBe(path.resolve("/managed/axtask"));
+    expect(managedRootProblem("/work/AxTask", "/managed/axtask", "/tmp")).toBeNull();
+  });
+
+  it("rejects managed roots inside or surrounding the repository", () => {
+    expect(managedRootProblem("/work/AxTask", "/work/AxTask/.worktrees", "/tmp")).toContain("inside the repository");
+    expect(managedRootProblem("/work/AxTask", "/work", "/tmp")).toContain("contain the primary repository");
   });
 
   it("recognizes Windows AppData and POSIX temp roots", () => {
@@ -83,14 +89,16 @@ describe("agent workspace ownership harness", () => {
     expect(assessDeletionEligibility({ status: "REMOVE", primary: true, clean: true, merged: true }).safe).toBe(false);
   });
 
-  it("fails closed when the policy allows scattered or destructive workspace behavior", () => {
+  it("fails closed when the policy allows scattered, nested, or destructive workspace behavior", () => {
     const unsafe = structuredClone(contract) as any;
+    unsafe.workspaceRoot.managedRootMayBeInsideRepository = true;
     unsafe.durableWorkspacePolicy.rawGitWorktreeCreationByAgents = true;
     unsafe.durableWorkspacePolicy.agentClonesAllowed = true;
     unsafe.durableWorkspacePolicy.uniqueRepoStateInTempAllowed = true;
     unsafe.cleanup.forceRemovalAllowed = true;
     unsafe.cleanup.deleteBranch = true;
     expect(validateAgentWorkspacePolicy(unsafe)).toEqual(expect.arrayContaining([
+      "managed workspace root must remain outside the repository",
       "agents must not create durable worktrees outside the helper",
       "agent-owned duplicate clones must remain forbidden",
       "unique repository state in temp must remain forbidden",
