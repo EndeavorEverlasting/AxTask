@@ -33,6 +33,7 @@
     "semanticTrackedChangesAllowed": false,
     "headAncestorOf": "origin/main",
     "forceRemovalAllowed": false,
+    "forceRemovalForProvenLineEndingOnlyNoise": true,
     "deleteBranch": false,
     "pruneAfterRemoval": true
   },
