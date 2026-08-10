@@ -7,7 +7,6 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const EXPECTED_REPOSITORY = "EndeavorEverlasting/AxTask";
-const EXPECTED_REMOTE = /github\.com[:/]EndeavorEverlasting\/AxTask(?:\.git)?$/i;
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 function git(args, cwd) {
@@ -60,8 +59,13 @@ function parseArgs(argv) {
   return parsed;
 }
 
-function normalizeOrigin(origin) {
-  return String(origin ?? "").trim().replace(/\.git$/i, "");
+export function isCanonicalOrigin(origin) {
+  const value = String(origin ?? "").trim().replace(/\.git$/i, "");
+  return (
+    /^https:\/\/github\.com\/EndeavorEverlasting\/AxTask$/i.test(value) ||
+    /^git@github\.com:EndeavorEverlasting\/AxTask$/i.test(value) ||
+    /^ssh:\/\/git@github\.com\/EndeavorEverlasting\/AxTask$/i.test(value)
+  );
 }
 
 function probe(candidate) {
@@ -70,7 +74,7 @@ function probe(candidate) {
   if (top.status !== 0 || !top.stdout) return null;
   const root = canonical(top.stdout);
   const origin = git(["-C", root, "remote", "get-url", "origin"], root);
-  if (origin.status !== 0 || !EXPECTED_REMOTE.test(normalizeOrigin(origin.stdout))) return null;
+  if (origin.status !== 0 || !isCanonicalOrigin(origin.stdout)) return null;
   const head = git(["-C", root, "rev-parse", "HEAD"], root);
   const branch = git(["-C", root, "branch", "--show-current"], root);
   return {
@@ -87,10 +91,11 @@ function parseWorktrees(text) {
   for (const line of String(text).split(/\r?\n/)) {
     if (line.startsWith("worktree ")) {
       if (current) rows.push(current);
-      current = { path: canonical(line.slice(9)), head: null, branch: null, detached: false };
+      current = { path: canonical(line.slice(9)), head: null, branch: null, detached: false, prunable: false };
     } else if (current && line.startsWith("HEAD ")) current.head = line.slice(5);
     else if (current && line.startsWith("branch refs/heads/")) current.branch = line.slice("branch refs/heads/".length);
     else if (current && line === "detached") current.detached = true;
+    else if (current && line.startsWith("prunable")) current.prunable = true;
   }
   if (current) rows.push(current);
   return rows;
@@ -140,8 +145,8 @@ export function resolveAxTaskCheckout(options = {}) {
 
   for (const root of searchRoots) {
     for (const child of shallowDirectories(root)) {
+      addUnique(candidates, candidateSeen, child);
       const name = path.basename(child).toLowerCase();
-      if (name.startsWith("axtask")) addUnique(candidates, candidateSeen, child);
       if (name === "axtask-worktrees" || name.startsWith("axtask-worktrees-")) {
         for (const grandchild of shallowDirectories(child)) addUnique(candidates, candidateSeen, grandchild);
       }
@@ -177,8 +182,9 @@ export function resolveAxTaskCheckout(options = {}) {
     }
   }
 
-  const primary = worktrees[0]?.path ?? found[0].root;
-  const main = worktrees.find((item) => item.branch === "main")?.path ?? null;
+  const usableWorktrees = worktrees.filter((item) => !item.prunable && fs.existsSync(item.path) && probe(item.path));
+  const primary = usableWorktrees[0]?.path ?? found[0].root;
+  const main = usableWorktrees.find((item) => item.branch === "main")?.path ?? null;
   const currentProbe = probe(process.cwd());
 
   return {
@@ -188,13 +194,14 @@ export function resolveAxTaskCheckout(options = {}) {
     main,
     current: currentProbe?.root ?? null,
     worktrees,
+    usableWorktrees,
     discoveredRoots: found.map((item) => item.root),
     origin: found[0].origin,
     head: found[0].head,
     branch: found[0].branch ?? "(detached)",
     note: main
-      ? "A main worktree is registered. Use it only when the task truly requires branch main; fetch and inspection can run from any canonical checkout."
-      : "No main worktree is checked out. That is not a fetch blocker; use a canonical checkout and origin/main, or create managed isolation through workspaces.mjs when mutation is required.",
+      ? "A usable main worktree is registered. Use it only when the task truly requires branch main; fetch and inspection can run from any canonical checkout."
+      : "No usable main worktree is checked out. That is not a fetch blocker; use a canonical checkout and origin/main, or create managed isolation through workspaces.mjs when mutation is required.",
   };
 }
 
