@@ -1,0 +1,68 @@
+name: harness-agent-workspaces
+
+on:
+  pull_request:
+    paths:
+      - '.ai/agent-workspace-contract.json'
+      - '.ai/agent-workspace-contract.schema.json'
+      - '.ai/workflows/agent-workspace-lifecycle.md'
+      - '.ai/skills/agent-workspace-lifecycle.md'
+      - '.ai/reports/agent-workspace-report-template.md'
+      - '.ai/harness.json'
+      - '.ai/codebase-map.json'
+      - '.ai/workflow-registry.json'
+      - '.ai/capability-registry.json'
+      - '.ai/trigger-registry.json'
+      - '.ai/artifact-registry.json'
+      - '.ai/validator-registry.json'
+      - '.ai/README.md'
+      - 'scripts/ai-harness/workspaces.mjs'
+      - 'scripts/ai-harness/validate-agent-workspaces.mjs'
+      - 'server/ai-harness/agent-workspace-contract.test.ts'
+      - '.githooks/**'
+      - '.github/workflows/harness-agent-workspaces.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.ai/agent-workspace-contract.json'
+      - 'scripts/ai-harness/workspaces.mjs'
+      - 'scripts/ai-harness/validate-agent-workspaces.mjs'
+      - 'server/ai-harness/agent-workspace-contract.test.ts'
+      - '.githooks/**'
+
+jobs:
+  agent-workspace-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - name: Reject whitespace errors in changed commit
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --no-tags
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - name: Validate authority
+        run: node scripts/ai-harness/validate-authority.mjs
+      - name: Validate harness
+        run: node scripts/ai-harness/validate-harness.mjs
+      - name: Validate harness completeness
+        run: node scripts/ai-harness/validate-harness-infrastructure.mjs
+      - name: Validate agent workspace contract
+        run: node scripts/ai-harness/validate-agent-workspaces.mjs
+      - name: Validate current checkout placement
+        run: node scripts/ai-harness/workspaces.mjs doctor --strict-current
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused workspace lifecycle contracts
+        run: npx --no-install vitest run server/ai-harness/agent-workspace-contract.test.ts
