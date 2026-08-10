@@ -9,6 +9,8 @@ if command -v node >/dev/null 2>&1; then
   node scripts/ai-harness/validate-harness.mjs
   node scripts/ai-harness/validate-work-queue.mjs
   node scripts/ai-harness/validate-stateful-architecture.mjs
+  node scripts/ai-harness/validate-agent-workspaces.mjs
+  node scripts/ai-harness/workspaces.mjs doctor --strict-current
   node scripts/ai-harness/check-artifact-hygiene.mjs
 else
   echo "Node.js is required to run repository security and AI harness guards." >&2
