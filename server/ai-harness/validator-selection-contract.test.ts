@@ -56,6 +56,7 @@ describe("AI harness validator selection", () => {
       "harness-infrastructure",
       "stateful-architecture",
       "log-retention",
+      "agent-workspaces",
       "harness-tests",
       "release",
       "tests",
@@ -98,7 +99,6 @@ describe("AI harness validator selection", () => {
 
   it("fails conservative for an unmapped path", () => {
     const plan = selectValidators(REGISTRY, { changedPaths: ["new-root/file.xyz"] });
-
     expect(ids(plan)).toEqual(["release", "typecheck", "tests", "build"]);
     expect(plan.unmatchedPaths).toEqual(["new-root/file.xyz"]);
   });
@@ -108,8 +108,15 @@ describe("AI harness validator selection", () => {
       changedPaths: ["docs/releases/example.md"],
       workflowId: "axtask.repository-intake.v1",
     });
-
     expect(ids(plan)).toEqual(["authority", "harness", "run-context", "release", "tests", "docs-contracts"]);
+  });
+
+  it("selects workspace lifecycle plus run context for workspace workflow", () => {
+    const plan = selectValidators(REGISTRY, {
+      changedPaths: [".ai/agent-workspace-contract.json"],
+      workflowId: "axtask.agent-workspace-lifecycle.v1",
+    });
+    expect(ids(plan)).toEqual(expect.arrayContaining(["authority", "harness", "harness-infrastructure", "agent-workspaces", "run-context", "harness-tests", "release", "tests"]));
   });
 
   it("matches Windows paths against repository globs", () => {
@@ -118,21 +125,14 @@ describe("AI harness validator selection", () => {
   });
 
   it("rejects output outside the ignored run directory", () => {
-    expect(() => ensureOutputPath(REPO_ROOT, "docs/validator-plan.json")).toThrow(
-      "output must stay under .ai/runs/",
-    );
-    expect(ensureOutputPath(REPO_ROOT, ".ai/runs/test/validator-plan.json")).toContain(
-      path.join(".ai", "runs", "test", "validator-plan.json"),
-    );
+    expect(() => ensureOutputPath(REPO_ROOT, "docs/validator-plan.json")).toThrow("output must stay under .ai/runs/");
+    expect(ensureOutputPath(REPO_ROOT, ".ai/runs/test/validator-plan.json")).toContain(path.join(".ai", "runs", "test", "validator-plan.json"));
   });
 
   it("rejects a validator dependency that is not registered", () => {
     const invalidRegistry = structuredClone(REGISTRY);
     invalidRegistry.validators[0].requires = ["missing-validator"];
-
-    expect(() =>
-      selectValidators(invalidRegistry, { changedPaths: ["AGENTS.md"] }),
-    ).toThrow("registry references unknown validator missing-validator");
+    expect(() => selectValidators(invalidRegistry, { changedPaths: ["AGENTS.md"] })).toThrow("registry references unknown validator missing-validator");
   });
 
   it("fails closed when contract impact registry is malformed or invalid", () => {
@@ -143,9 +143,7 @@ describe("AI harness validator selection", () => {
       const aiDir = path.join(tempDir, ".ai");
       fs.mkdirSync(aiDir, { recursive: true });
       fs.writeFileSync(path.join(aiDir, "contract-impact-registry.json"), "{ invalid json }", "utf8");
-      expect(() =>
-        selectValidators(REGISTRY, { changedPaths: ["render.yaml"], rootDir: tempDir }),
-      ).toThrow();
+      expect(() => selectValidators(REGISTRY, { changedPaths: ["render.yaml"], rootDir: tempDir })).toThrow();
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -156,10 +154,8 @@ describe("AI harness validator selection", () => {
     try {
       const freshRunsDir = path.join(tempRootDir, ".ai", "runs");
       expect(fs.existsSync(freshRunsDir)).toBe(false);
-
       const relativeOutputPath = ".ai/runs/fresh-run/validator-plan.json";
       const resultPath = ensureOutputPath(tempRootDir, relativeOutputPath);
-
       expect(fs.existsSync(path.dirname(resultPath))).toBe(true);
       expect(resultPath).toBe(path.resolve(tempRootDir, relativeOutputPath));
     } finally {
