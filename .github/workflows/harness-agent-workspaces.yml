@@ -63,6 +63,7 @@ jobs:
           slug="ci-agent-workspace-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           first_id="ci-new-${slug}"
           resumed_id="ci-resume-${slug}"
+          managed_root="$(node scripts/ai-harness/workspaces.mjs root)"
 
           node scripts/ai-harness/workspaces.mjs create \
             --task CI-NEW \
@@ -72,6 +73,8 @@ jobs:
             --base origin/main
           node scripts/ai-harness/workspaces.mjs doctor --strict-all
           node scripts/ai-harness/workspaces.mjs classify --id "$first_id" --status REMOVE --reason "CI smoke complete"
+          echo "STATUS BEFORE FIRST CLEANUP"
+          git -C "$managed_root/$first_id" status --short --untracked-files=all
           node scripts/ai-harness/workspaces.mjs cleanup --id "$first_id"
 
           git show-ref --verify --quiet "refs/heads/$branch"
@@ -84,5 +87,7 @@ jobs:
             --base origin/main
           node scripts/ai-harness/workspaces.mjs doctor --strict-all
           node scripts/ai-harness/workspaces.mjs classify --id "$resumed_id" --status REMOVE --reason "CI resume smoke complete"
+          echo "STATUS BEFORE RESUMED CLEANUP"
+          git -C "$managed_root/$resumed_id" status --short --untracked-files=all
           node scripts/ai-harness/workspaces.mjs cleanup --id "$resumed_id"
           node scripts/ai-harness/workspaces.mjs doctor --strict-all
