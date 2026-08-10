@@ -45,7 +45,7 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
 
   if (map) {
     const commandIds = ids(map.commands);
-    for (const required of ["install", "development", "typecheck", "test", "build", "deploy-contract", "production-start", "agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-cleanup"]) {
+    for (const required of ["install", "development", "typecheck", "test", "build", "deploy-contract", "production-start", "repo-location", "repo-location-validate", "agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-cleanup"]) {
       if (!commandIds.has(required)) errors.push(`.ai/codebase-map.json: missing command ${required}`);
     }
     for (const command of array(map.commands)) requireText("codebase command", command, ["command", "role", "mutation"], errors);
@@ -54,12 +54,13 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
       if (nonEmpty(config?.path) && !fs.existsSync(path.join(rootDir, config.path))) errors.push(`.ai/codebase-map.json: missing configuration ${config.path}`);
     }
     if (array(map.knownTraps).length < 5 || array(map.knownTraps).some((item) => !nonEmpty(item))) errors.push(".ai/codebase-map.json: knownTraps must contain at least five non-empty entries");
+    if (!array(map.knownTraps).some((item) => item.includes("folder named AxTask") || item.includes("folder named AxTask") || item.includes("shell path"))) errors.push(".ai/codebase-map.json: knownTraps must cover false AxTask directory identity");
     if (map.deploymentModel?.directDeployCommandRegistered !== false) errors.push(".ai/codebase-map.json: deploymentModel must state that no direct live deploy command is registered");
   }
 
   if (artifacts) {
     const artifactIds = ids(artifacts.artifacts);
-    for (const required of ["run-context", "repo-snapshot", "validator-plan", "runtime-proof", "failure-report", "operator-report", "final-handoff", "release-evidence", "prompt", "agent-workspace-contract", "agent-workspace-report"]) {
+    for (const required of ["run-context", "repo-snapshot", "repository-location-report", "validator-plan", "runtime-proof", "failure-report", "operator-report", "final-handoff", "release-evidence", "prompt", "agent-workspace-contract", "agent-workspace-report"]) {
       if (!artifactIds.has(required)) errors.push(`.ai/artifact-registry.json: missing artifact ${required}`);
     }
     for (const artifact of array(artifacts.artifacts)) {
@@ -75,12 +76,21 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
 
   const workflowIds = ids(workflows?.workflows);
   if (!workflowIds.has("axtask.failure-recovery.v1")) errors.push(".ai/workflow-registry.json: missing workflow axtask.failure-recovery.v1");
+  if (!workflowIds.has("axtask.repository-location-recovery.v1")) errors.push(".ai/workflow-registry.json: missing workflow axtask.repository-location-recovery.v1");
   if (!workflowIds.has("axtask.agent-workspace-lifecycle.v1")) errors.push(".ai/workflow-registry.json: missing workflow axtask.agent-workspace-lifecycle.v1");
+
   const failureWorkflow = array(workflows?.workflows).find((item) => item?.id === "axtask.failure-recovery.v1");
   if (failureWorkflow) {
     requireText("workflow", failureWorkflow, ["path", "description"], errors);
     const text = readHarnessText(rootDir, failureWorkflow.path, errors);
     for (const heading of ["## Use when", "## Inputs", "## Steps", "## Bounded retry policy", "## Stop conditions", "## Outputs", "## Proof ceiling"]) if (!text.includes(heading)) errors.push(`failure recovery workflow missing ${heading}`);
+  }
+
+  const locationWorkflow = array(workflows?.workflows).find((item) => item?.id === "axtask.repository-location-recovery.v1");
+  if (locationWorkflow) {
+    requireText("workflow", locationWorkflow, ["path", "description"], errors);
+    const text = readHarnessText(rootDir, locationWorkflow.path, errors);
+    for (const heading of ["## Use when", "## Inputs", "## Steps", "## Known traps", "## Outputs", "## Stop conditions", "## Proof ceiling"]) if (!text.includes(heading)) errors.push(`repository location workflow missing ${heading}`);
   }
 
   const workspaceWorkflow = array(workflows?.workflows).find((item) => item?.id === "axtask.agent-workspace-lifecycle.v1");
@@ -92,6 +102,8 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
 
   const failureTrigger = array(triggers?.triggers).find((item) => item?.id === "validator-or-workflow-failed");
   if (failureTrigger?.workflowId !== "axtask.failure-recovery.v1") errors.push(".ai/trigger-registry.json: validator-or-workflow-failed must route to axtask.failure-recovery.v1");
+  const locationTrigger = array(triggers?.triggers).find((item) => item?.id === "repository-location-uncertain");
+  if (locationTrigger?.workflowId !== "axtask.repository-location-recovery.v1") errors.push(".ai/trigger-registry.json: repository-location-uncertain must route to axtask.repository-location-recovery.v1");
   const workspaceTrigger = array(triggers?.triggers).find((item) => item?.id === "agent-workspace-needed");
   if (workspaceTrigger?.workflowId !== "axtask.agent-workspace-lifecycle.v1") errors.push(".ai/trigger-registry.json: agent-workspace-needed must route to axtask.agent-workspace-lifecycle.v1");
 
@@ -99,29 +111,38 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
   const skillText = skillComponents.map((item) => readHarnessText(rootDir, item?.path, errors)).join("\n");
   for (const skillId of array(harness.skills)) if (!skillText.includes(skillId)) errors.push(`registered skill has no specification: ${skillId}`);
   if (!array(harness.skills).includes("axtask.skill.failure-recovery.v1")) errors.push(".ai/harness.json: missing failure recovery skill");
+  if (!array(harness.skills).includes("axtask.skill.repository-location-recovery.v1")) errors.push(".ai/harness.json: missing repository location recovery skill");
   if (!array(harness.skills).includes("axtask.skill.agent-workspace-lifecycle.v1")) errors.push(".ai/harness.json: missing agent workspace lifecycle skill");
 
   const failureReport = readHarnessText(rootDir, ".ai/reports/failure-report-template.md", errors);
   for (const heading of ["## FAILURE", "## CLASSIFICATION", "## REPRODUCTION", "## OWNERSHIP", "## ATTEMPTS", "## VALIDATION STATE", "## REPAIR OR BLOCKER", "## NEXT OWNER"]) if (!failureReport.includes(heading)) errors.push(`failure report template missing ${heading}`);
+  const locationReport = readHarnessText(rootDir, ".ai/reports/repository-location-report-template.md", errors);
+  for (const heading of ["## REPOSITORY", "## OBSERVED LOCATION", "## DISCOVERED CHECKOUTS", "## WORKTREE STATE", "## WORKING", "## BROKEN", "## MISSING", "## SAFETY", "## NEXT ACTION"]) if (!locationReport.includes(heading)) errors.push(`repository location report template missing ${heading}`);
   const workspaceReport = readHarnessText(rootDir, ".ai/reports/agent-workspace-report-template.md", errors);
   for (const heading of ["## REPOSITORY", "## MANAGED ROOT", "## WORKSPACES", "## WORKING", "## BROKEN", "## MISSING", "## CLEANUP SAFETY", "## PROOF CEILING", "## NEXT ACTION"]) if (!workspaceReport.includes(heading)) errors.push(`agent workspace report template missing ${heading}`);
 
   if (harness.hookPolicy?.automaticInstall !== false) errors.push(".ai/harness.json: hooks must remain opt-in");
   if (!array(harness.hookPolicy?.preCommitRuns).includes("harness")) errors.push(".ai/harness.json: preCommitRuns must include harness");
   if (!array(harness.hookPolicy?.preCommitRuns).includes("agent-workspaces")) errors.push(".ai/harness.json: preCommitRuns must include agent-workspaces");
-  for (const id of ["authority", "harness", "harness-infrastructure", "agent-workspaces", "harness-tests"]) if (!array(harness.hookPolicy?.prePushRuns).includes(id)) errors.push(`.ai/harness.json: prePushRuns must include ${id}`);
+  for (const id of ["authority", "harness", "harness-infrastructure", "repo-location-recovery", "agent-workspaces", "harness-tests"]) if (!array(harness.hookPolicy?.prePushRuns).includes(id)) errors.push(`.ai/harness.json: prePushRuns must include ${id}`);
 
   const prePush = readHarnessText(rootDir, ".githooks/pre-push", errors);
-  for (const expected of ["validate-authority.mjs", "validate-harness.mjs", "validate-harness-infrastructure.mjs", "validate-agent-workspaces.mjs", "workspaces.mjs doctor --strict-current", "harness-infrastructure-contract.test.ts", "agent-workspace-contract.test.ts", "--no-install"]) if (!prePush.includes(expected)) errors.push(`.githooks/pre-push missing ${expected}`);
+  for (const expected of ["validate-authority.mjs", "validate-harness.mjs", "validate-harness-infrastructure.mjs", "validate-repo-location-recovery.mjs", "validate-agent-workspaces.mjs", "workspaces.mjs doctor --strict-current", "harness-infrastructure-contract.test.ts", "agent-workspace-contract.test.ts", "--no-install"]) if (!prePush.includes(expected)) errors.push(`.githooks/pre-push missing ${expected}`);
 
   const validatorIds = ids(validators?.validators);
   if (!validatorIds.has("harness-infrastructure")) errors.push(".ai/validator-registry.json: missing validator harness-infrastructure");
+  if (!validatorIds.has("repo-location-recovery")) errors.push(".ai/validator-registry.json: missing validator repo-location-recovery");
   if (!validatorIds.has("agent-workspaces")) errors.push(".ai/validator-registry.json: missing validator agent-workspaces");
   const infrastructureValidator = array(validators?.validators).find((item) => item?.id === "harness-infrastructure");
   if (infrastructureValidator?.command !== "node scripts/ai-harness/validate-harness-infrastructure.mjs") errors.push(".ai/validator-registry.json: harness-infrastructure command mismatch");
+  const locationValidator = array(validators?.validators).find((item) => item?.id === "repo-location-recovery");
+  if (locationValidator?.command !== "node scripts/ai-harness/validate-repo-location-recovery.mjs") errors.push(".ai/validator-registry.json: repo-location-recovery command mismatch");
   const workspaceValidator = array(validators?.validators).find((item) => item?.id === "agent-workspaces");
   if (workspaceValidator?.command !== "node scripts/ai-harness/validate-agent-workspaces.mjs") errors.push(".ai/validator-registry.json: agent-workspaces command mismatch");
 
+  for (const componentId of ["repo-location-workflow", "repo-location-skill", "repo-location-resolver", "repo-location-validator", "repo-location-report", "repo-location-ci"]) {
+    if (!array(harness.components).some((item) => item?.id === componentId)) errors.push(`.ai/harness.json: missing repository location component ${componentId}`);
+  }
   for (const componentId of ["agent-workspace-contract", "agent-workspace-contract-schema", "agent-workspace-workflow", "agent-workspace-skill", "agent-workspace-tool", "agent-workspace-validator", "agent-workspace-report", "agent-workspace-contract-test", "agent-workspace-ci"]) {
     if (!array(harness.components).some((item) => item?.id === componentId)) errors.push(`.ai/harness.json: missing agent workspace component ${componentId}`);
   }
