@@ -14,6 +14,7 @@ import {
   resolveManagedRoot,
   worktreeAddPlan,
 } from "../../scripts/ai-harness/workspaces.mjs";
+import { summarizeWorkingDiff } from "../../scripts/ai-harness/validate-working-diff.mjs";
 import {
   expectedAgentWorkspaceSchema,
   validateAgentWorkspaceContract,
@@ -34,6 +35,35 @@ describe("agent workspace ownership harness", () => {
     const weakened = structuredClone(schema);
     delete weakened.properties.cleanup.properties.forceRemovalAllowed.const;
     expect(validateAgentWorkspaceSchemaDefinition(weakened)).toContain("workspace schema differs from the complete fail-closed schema contract");
+  });
+
+  it("pins strict committed-range checks while routing live working trees through the EOL-aware validator", () => {
+    expect(contract.diffHygiene).toMatchObject({
+      committedRangeCheck: "git diff --check <base>...HEAD",
+      workingTreeCheck: "node scripts/ai-harness/validate-working-diff.mjs",
+      preCommitCheck: "node scripts/ai-harness/validate-working-diff.mjs --staged",
+      ignoreCrAtEolForWorkingTree: true,
+      lineEndingOnlyTrackedNoiseIgnored: true,
+      stagedWhitespaceFails: true,
+      semanticTrackedWhitespaceFails: true,
+      rawWorkingTreeDiffCheckRequired: false,
+    });
+  });
+
+  it("reports line-ending-only checkout noise separately from semantic tracked work", () => {
+    expect(summarizeWorkingDiff({
+      staged: [],
+      untracked: ["scratch.txt"],
+      semanticTracked: ["src/changed.ts"],
+      lineEndingOnly: ["docs/CHANGELOG.md", "docs/VERSION_1.3.0_PLAN.md"],
+      semanticallyClean: false,
+    })).toEqual({
+      staged: [],
+      untracked: ["scratch.txt"],
+      semanticTracked: ["src/changed.ts"],
+      lineEndingOnly: ["docs/CHANGELOG.md", "docs/VERSION_1.3.0_PLAN.md"],
+      semanticallyClean: false,
+    });
   });
 
   it("resolves the default managed root as a human-visible repository sibling", () => {
@@ -169,7 +199,7 @@ describe("agent workspace ownership harness", () => {
     expect(assessDeletionEligibility({ status: "REMOVE", primary: false, clean: true, merged: true, branchMatches: false }).safe).toBe(false);
   });
 
-  it("fails closed when the policy allows scattered, nested, or destructive workspace behavior", () => {
+  it("fails closed when the policy allows scattered, nested, destructive, or EOL-naive workspace behavior", () => {
     const unsafe = structuredClone(contract) as any;
     unsafe.workspaceRoot.managedRootMayBeInsideRepository = true;
     unsafe.workspaceRoot.managedRootMayContainRepository = true;
@@ -181,6 +211,11 @@ describe("agent workspace ownership harness", () => {
     unsafe.cleanup.forceRemovalAllowed = true;
     unsafe.cleanup.forceRemovalForProvenLineEndingOnlyNoise = false;
     unsafe.cleanup.deleteBranch = true;
+    unsafe.diffHygiene.ignoreCrAtEolForWorkingTree = false;
+    unsafe.diffHygiene.lineEndingOnlyTrackedNoiseIgnored = false;
+    unsafe.diffHygiene.stagedWhitespaceFails = false;
+    unsafe.diffHygiene.semanticTrackedWhitespaceFails = false;
+    unsafe.diffHygiene.rawWorkingTreeDiffCheckRequired = true;
     expect(validateAgentWorkspacePolicy(unsafe)).toEqual(expect.arrayContaining([
       "managed workspace root must remain outside the repository",
       "managed workspace root must not contain the repository",
@@ -192,6 +227,11 @@ describe("agent workspace ownership harness", () => {
       "general force removal must remain forbidden",
       "force removal may be used only for proven line-ending-only tracked noise",
       "cleanup must preserve branches",
+      "working-tree diff hygiene must ignore CR-only checkout noise at EOL",
+      "proven line-ending-only tracked noise must not block working-tree diff hygiene",
+      "staged whitespace errors must fail",
+      "semantic tracked whitespace errors must fail",
+      "raw working-tree git diff --check must not be required on EOL-noisy checkouts",
     ]));
   });
 });

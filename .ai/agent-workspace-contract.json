@@ -37,6 +37,16 @@
     "deleteBranch": false,
     "pruneAfterRemoval": true
   },
+  "diffHygiene": {
+    "committedRangeCheck": "git diff --check <base>...HEAD",
+    "workingTreeCheck": "node scripts/ai-harness/validate-working-diff.mjs",
+    "preCommitCheck": "node scripts/ai-harness/validate-working-diff.mjs --staged",
+    "ignoreCrAtEolForWorkingTree": true,
+    "lineEndingOnlyTrackedNoiseIgnored": true,
+    "stagedWhitespaceFails": true,
+    "semanticTrackedWhitespaceFails": true,
+    "rawWorkingTreeDiffCheckRequired": false
+  },
   "validation": {
     "hookMode": "strict-current",
     "operatorAuditMode": "strict-all",
