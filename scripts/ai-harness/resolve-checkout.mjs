@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const EXPECTED_REPOSITORY = "EndeavorEverlasting/AxTask";
 const EXPECTED_REMOTE = /github\.com[:/]EndeavorEverlasting\/AxTask(?:\.git)?$/i;
@@ -134,12 +135,10 @@ export function resolveAxTaskCheckout(options = {}) {
   const rootSeen = new Set();
   for (const item of [...(options.searchRoots ?? []), ...defaults.searchRoots]) addUnique(searchRoots, rootSeen, item);
 
-  const searched = [];
   const candidates = [...direct];
   const candidateSeen = new Set(candidates.map(key));
 
   for (const root of searchRoots) {
-    addUnique(searched, new Set(searched.map(key)), root);
     for (const child of shallowDirectories(root)) {
       const name = path.basename(child).toLowerCase();
       if (name.startsWith("axtask")) addUnique(candidates, candidateSeen, child);
@@ -232,4 +231,4 @@ function main() {
   if (!result.ok) process.exitCode = 2;
 }
 
-if (import.meta.url === new URL(`file://${process.argv[1]?.replaceAll("\\", "/")}`).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main();
