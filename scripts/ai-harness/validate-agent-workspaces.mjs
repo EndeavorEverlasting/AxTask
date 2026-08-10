@@ -75,10 +75,13 @@ export function expectedAgentWorkspaceSchema() {
       },
       cleanup: {
         type: "object", additionalProperties: false,
-        required: ["statusRequired", "cleanWorktreeRequired", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
+        required: ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
         properties: {
           statusRequired: { const: "REMOVE" },
           cleanWorktreeRequired: { const: true },
+          lineEndingOnlyTrackedNoiseAllowed: { const: true },
+          stagedOrUntrackedChangesAllowed: { const: false },
+          semanticTrackedChangesAllowed: { const: false },
           headAncestorOf: { const: "origin/main" },
           forceRemovalAllowed: { const: false },
           deleteBranch: { const: false },
@@ -123,7 +126,10 @@ export function validateAgentWorkspacePolicy(contract) {
   for (const field of REQUIRED_FIELDS) if (!contract?.registry?.requiredFields?.includes(field)) errors.push(`missing registry field ${field}`);
   if (contract?.registry?.tracked !== false) errors.push("machine-local workspace registry must remain untracked");
   if (contract?.cleanup?.statusRequired !== "REMOVE") errors.push("cleanup must require REMOVE status");
-  if (contract?.cleanup?.cleanWorktreeRequired !== true) errors.push("cleanup must require clean worktree");
+  if (contract?.cleanup?.cleanWorktreeRequired !== true) errors.push("cleanup must require a semantically clean worktree");
+  if (contract?.cleanup?.lineEndingOnlyTrackedNoiseAllowed !== true) errors.push("cleanup must explicitly classify proven line-ending-only tracked noise as non-unique state");
+  if (contract?.cleanup?.stagedOrUntrackedChangesAllowed !== false) errors.push("cleanup must reject staged or untracked changes");
+  if (contract?.cleanup?.semanticTrackedChangesAllowed !== false) errors.push("cleanup must reject semantic tracked changes");
   if (contract?.cleanup?.headAncestorOf !== "origin/main") errors.push("cleanup merge proof must target origin/main");
   if (contract?.cleanup?.forceRemovalAllowed !== false) errors.push("force removal must remain forbidden");
   if (contract?.cleanup?.deleteBranch !== false) errors.push("cleanup must preserve branches");
