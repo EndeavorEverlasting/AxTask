@@ -1,3 +1,5 @@
+authorityRef: axtask.agent-authority.v1
+
 # AxTask deployment/recovery handoff — 2026-08-09
 
 - Repo: `EndeavorEverlasting/AxTask`

@@ -47,6 +47,11 @@
       "id": "axtask.stateful-architecture-migration.v1",
       "path": ".ai/workflows/stateful-architecture-migration.md",
       "description": "Evidence-first factoring for serverless/stateless migration with one owned seam, fail-closed KEEP defaults, and explicit proof ceilings."
+    },
+    {
+      "id": "axtask.log-retention-capacity-defense.v1",
+      "path": ".ai/workflows/log-retention-capacity-defense.md",
+      "description": "Keep append-only/log retention policy, runner, scheduler wiring, proof artifacts, and live-proof boundaries synchronized before storage accumulates."
     }
   ]
 }

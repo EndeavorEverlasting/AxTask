@@ -16,6 +16,8 @@
     {"id":"local-cert","type":"workflow","path":".ai/workflows/local-deployment-certification.md"},
     {"id":"parallel-intake","type":"workflow","path":".ai/workflows/parallel-sprint-intake.md"},
     {"id":"stateful-architecture-workflow","type":"workflow","path":".ai/workflows/stateful-architecture-migration.md"},
+    {"id":"log-retention-contract","type":"contract","path":".ai/log-retention-contract.json"},
+    {"id":"log-retention-workflow","type":"workflow","path":".ai/workflows/log-retention-capacity-defense.md"},
     {"id":"run-context","type":"run-context","path":".ai/run-context.schema.json"},
     {"id":"runtime-proof","type":"runtime-proof","path":".ai/runtime-proof.schema.json"},
     {"id":"stateful-surface-ledger-schema","type":"schema","path":".ai/stateful-surface-ledger.schema.json"},
@@ -32,16 +34,20 @@
     {"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},
     {"id":"runtime-proof-skill","type":"skill","path":".ai/skills/runtime-proof.md"},
     {"id":"stateful-architecture-skill","type":"skill","path":".ai/skills/stateful-architecture-migration.md"},
+    {"id":"log-retention-skill","type":"skill","path":".ai/skills/log-retention-capacity-defense.md"},
     {"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},
     {"id":"work-queue-validator","type":"validator","path":"scripts/ai-harness/validate-work-queue.mjs"},
     {"id":"stateful-architecture-validator","type":"validator","path":"scripts/ai-harness/validate-stateful-architecture.mjs"},
+    {"id":"log-retention-validator","type":"validator","path":"scripts/ai-harness/validate-log-retention.mjs"},
     {"id":"inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-repo.mjs"},
     {"id":"collision-inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-pr-collisions.mjs"},
     {"id":"contract-impact-inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-contract-impact.mjs"},
     {"id":"operator-report","type":"operator-report","path":".ai/reports/operator-report-template.md"},
     {"id":"failure-report","type":"operator-report","path":".ai/reports/failure-report-template.md"},
     {"id":"stateful-architecture-report","type":"operator-report","path":".ai/reports/stateful-architecture-report-template.md"},
+    {"id":"log-retention-report","type":"operator-report","path":".ai/reports/log-retention-report-template.md"},
     {"id":"handoff","type":"handoff","path":".ai/handoff/final-handoff-template.md"},
+    {"id":"log-retention-ci","type":"ci-workflow","path":".github/workflows/harness-log-retention.yml"},
     {"id":"pre-commit-hook","type":"local-hook","path":".githooks/pre-commit"},
     {"id":"pre-push-hook","type":"local-hook","path":".githooks/pre-push"}
   ],
@@ -59,7 +65,8 @@
     "axtask.skill.failure-recovery.v1",
     "axtask.skill.harness-maintenance.v1",
     "axtask.skill.runtime-proof.v1",
-    "axtask.skill.stateful-architecture-migration.v1"
+    "axtask.skill.stateful-architecture-migration.v1",
+    "axtask.skill.log-retention-capacity-defense.v1"
   ],
   "readOnlyIntelligence": {
     "id": "axtask.read-only-repo-inspector.v1",
@@ -73,6 +80,6 @@
     "hookPath": ".githooks",
     "runs": ["authority", "harness", "work-queue", "stateful-architecture"],
     "preCommitRuns": ["node-provenance", "node-runtime", "axios-guard", "authority", "harness", "work-queue", "stateful-architecture"],
-    "prePushRuns": ["authority", "harness", "harness-infrastructure", "work-queue", "stateful-architecture", "harness-tests"]
+    "prePushRuns": ["authority", "harness", "harness-infrastructure", "work-queue", "stateful-architecture", "log-retention", "harness-tests"]
   }
 }

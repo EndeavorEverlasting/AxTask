@@ -42,13 +42,24 @@
       "requires": ["authority", "harness", "harness-infrastructure"]
     },
     {
+      "id": "log-retention",
+      "command": "node scripts/ai-harness/validate-log-retention.mjs",
+      "scope": "append-only/log retention policy, runner, scheduler wiring, harness routing, and proof ceiling",
+      "required": true,
+      "selection": {
+        "paths": [".ai/log-retention-contract.json", ".ai/workflows/log-retention-capacity-defense.md", ".ai/skills/log-retention-capacity-defense.md", ".ai/reports/log-retention-report-template.md", "scripts/ai-harness/validate-log-retention.mjs", "server/ai-harness/log-retention-harness-contract.test.ts", "docs/DB_RETENTION_POLICY.md", "docs/SCHEDULED_RESOURCE_CONTROLS.md", "scripts/db-retention.mjs", "render.yaml", ".ai/harness.json", ".ai/workflow-registry.json", ".ai/artifact-registry.json", ".ai/validator-registry.json", ".ai/trigger-registry.json", ".ai/codebase-map.json", ".githooks/**"],
+        "workflows": ["axtask.log-retention-capacity-defense.v1"]
+      },
+      "requires": ["authority", "harness", "harness-infrastructure"]
+    },
+    {
       "id": "run-context",
       "command": "node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json",
       "scope": "run-context schema",
       "required": true,
       "selection": {
         "paths": [".ai/run-context.schema.json", ".ai/workflows/**", "scripts/ai-harness/validate-run-context.mjs"],
-        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1", "axtask.predeploy-cost-readiness.v1", "axtask.stateful-architecture-migration.v1"]
+        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1", "axtask.predeploy-cost-readiness.v1", "axtask.stateful-architecture-migration.v1", "axtask.log-retention-capacity-defense.v1"]
       },
       "requires": ["authority", "harness"]
     },
@@ -65,11 +76,11 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts",
-      "scope": "negative, completeness, integration, readiness, stateful-architecture, and local certification contracts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/log-retention-harness-contract.test.ts",
+      "scope": "negative, completeness, integration, readiness, stateful-architecture, retention, and local certification contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
-      "requires": ["authority", "harness", "harness-infrastructure", "stateful-architecture"]
+      "requires": ["authority", "harness", "harness-infrastructure", "stateful-architecture", "log-retention"]
     },
     {
       "id": "collision-inspection",
