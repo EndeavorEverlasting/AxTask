@@ -7,6 +7,7 @@ import contract from "../../.ai/agent-workspace-contract.json";
 import {
   acquireWorkspaceLock,
   assessDeletionEligibility,
+  buffersDifferOnlyByLineEndings,
   diagnoseWorkspaces,
   isTempLikeWorkspace,
   managedRootProblem,
@@ -67,6 +68,12 @@ describe("agent workspace ownership harness", () => {
     expect(isTempLikeWorkspace("C:\\Users\\CHEEKS\\AppData\\Local\\Temp\\opencode\\pr121-repair", "/not-temp")).toBe(true);
     expect(isTempLikeWorkspace("/tmp/opencode/pr121-repair", "/different-temp")).toBe(true);
     expect(isTempLikeWorkspace("/var/tmp/axtask", "/different-temp")).toBe(true);
+  });
+
+  it("treats only CRLF/LF byte differences as line-ending-only noise", () => {
+    expect(buffersDifferOnlyByLineEndings(Buffer.from("alpha\r\nbeta\r\n"), Buffer.from("alpha\nbeta\n"))).toBe(true);
+    expect(buffersDifferOnlyByLineEndings(Buffer.from("alpha\r\nbeta\r\n"), Buffer.from("alpha\ngamma\n"))).toBe(false);
+    expect(buffersDifferOnlyByLineEndings(Buffer.from([0, 13, 10, 1]), Buffer.from([0, 10, 1]))).toBe(true);
   });
 
   it("serializes registry mutations with an exclusive inter-process lock", () => {
@@ -152,7 +159,7 @@ describe("agent workspace ownership harness", () => {
     expect(result.violations.map((item) => item.code)).toEqual(expect.arrayContaining(["TEMP_SECONDARY_WORKTREE", "UNMANAGED_SECONDARY_WORKTREE"]));
   });
 
-  it("requires REMOVE + named + clean + merged + secondary before cleanup", () => {
+  it("requires REMOVE + named + semantically clean + merged + secondary before cleanup", () => {
     expect(assessDeletionEligibility({ status: "REMOVE", primary: false, clean: true, merged: true }).safe).toBe(true);
     expect(assessDeletionEligibility({ status: "ACTIVE", primary: false, clean: true, merged: true }).safe).toBe(false);
     expect(assessDeletionEligibility({ status: "REMOVE", primary: false, clean: false, merged: true }).safe).toBe(false);
@@ -169,7 +176,10 @@ describe("agent workspace ownership harness", () => {
     unsafe.durableWorkspacePolicy.rawGitWorktreeCreationByAgents = true;
     unsafe.durableWorkspacePolicy.agentClonesAllowed = true;
     unsafe.durableWorkspacePolicy.uniqueRepoStateInTempAllowed = true;
+    unsafe.cleanup.stagedOrUntrackedChangesAllowed = true;
+    unsafe.cleanup.semanticTrackedChangesAllowed = true;
     unsafe.cleanup.forceRemovalAllowed = true;
+    unsafe.cleanup.forceRemovalForProvenLineEndingOnlyNoise = false;
     unsafe.cleanup.deleteBranch = true;
     expect(validateAgentWorkspacePolicy(unsafe)).toEqual(expect.arrayContaining([
       "managed workspace root must remain outside the repository",
@@ -177,7 +187,10 @@ describe("agent workspace ownership harness", () => {
       "agents must not create durable worktrees outside the helper",
       "agent-owned duplicate clones must remain forbidden",
       "unique repository state in temp must remain forbidden",
-      "force removal must remain forbidden",
+      "cleanup must reject staged or untracked changes",
+      "cleanup must reject semantic tracked changes",
+      "general force removal must remain forbidden",
+      "force removal may be used only for proven line-ending-only tracked noise",
       "cleanup must preserve branches",
     ]));
   });
