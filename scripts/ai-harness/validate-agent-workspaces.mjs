@@ -75,7 +75,7 @@ export function expectedAgentWorkspaceSchema() {
       },
       cleanup: {
         type: "object", additionalProperties: false,
-        required: ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
+        required: ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "forceRemovalForProvenLineEndingOnlyNoise", "deleteBranch", "pruneAfterRemoval"],
         properties: {
           statusRequired: { const: "REMOVE" },
           cleanWorktreeRequired: { const: true },
@@ -84,6 +84,7 @@ export function expectedAgentWorkspaceSchema() {
           semanticTrackedChangesAllowed: { const: false },
           headAncestorOf: { const: "origin/main" },
           forceRemovalAllowed: { const: false },
+          forceRemovalForProvenLineEndingOnlyNoise: { const: true },
           deleteBranch: { const: false },
           pruneAfterRemoval: { const: true },
         },
@@ -131,7 +132,8 @@ export function validateAgentWorkspacePolicy(contract) {
   if (contract?.cleanup?.stagedOrUntrackedChangesAllowed !== false) errors.push("cleanup must reject staged or untracked changes");
   if (contract?.cleanup?.semanticTrackedChangesAllowed !== false) errors.push("cleanup must reject semantic tracked changes");
   if (contract?.cleanup?.headAncestorOf !== "origin/main") errors.push("cleanup merge proof must target origin/main");
-  if (contract?.cleanup?.forceRemovalAllowed !== false) errors.push("force removal must remain forbidden");
+  if (contract?.cleanup?.forceRemovalAllowed !== false) errors.push("general force removal must remain forbidden");
+  if (contract?.cleanup?.forceRemovalForProvenLineEndingOnlyNoise !== true) errors.push("force removal may be used only for proven line-ending-only tracked noise");
   if (contract?.cleanup?.deleteBranch !== false) errors.push("cleanup must preserve branches");
   if (contract?.cleanup?.pruneAfterRemoval !== true) errors.push("cleanup must prune stale worktree metadata");
   if (contract?.validation?.hookMode !== "strict-current") errors.push("hook mode must remain strict-current");
