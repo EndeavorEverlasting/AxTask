@@ -9,14 +9,15 @@ This directory is the machine-readable operating layer for repository agents. Pr
 3. Load `.ai/authority.json` and `.ai/harness.json`.
 4. Use `.ai/codebase-map.json` to find entry points, commands, configurations, high-risk surfaces, and known traps.
 5. Run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`. If isolation is needed, create it through `workspaces.mjs create`; do not invent an AppData/Local/Temp worktree path or a second clone.
-6. If the task changes a stateful/runtime boundary — serverless/stateless work, server removal, persistence/session changes, background jobs, functions/queues/KV/object storage, or provider/runtime factoring — read and validate `.ai/stateful-surface-ledger.json` before choosing a workflow or editing application code.
-7. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; workspace isolation/lifecycle routes to `axtask.agent-workspace-lifecycle.v1`.
-8. Create a run context matching `.ai/run-context.schema.json`.
-9. Select validators from changed paths and workflow; do not confuse selection with execution.
-10. Run the selected commands and record exact pass, fail, and skip results.
-11. When a validator or workflow fails, route through `axtask.failure-recovery.v1` and produce the registered failure report.
-12. Keep advancing the claimed queue item through validation, commit, push, PR/review repair, and merge whenever those actions are safe, authorized, and tool-accessible. `VERIFY`, `REVIEW`, and `MERGE` are continuation states, not handoff points.
-13. Before stopping, classify any managed workspace `ACTIVE`, `PRESERVE`, or `REMOVE`, update the queue block with strongest proof, exact gate, and first executable next action, then produce the operator report and compressed handoff.
+6. Run `node scripts/ai-harness/validate-working-diff.mjs` for live working-tree whitespace hygiene. Do not use a raw working-tree `git diff --check` as the operator gate on Windows when Git reports proven CRLF/LF checkout noise; keep raw `git diff --check <base>...HEAD` strict for committed branch/PR ranges.
+7. If the task changes a stateful/runtime boundary — serverless/stateless work, server removal, persistence/session changes, background jobs, functions/queues/KV/object storage, or provider/runtime factoring — read and validate `.ai/stateful-surface-ledger.json` before choosing a workflow or editing application code.
+8. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; workspace isolation/lifecycle routes to `axtask.agent-workspace-lifecycle.v1`.
+9. Create a run context matching `.ai/run-context.schema.json`.
+10. Select validators from changed paths and workflow; do not confuse selection with execution.
+11. Run the selected commands and record exact pass, fail, and skip results.
+12. When a validator or workflow fails, route through `axtask.failure-recovery.v1` and produce the registered failure report.
+13. Keep advancing the claimed queue item through validation, commit, push, PR/review repair, and merge whenever those actions are safe, authorized, and tool-accessible. `VERIFY`, `REVIEW`, and `MERGE` are continuation states, not handoff points.
+14. Before stopping, classify any managed workspace `ACTIVE`, `PRESERVE`, or `REMOVE`, update the queue block with strongest proof, exact gate, and first executable next action, then produce the operator report and compressed handoff.
 
 ## Shared work queue
 
@@ -37,6 +38,7 @@ Use the repo-owned helper:
 ```bash
 node scripts/ai-harness/workspaces.mjs root
 node scripts/ai-harness/workspaces.mjs doctor --strict-current
+node scripts/ai-harness/validate-working-diff.mjs
 node scripts/ai-harness/workspaces.mjs create --task AXQ-000 --owner <agent> --branch <branch> --purpose "<purpose>" --base origin/main
 node scripts/ai-harness/workspaces.mjs list
 node scripts/ai-harness/workspaces.mjs doctor --strict-all
@@ -46,7 +48,9 @@ node scripts/ai-harness/workspaces.mjs cleanup --id <id>
 
 The machine-local registry lives at `<managed-root>/.axtask-agent-workspaces.json` and is never tracked. `AppData/Local/Temp`, `os.tmpdir()`, `/tmp`, and `/var/tmp` are cache/scratch locations only: unique branch or sprint state must not live there. Agents must not create a second durable clone as an isolation shortcut.
 
-Cleanup is deliberately fail-closed. `REMOVE` means “request cleanup,” not “safe to delete.” The helper removes only a secondary worktree that is clean and whose HEAD is already an ancestor of `origin/main`; it never force-removes and never deletes the branch. `doctor --strict-current` is hook-safe and protects the current agent without destructively cleaning unrelated legacy work. `doctor --strict-all` is the operator inventory for the whole Git-visible worktree set.
+Cleanup is deliberately fail-closed. `REMOVE` means “request cleanup,” not “safe to delete.” The helper removes only a secondary worktree that is semantically clean and whose HEAD is already an ancestor of `origin/main`; it preserves the branch. `doctor --strict-current` is hook-safe and protects the current agent without destructively cleaning unrelated legacy work. `doctor --strict-all` is the operator inventory for the whole Git-visible worktree set.
+
+Working-tree diff hygiene is also fail-closed without being EOL-naive. `validate-working-diff.mjs` runs strict staged `git diff --cached --check`, then checks the live working tree with Git's `--ignore-cr-at-eol` while reporting paths independently proven CRLF/LF-only by the workspace cleanliness classifier. Real staged or semantic whitespace defects still fail. Committed ranges are always checked with strict `git diff --check <base>...HEAD`; the working-tree exception never weakens commit/PR proof.
 
 ## Stateful architecture ledger
 
@@ -86,6 +90,7 @@ The artifact registry records each artifact's producer, generation procedure, na
 ```bash
 node scripts/ai-harness/inspect-repo.mjs
 node scripts/ai-harness/workspaces.mjs doctor --strict-current
+node scripts/ai-harness/validate-working-diff.mjs
 node scripts/ai-harness/validate-agent-workspaces.mjs
 node scripts/ai-harness/select-validators.mjs --context .ai/runs/<run-id>/context.json --output .ai/runs/<run-id>/validator-plan.json
 node scripts/ai-harness/validate-authority.mjs
@@ -110,7 +115,7 @@ Hooks are opt-in through:
 node scripts/ai-harness/install-hooks.mjs
 ```
 
-- `pre-commit` runs repository security guards plus authority, harness, work-queue, stateful-architecture, agent-workspace contract, strict-current workspace doctor, and artifact-hygiene validators.
+- `pre-commit` runs repository security guards plus authority, harness, work-queue, stateful-architecture, agent-workspace contract, strict-current workspace doctor, staged EOL-aware diff hygiene, and artifact-hygiene validators.
 - `pre-push` runs repository security guards, authority, harness completeness, work-queue, stateful-architecture, retention, agent-workspace contract, strict-current workspace doctor, and focused harness contract tests with `npx --no-install`.
 
 The installer does not silently replace a different local hook path.

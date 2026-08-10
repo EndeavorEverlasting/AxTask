@@ -52,6 +52,8 @@ jobs:
         run: node scripts/ai-harness/validate-agent-workspaces.mjs
       - name: Validate current checkout placement
         run: node scripts/ai-harness/workspaces.mjs doctor --strict-current
+      - name: Validate EOL-aware working diff hygiene
+        run: node scripts/ai-harness/validate-working-diff.mjs
       - name: Install dependencies
         run: npm ci
       - name: Run focused workspace lifecycle contracts

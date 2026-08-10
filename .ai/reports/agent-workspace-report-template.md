@@ -20,6 +20,14 @@ authorityRef: axtask.agent-authority.v1
 - temp-root worktrees: <count>
 - orphan directories: <count>
 
+## DIFF HYGIENE
+- working-tree validator: `node scripts/ai-harness/validate-working-diff.mjs`
+- result: pass/fail
+- proven CRLF/LF-only tracked paths: <count and sanitized repo-relative paths>
+- semantic tracked paths: <count and repo-relative paths>
+- staged whitespace errors: <none or exact diagnostics>
+- committed-range `git diff --check <base>...HEAD`: <pass/fail/not-run>
+
 ## WORKING
 - <what the harness can prove>
 
@@ -34,7 +42,7 @@ authorityRef: axtask.agent-authority.v1
 - refused removals and reasons: <items or none>
 
 ## PROOF CEILING
-Repository-local worktree evidence only; do not infer another workstation's filesystem state.
+Repository-local worktree evidence only; do not infer another workstation's filesystem state. EOL-aware working-tree proof does not replace strict committed-range whitespace proof.
 
 ## NEXT ACTION
 - owner: <owner>

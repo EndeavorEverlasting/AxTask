@@ -3,7 +3,7 @@
   "$id": "axtask.agent-workspace-ownership.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "authorityRef", "contractId", "workspaceRoot", "durableWorkspacePolicy", "registry", "cleanup", "validation"],
+  "required": ["schemaVersion", "authorityRef", "contractId", "workspaceRoot", "durableWorkspacePolicy", "registry", "cleanup", "diffHygiene", "validation"],
   "properties": {
     "schemaVersion": {"const": 1},
     "authorityRef": {"const": "axtask.agent-authority.v1"},
@@ -61,6 +61,21 @@
         "forceRemovalForProvenLineEndingOnlyNoise": {"const": true},
         "deleteBranch": {"const": false},
         "pruneAfterRemoval": {"const": true}
+      }
+    },
+    "diffHygiene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["committedRangeCheck", "workingTreeCheck", "preCommitCheck", "ignoreCrAtEolForWorkingTree", "lineEndingOnlyTrackedNoiseIgnored", "stagedWhitespaceFails", "semanticTrackedWhitespaceFails", "rawWorkingTreeDiffCheckRequired"],
+      "properties": {
+        "committedRangeCheck": {"const": "git diff --check <base>...HEAD"},
+        "workingTreeCheck": {"const": "node scripts/ai-harness/validate-working-diff.mjs"},
+        "preCommitCheck": {"const": "node scripts/ai-harness/validate-working-diff.mjs --staged"},
+        "ignoreCrAtEolForWorkingTree": {"const": true},
+        "lineEndingOnlyTrackedNoiseIgnored": {"const": true},
+        "stagedWhitespaceFails": {"const": true},
+        "semanticTrackedWhitespaceFails": {"const": true},
+        "rawWorkingTreeDiffCheckRequired": {"const": false}
       }
     },
     "validation": {

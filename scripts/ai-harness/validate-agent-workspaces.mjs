@@ -8,6 +8,8 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const REQUIRED_FIELDS = ["id", "taskId", "owner", "path", "branch", "baseRef", "baseSha", "purpose", "createdAt", "status"];
 const TEMP_MATCHERS = ["os.tmpdir", "AppData/Local/Temp", "/tmp", "/var/tmp"];
+const WORKING_DIFF_COMMAND = "node scripts/ai-harness/validate-working-diff.mjs";
+const PRECOMMIT_DIFF_COMMAND = `${WORKING_DIFF_COMMAND} --staged`;
 
 function readJson(root, relativePath, errors) {
   try { return JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8")); }
@@ -33,7 +35,7 @@ export function expectedAgentWorkspaceSchema() {
     $id: "axtask.agent-workspace-ownership.v1",
     type: "object",
     additionalProperties: false,
-    required: ["schemaVersion", "authorityRef", "contractId", "workspaceRoot", "durableWorkspacePolicy", "registry", "cleanup", "validation"],
+    required: ["schemaVersion", "authorityRef", "contractId", "workspaceRoot", "durableWorkspacePolicy", "registry", "cleanup", "diffHygiene", "validation"],
     properties: {
       schemaVersion: { const: 1 },
       authorityRef: { const: "axtask.agent-authority.v1" },
@@ -89,6 +91,20 @@ export function expectedAgentWorkspaceSchema() {
           pruneAfterRemoval: { const: true },
         },
       },
+      diffHygiene: {
+        type: "object", additionalProperties: false,
+        required: ["committedRangeCheck", "workingTreeCheck", "preCommitCheck", "ignoreCrAtEolForWorkingTree", "lineEndingOnlyTrackedNoiseIgnored", "stagedWhitespaceFails", "semanticTrackedWhitespaceFails", "rawWorkingTreeDiffCheckRequired"],
+        properties: {
+          committedRangeCheck: { const: "git diff --check <base>...HEAD" },
+          workingTreeCheck: { const: WORKING_DIFF_COMMAND },
+          preCommitCheck: { const: PRECOMMIT_DIFF_COMMAND },
+          ignoreCrAtEolForWorkingTree: { const: true },
+          lineEndingOnlyTrackedNoiseIgnored: { const: true },
+          stagedWhitespaceFails: { const: true },
+          semanticTrackedWhitespaceFails: { const: true },
+          rawWorkingTreeDiffCheckRequired: { const: false },
+        },
+      },
       validation: {
         type: "object", additionalProperties: false,
         required: ["hookMode", "operatorAuditMode", "personalPathsTracked"],
@@ -136,6 +152,15 @@ export function validateAgentWorkspacePolicy(contract) {
   if (contract?.cleanup?.forceRemovalForProvenLineEndingOnlyNoise !== true) errors.push("force removal may be used only for proven line-ending-only tracked noise");
   if (contract?.cleanup?.deleteBranch !== false) errors.push("cleanup must preserve branches");
   if (contract?.cleanup?.pruneAfterRemoval !== true) errors.push("cleanup must prune stale worktree metadata");
+  const diffHygiene = contract?.diffHygiene;
+  if (diffHygiene?.committedRangeCheck !== "git diff --check <base>...HEAD") errors.push("committed-range diff hygiene must remain strict git diff --check");
+  if (diffHygiene?.workingTreeCheck !== WORKING_DIFF_COMMAND) errors.push("working-tree diff hygiene must use the repo-owned EOL-aware validator");
+  if (diffHygiene?.preCommitCheck !== PRECOMMIT_DIFF_COMMAND) errors.push("pre-commit diff hygiene must validate the staged diff");
+  if (diffHygiene?.ignoreCrAtEolForWorkingTree !== true) errors.push("working-tree diff hygiene must ignore CR-only checkout noise at EOL");
+  if (diffHygiene?.lineEndingOnlyTrackedNoiseIgnored !== true) errors.push("proven line-ending-only tracked noise must not block working-tree diff hygiene");
+  if (diffHygiene?.stagedWhitespaceFails !== true) errors.push("staged whitespace errors must fail");
+  if (diffHygiene?.semanticTrackedWhitespaceFails !== true) errors.push("semantic tracked whitespace errors must fail");
+  if (diffHygiene?.rawWorkingTreeDiffCheckRequired !== false) errors.push("raw working-tree git diff --check must not be required on EOL-noisy checkouts");
   if (contract?.validation?.hookMode !== "strict-current") errors.push("hook mode must remain strict-current");
   if (contract?.validation?.operatorAuditMode !== "strict-all") errors.push("operator audit mode must remain strict-all");
   if (contract?.validation?.personalPathsTracked !== false) errors.push("personal paths must never be tracked");
@@ -169,18 +194,24 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   if (validator?.command !== "node scripts/ai-harness/validate-agent-workspaces.mjs") errors.push("agent-workspaces validator command mismatch");
   for (const commandId of ["agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-classify", "agent-workspace-cleanup"]) if (!hasId(map?.commands, commandId)) errors.push(`codebase map missing ${commandId}`);
 
+  const diffValidator = readText(rootDir, "scripts/ai-harness/validate-working-diff.mjs", errors);
+  for (const token of ["diff", "--cached", "--check", "--ignore-cr-at-eol", "inspectWorkspaceCleanliness"]) if (!diffValidator.includes(token)) errors.push(`working diff validator missing ${token}`);
+
   const workflow = readText(rootDir, ".ai/workflows/agent-workspace-lifecycle.md", errors);
   for (const heading of ["## Use when", "## Inputs", "## Steps", "## Known traps", "## Outputs", "## Stop conditions", "## Proof ceiling"]) if (!workflow.includes(heading)) errors.push(`workspace workflow missing ${heading}`);
+  if (!workflow.includes(WORKING_DIFF_COMMAND)) errors.push("workspace workflow missing EOL-aware working diff validation");
   const skill = readText(rootDir, ".ai/skills/agent-workspace-lifecycle.md", errors);
-  if (!skill.includes("axtask.skill.agent-workspace-lifecycle.v1") || !skill.includes("workspaces.mjs create") || !skill.includes("workspaces.mjs doctor")) errors.push("workspace skill missing executable lifecycle contract");
+  if (!skill.includes("axtask.skill.agent-workspace-lifecycle.v1") || !skill.includes("workspaces.mjs create") || !skill.includes("workspaces.mjs doctor") || !skill.includes(WORKING_DIFF_COMMAND)) errors.push("workspace skill missing executable lifecycle/diff contract");
   const report = readText(rootDir, ".ai/reports/agent-workspace-report-template.md", errors);
-  for (const heading of ["## REPOSITORY", "## MANAGED ROOT", "## WORKSPACES", "## WORKING", "## BROKEN", "## MISSING", "## CLEANUP SAFETY", "## PROOF CEILING", "## NEXT ACTION"]) if (!report.includes(heading)) errors.push(`workspace report missing ${heading}`);
+  for (const heading of ["## REPOSITORY", "## MANAGED ROOT", "## WORKSPACES", "## DIFF HYGIENE", "## WORKING", "## BROKEN", "## MISSING", "## CLEANUP SAFETY", "## PROOF CEILING", "## NEXT ACTION"]) if (!report.includes(heading)) errors.push(`workspace report missing ${heading}`);
   const readme = readText(rootDir, ".ai/README.md", errors);
-  for (const text of ["workspaces.mjs doctor --strict-current", "workspaces.mjs create", "AppData/Local/Temp"]) if (!readme.includes(text)) errors.push(`.ai/README.md missing workspace guidance: ${text}`);
-  for (const hook of [".githooks/pre-commit", ".githooks/pre-push"]) {
-    const text = readText(rootDir, hook, errors);
-    if (!text.includes("validate-agent-workspaces.mjs") || !text.includes("workspaces.mjs doctor --strict-current")) errors.push(`${hook} missing workspace enforcement`);
-  }
+  for (const text of ["workspaces.mjs doctor --strict-current", "workspaces.mjs create", "AppData/Local/Temp", WORKING_DIFF_COMMAND]) if (!readme.includes(text)) errors.push(`.ai/README.md missing workspace guidance: ${text}`);
+  const preCommit = readText(rootDir, ".githooks/pre-commit", errors);
+  if (!preCommit.includes("validate-agent-workspaces.mjs") || !preCommit.includes("workspaces.mjs doctor --strict-current") || !preCommit.includes(PRECOMMIT_DIFF_COMMAND)) errors.push(".githooks/pre-commit missing workspace/diff enforcement");
+  const prePush = readText(rootDir, ".githooks/pre-push", errors);
+  if (!prePush.includes("validate-agent-workspaces.mjs") || !prePush.includes("workspaces.mjs doctor --strict-current")) errors.push(".githooks/pre-push missing workspace enforcement");
+  const ci = readText(rootDir, ".github/workflows/harness-agent-workspaces.yml", errors);
+  if (!ci.includes(WORKING_DIFF_COMMAND) || !ci.includes('git diff --check "origin/${GITHUB_BASE_REF}...HEAD"')) errors.push("workspace CI must prove both working-tree EOL hygiene and committed-range whitespace hygiene");
   return { errors, contractId: contract?.contractId ?? null };
 }
 
