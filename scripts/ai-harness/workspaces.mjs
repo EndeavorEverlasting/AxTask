@@ -10,12 +10,14 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 export const WORKSPACE_STATUSES = ["ACTIVE", "PRESERVE", "REMOVE"];
 
-function runGit(args, cwd, { allowFailure = false } = {}) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+function runGit(args, cwd, { allowFailure = false, encoding = "utf8" } = {}) {
+  const result = spawnSync("git", args, { cwd, encoding, stdio: ["ignore", "pipe", "pipe"] });
   if (result.status !== 0 && !allowFailure) {
-    throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout || "unknown error").trim()}`);
+    const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : result.stderr;
+    const stdout = Buffer.isBuffer(result.stdout) ? result.stdout.toString("utf8") : result.stdout;
+    throw new Error(`git ${args.join(" ")} failed: ${(stderr || stdout || "unknown error").trim()}`);
   }
-  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  return { status: result.status ?? 1, stdout: result.stdout ?? (encoding === null ? Buffer.alloc(0) : ""), stderr: result.stderr ?? (encoding === null ? Buffer.alloc(0) : "") };
 }
 
 export function resolveRepoRoot(cwd = process.cwd()) {
@@ -190,14 +192,51 @@ export function diagnoseWorkspaces({ repoRoot, managedRoot, currentPath, worktre
   return { primaryPath, violations, warnings, currentViolations };
 }
 
+function splitNulls(value) {
+  return String(value).split("\0").filter(Boolean);
+}
+
+function normalizeCrLf(buffer) {
+  const out = [];
+  for (let index = 0; index < buffer.length; index += 1) {
+    if (buffer[index] === 13 && buffer[index + 1] === 10) continue;
+    out.push(buffer[index]);
+  }
+  return Buffer.from(out);
+}
+
+export function buffersDifferOnlyByLineEndings(a, b) {
+  return normalizeCrLf(a).equals(normalizeCrLf(b));
+}
+
+export function inspectWorkspaceCleanliness(workspacePath, repoRoot = workspacePath) {
+  const staged = splitNulls(runGit(["-C", workspacePath, "diff", "--cached", "--name-only", "-z"], repoRoot).stdout);
+  const untracked = splitNulls(runGit(["-C", workspacePath, "ls-files", "--others", "--exclude-standard", "-z"], repoRoot).stdout);
+  const unstaged = splitNulls(runGit(["-C", workspacePath, "diff", "--name-only", "-z"], repoRoot).stdout);
+  const lineEndingOnly = [];
+  const semanticTracked = [];
+
+  for (const relativePath of unstaged) {
+    const attribute = runGit(["-C", workspacePath, "check-attr", "text", "--", relativePath], repoRoot, { allowFailure: true });
+    const explicitlyText = attribute.status === 0 && /: text: set\s*$/.test(attribute.stdout.trim());
+    const absolutePath = path.join(workspacePath, relativePath);
+    const head = runGit(["-C", workspacePath, "show", `HEAD:${relativePath}`], repoRoot, { allowFailure: true, encoding: null });
+    if (explicitlyText && head.status === 0 && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile() && buffersDifferOnlyByLineEndings(head.stdout, fs.readFileSync(absolutePath))) lineEndingOnly.push(relativePath);
+    else semanticTracked.push(relativePath);
+  }
+
+  const semanticallyClean = staged.length === 0 && untracked.length === 0 && semanticTracked.length === 0;
+  return { semanticallyClean, staged, untracked, semanticTracked, lineEndingOnly };
+}
+
 export function assessDeletionEligibility({ status, primary, clean, merged, detached = false, branchMatches = true }) {
   if (status !== "REMOVE") return { safe: false, reason: "workspace status is not REMOVE" };
   if (primary) return { safe: false, reason: "primary worktree is never removed by the agent workspace helper" };
   if (detached) return { safe: false, reason: "detached worktrees are preserved for manual inspection" };
   if (!branchMatches) return { safe: false, reason: "registered branch does not match checked-out branch" };
-  if (!clean) return { safe: false, reason: "worktree has uncommitted or untracked changes" };
+  if (!clean) return { safe: false, reason: "worktree has staged, untracked, or semantic tracked changes" };
   if (!merged) return { safe: false, reason: "workspace HEAD is not an ancestor of origin/main" };
-  return { safe: true, reason: "clean named secondary worktree is merged into origin/main" };
+  return { safe: true, reason: "semantically clean named secondary worktree is merged into origin/main" };
 }
 
 function currentState(repoRoot, managedRoot) {
@@ -210,18 +249,21 @@ function currentState(repoRoot, managedRoot) {
 function deletionForEntry(repoRoot, worktrees, entry) {
   const primaryPath = worktrees[0]?.path ?? repoRoot;
   const wt = worktrees.find((item) => samePath(item.path, entry.path));
-  if (!wt) return { safe: false, reason: "no matching Git worktree" };
-  const status = runGit(["-C", entry.path, "status", "--porcelain"], repoRoot, { allowFailure: true });
+  if (!wt) return { safe: false, reason: "no matching Git worktree", cleanliness: null };
+  const cleanliness = inspectWorkspaceCleanliness(entry.path, repoRoot);
   const branchResult = runGit(["-C", entry.path, "symbolic-ref", "--quiet", "--short", "HEAD"], repoRoot, { allowFailure: true });
   const mergedResult = runGit(["-C", entry.path, "merge-base", "--is-ancestor", "HEAD", "origin/main"], repoRoot, { allowFailure: true });
-  return assessDeletionEligibility({
-    status: entry.status,
-    primary: samePath(entry.path, primaryPath),
-    clean: status.status === 0 && status.stdout.trim() === "",
-    merged: mergedResult.status === 0,
-    detached: branchResult.status !== 0,
-    branchMatches: branchResult.status === 0 && branchResult.stdout.trim() === entry.branch,
-  });
+  return {
+    ...assessDeletionEligibility({
+      status: entry.status,
+      primary: samePath(entry.path, primaryPath),
+      clean: cleanliness.semanticallyClean,
+      merged: mergedResult.status === 0,
+      detached: branchResult.status !== 0,
+      branchMatches: branchResult.status === 0 && branchResult.stdout.trim() === entry.branch,
+    }),
+    cleanliness,
+  };
 }
 
 export function worktreeAddPlan({ branch, workspacePath, baseRef, localBranchExists, remoteBranchExists }) {
@@ -290,7 +332,10 @@ function main() {
         console.log(`\n${status}`);
         const selected = items.filter((item) => item.status === status);
         if (!selected.length) console.log("  (none)");
-        for (const item of selected) console.log(`  ${item.id} | ${item.branch} | safe-to-remove=${item.deletion.safe ? "YES" : "NO"} | ${item.deletion.reason}`);
+        for (const item of selected) {
+          const eol = item.deletion.cleanliness?.lineEndingOnly?.length ? ` | eol-noise=${item.deletion.cleanliness.lineEndingOnly.length}` : "";
+          console.log(`  ${item.id} | ${item.branch} | safe-to-remove=${item.deletion.safe ? "YES" : "NO"} | ${item.deletion.reason}${eol}`);
+        }
       }
       if (diagnosis.violations.length) {
         console.log("\nUNMANAGED / UNSAFE");
@@ -318,14 +363,16 @@ function main() {
       const plan = worktreeAddPlan({ branch, workspacePath, baseRef, localBranchExists, remoteBranchExists });
       const baseSha = runGit(["rev-parse", plan.sourceRef], repoRoot).stdout.trim();
       runGit(plan.args, repoRoot);
+      const cleanliness = inspectWorkspaceCleanliness(workspacePath, repoRoot);
       const next = readRegistry(managedRoot, repoRoot);
-      next.entries.push({ id, taskId, owner, path: workspacePath, branch, baseRef: plan.sourceRef, baseSha, purpose, createdAt: new Date().toISOString(), status: "ACTIVE" });
-      try { writeRegistry(managedRoot, next); }
-      catch (error) {
-        runGit(["worktree", "remove", workspacePath], repoRoot, { allowFailure: true });
-        throw error;
-      }
-      console.log(`[agent-workspaces] CREATED id=${id} branch=${branch} path=${workspacePath} existing-branch=${localBranchExists ? "yes" : "no"}`);
+      const status = cleanliness.semanticallyClean ? "ACTIVE" : "PRESERVE";
+      const reason = cleanliness.semanticallyClean
+        ? (cleanliness.lineEndingOnly.length ? `checkout has ${cleanliness.lineEndingOnly.length} proven line-ending-only tracked differences` : undefined)
+        : "checkout produced staged, untracked, or semantic tracked differences; preserved for inspection";
+      next.entries.push({ id, taskId, owner, path: workspacePath, branch, baseRef: plan.sourceRef, baseSha, purpose, createdAt: new Date().toISOString(), status, ...(reason ? { reason } : {}) });
+      writeRegistry(managedRoot, next);
+      if (!cleanliness.semanticallyClean) throw new Error(`created workspace ${id} is not semantically clean and was registered PRESERVE; inspect before use`);
+      console.log(`[agent-workspaces] CREATED id=${id} branch=${branch} path=${workspacePath} existing-branch=${localBranchExists ? "yes" : "no"} eol-noise=${cleanliness.lineEndingOnly.length}`);
     });
   }
 
@@ -356,6 +403,7 @@ function main() {
       if (!eligibility.safe) throw new Error(`refusing cleanup for ${id}: ${eligibility.reason}`);
       const expectedHead = runGit(["-C", entry.path, "rev-parse", "HEAD"], repoRoot).stdout.trim();
       const expectedBranch = runGit(["-C", entry.path, "symbolic-ref", "--quiet", "--short", "HEAD"], repoRoot).stdout.trim();
+      const expectedEolNoise = eligibility.cleanliness?.lineEndingOnly ?? [];
 
       state = currentState(repoRoot, managedRoot);
       entry = state.registry.entries.find((item) => item.id === id);
@@ -365,12 +413,14 @@ function main() {
       const currentBranch = runGit(["-C", entry.path, "symbolic-ref", "--quiet", "--short", "HEAD"], repoRoot, { allowFailure: true }).stdout.trim();
       if (!eligibility.safe) throw new Error(`refusing cleanup after recheck for ${id}: ${eligibility.reason}`);
       if (currentHead !== expectedHead || currentBranch !== expectedBranch) throw new Error(`refusing cleanup for ${id}: HEAD or branch changed during safety check`);
+      if (JSON.stringify(eligibility.cleanliness?.lineEndingOnly ?? []) !== JSON.stringify(expectedEolNoise)) throw new Error(`refusing cleanup for ${id}: line-ending-only noise set changed during safety check`);
 
-      runGit(["worktree", "remove", entry.path], repoRoot);
+      const removeArgs = expectedEolNoise.length ? ["worktree", "remove", "--force", entry.path] : ["worktree", "remove", entry.path];
+      runGit(removeArgs, repoRoot);
       runGit(["worktree", "prune"], repoRoot);
       state.registry.entries = state.registry.entries.filter((item) => item.id !== id);
       writeRegistry(managedRoot, state.registry);
-      console.log(`[agent-workspaces] REMOVED id=${id}; branch preserved=${entry.branch}; verified-head=${expectedHead}`);
+      console.log(`[agent-workspaces] REMOVED id=${id}; branch preserved=${entry.branch}; verified-head=${expectedHead}; eol-noise-discarded=${expectedEolNoise.length}`);
     });
   }
 
