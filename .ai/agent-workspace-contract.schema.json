@@ -49,7 +49,7 @@
     "cleanup": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
+      "required": ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "forceRemovalForProvenLineEndingOnlyNoise", "deleteBranch", "pruneAfterRemoval"],
       "properties": {
         "statusRequired": {"const": "REMOVE"},
         "cleanWorktreeRequired": {"const": true},
@@ -58,6 +58,7 @@
         "semanticTrackedChangesAllowed": {"const": false},
         "headAncestorOf": {"const": "origin/main"},
         "forceRemovalAllowed": {"const": false},
+        "forceRemovalForProvenLineEndingOnlyNoise": {"const": true},
         "deleteBranch": {"const": false},
         "pruneAfterRemoval": {"const": true}
       }
