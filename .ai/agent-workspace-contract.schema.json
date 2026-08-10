@@ -10,13 +10,14 @@
     "contractId": {"const": "axtask.agent-workspace-ownership.v1"},
     "workspaceRoot": {
       "type": "object",
-      "required": ["defaultStrategy", "siblingSuffix", "environmentOverride", "primaryWorktreeMayLiveOutsideManagedRoot", "managedRootMayBeInsideRepository"],
+      "required": ["defaultStrategy", "siblingSuffix", "environmentOverride", "primaryWorktreeMayLiveOutsideManagedRoot", "managedRootMayBeInsideRepository", "managedRootMayContainRepository"],
       "properties": {
         "defaultStrategy": {"const": "repository-sibling"},
         "siblingSuffix": {"type": "string", "minLength": 1},
         "environmentOverride": {"const": "AXTASK_AGENT_WORKSPACE_ROOT"},
         "primaryWorktreeMayLiveOutsideManagedRoot": {"const": true},
-        "managedRootMayBeInsideRepository": {"const": false}
+        "managedRootMayBeInsideRepository": {"const": false},
+        "managedRootMayContainRepository": {"const": false}
       }
     },
     "durableWorkspacePolicy": {
