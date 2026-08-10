@@ -6,6 +6,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
+const REQUIRED_FIELDS = ["id", "taskId", "owner", "path", "branch", "baseRef", "baseSha", "purpose", "createdAt", "status"];
+const TEMP_MATCHERS = ["os.tmpdir", "AppData/Local/Temp", "/tmp", "/var/tmp"];
 
 function readJson(root, relativePath, errors) {
   try { return JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8")); }
@@ -18,6 +20,87 @@ function readText(root, relativePath, errors) {
 }
 
 function hasId(items, id) { return Array.isArray(items) && items.some((item) => item?.id === id); }
+function sorted(value) {
+  if (Array.isArray(value)) return value.map(sorted);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])]));
+  return value;
+}
+function sameStructure(a, b) { return JSON.stringify(sorted(a)) === JSON.stringify(sorted(b)); }
+
+export function expectedAgentWorkspaceSchema() {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "axtask.agent-workspace-ownership.v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "authorityRef", "contractId", "workspaceRoot", "durableWorkspacePolicy", "registry", "cleanup", "validation"],
+    properties: {
+      schemaVersion: { const: 1 },
+      authorityRef: { const: "axtask.agent-authority.v1" },
+      contractId: { const: "axtask.agent-workspace-ownership.v1" },
+      workspaceRoot: {
+        type: "object", additionalProperties: false,
+        required: ["defaultStrategy", "siblingSuffix", "environmentOverride", "primaryWorktreeMayLiveOutsideManagedRoot", "managedRootMayBeInsideRepository", "managedRootMayContainRepository"],
+        properties: {
+          defaultStrategy: { const: "repository-sibling" },
+          siblingSuffix: { type: "string", minLength: 1 },
+          environmentOverride: { const: "AXTASK_AGENT_WORKSPACE_ROOT" },
+          primaryWorktreeMayLiveOutsideManagedRoot: { const: true },
+          managedRootMayBeInsideRepository: { const: false },
+          managedRootMayContainRepository: { const: false },
+        },
+      },
+      durableWorkspacePolicy: {
+        type: "object", additionalProperties: false,
+        required: ["type", "managedRootRequiredForSecondary", "rawGitWorktreeCreationByAgents", "agentClonesAllowed", "uniqueRepoStateInTempAllowed", "forbiddenTempMatchers"],
+        properties: {
+          type: { const: "git-worktree-only" },
+          managedRootRequiredForSecondary: { const: true },
+          rawGitWorktreeCreationByAgents: { const: false },
+          agentClonesAllowed: { const: false },
+          uniqueRepoStateInTempAllowed: { const: false },
+          forbiddenTempMatchers: { const: TEMP_MATCHERS },
+        },
+      },
+      registry: {
+        type: "object", additionalProperties: false,
+        required: ["fileName", "location", "tracked", "statuses", "requiredFields"],
+        properties: {
+          fileName: { const: ".axtask-agent-workspaces.json" },
+          location: { const: "managed-workspace-root" },
+          tracked: { const: false },
+          statuses: { const: ["ACTIVE", "PRESERVE", "REMOVE"] },
+          requiredFields: { const: REQUIRED_FIELDS },
+        },
+      },
+      cleanup: {
+        type: "object", additionalProperties: false,
+        required: ["statusRequired", "cleanWorktreeRequired", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
+        properties: {
+          statusRequired: { const: "REMOVE" },
+          cleanWorktreeRequired: { const: true },
+          headAncestorOf: { const: "origin/main" },
+          forceRemovalAllowed: { const: false },
+          deleteBranch: { const: false },
+          pruneAfterRemoval: { const: true },
+        },
+      },
+      validation: {
+        type: "object", additionalProperties: false,
+        required: ["hookMode", "operatorAuditMode", "personalPathsTracked"],
+        properties: {
+          hookMode: { const: "strict-current" },
+          operatorAuditMode: { const: "strict-all" },
+          personalPathsTracked: { const: false },
+        },
+      },
+    },
+  };
+}
+
+export function validateAgentWorkspaceSchemaDefinition(schema) {
+  return sameStructure(schema, expectedAgentWorkspaceSchema()) ? [] : ["workspace schema differs from the complete fail-closed schema contract"];
+}
 
 export function validateAgentWorkspacePolicy(contract) {
   const errors = [];
@@ -34,10 +117,10 @@ export function validateAgentWorkspacePolicy(contract) {
   if (policy?.rawGitWorktreeCreationByAgents !== false) errors.push("agents must not create durable worktrees outside the helper");
   if (policy?.agentClonesAllowed !== false) errors.push("agent-owned duplicate clones must remain forbidden");
   if (policy?.uniqueRepoStateInTempAllowed !== false) errors.push("unique repository state in temp must remain forbidden");
-  for (const marker of ["os.tmpdir", "AppData/Local/Temp", "/tmp", "/var/tmp"]) if (!policy?.forbiddenTempMatchers?.includes(marker)) errors.push(`missing temp matcher ${marker}`);
+  for (const marker of TEMP_MATCHERS) if (!policy?.forbiddenTempMatchers?.includes(marker)) errors.push(`missing temp matcher ${marker}`);
   const statuses = contract?.registry?.statuses ?? [];
   for (const status of ["ACTIVE", "PRESERVE", "REMOVE"]) if (!statuses.includes(status)) errors.push(`missing registry status ${status}`);
-  for (const field of ["id", "taskId", "owner", "path", "branch", "baseRef", "baseSha", "purpose", "createdAt", "status"]) if (!contract?.registry?.requiredFields?.includes(field)) errors.push(`missing registry field ${field}`);
+  for (const field of REQUIRED_FIELDS) if (!contract?.registry?.requiredFields?.includes(field)) errors.push(`missing registry field ${field}`);
   if (contract?.registry?.tracked !== false) errors.push("machine-local workspace registry must remain untracked");
   if (contract?.cleanup?.statusRequired !== "REMOVE") errors.push("cleanup must require REMOVE status");
   if (contract?.cleanup?.cleanWorktreeRequired !== true) errors.push("cleanup must require clean worktree");
@@ -56,9 +139,7 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   const contract = readJson(rootDir, ".ai/agent-workspace-contract.json", errors);
   const schema = readJson(rootDir, ".ai/agent-workspace-contract.schema.json", errors);
   if (contract) errors.push(...validateAgentWorkspacePolicy(contract));
-  if (schema?.type !== "object" || schema?.$id !== "axtask.agent-workspace-ownership.v1") errors.push("workspace schema root/id mismatch");
-  if (!Array.isArray(schema?.required) || !schema.required.includes("cleanup") || !schema.required.includes("durableWorkspacePolicy")) errors.push("workspace schema missing required policy sections");
-  for (const key of ["managedRootMayBeInsideRepository", "managedRootMayContainRepository"]) if (!schema?.properties?.workspaceRoot?.required?.includes(key)) errors.push(`workspace schema must require ${key}`);
+  if (schema) errors.push(...validateAgentWorkspaceSchemaDefinition(schema));
 
   const harness = readJson(rootDir, ".ai/harness.json", errors);
   const workflows = readJson(rootDir, ".ai/workflow-registry.json", errors);
