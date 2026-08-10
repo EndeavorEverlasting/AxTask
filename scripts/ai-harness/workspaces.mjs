@@ -29,6 +29,23 @@ export function resolveManagedRoot(repoRoot, env = process.env) {
   return path.resolve(path.dirname(repoRoot), `${path.basename(repoRoot)}-worktrees`);
 }
 
+function realpath(pathname) {
+  return fs.realpathSync.native ? fs.realpathSync.native(pathname) : fs.realpathSync(pathname);
+}
+
+export function canonicalizePotentialPath(input) {
+  const absolute = path.resolve(input);
+  let cursor = absolute;
+  const missing = [];
+  while (!fs.existsSync(cursor)) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return absolute;
+    missing.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+  return path.resolve(realpath(cursor), ...missing);
+}
+
 function comparable(input) {
   const resolved = path.resolve(input);
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
@@ -56,9 +73,12 @@ export function isTempLikeWorkspace(candidate, tempRoot = os.tmpdir()) {
 }
 
 export function managedRootProblem(repoRoot, managedRoot, tempRoot = os.tmpdir()) {
-  if (isTempLikeWorkspace(managedRoot, tempRoot)) return "managed workspace root may not be temporary/AppData storage";
-  if (isWithinRoot(managedRoot, repoRoot)) return "managed workspace root may not be inside the repository";
-  if (isWithinRoot(repoRoot, managedRoot)) return "managed workspace root may not contain the primary repository";
+  const canonicalRepo = canonicalizePotentialPath(repoRoot);
+  const canonicalManaged = canonicalizePotentialPath(managedRoot);
+  const canonicalTemp = canonicalizePotentialPath(tempRoot);
+  if (isTempLikeWorkspace(canonicalManaged, canonicalTemp)) return "managed workspace root may not be temporary/AppData storage";
+  if (isWithinRoot(canonicalManaged, canonicalRepo)) return "managed workspace root may not be inside the repository";
+  if (isWithinRoot(canonicalRepo, canonicalManaged)) return "managed workspace root may not contain the primary repository";
   return null;
 }
 
@@ -69,13 +89,9 @@ export function parseWorktreePorcelain(text) {
     if (line.startsWith("worktree ")) {
       if (current) records.push(current);
       current = { path: line.slice(9), head: null, branch: null, detached: false };
-    } else if (current && line.startsWith("HEAD ")) {
-      current.head = line.slice(5);
-    } else if (current && line.startsWith("branch ")) {
-      current.branch = line.slice(7).replace(/^refs\/heads\//, "");
-    } else if (current && line === "detached") {
-      current.detached = true;
-    }
+    } else if (current && line.startsWith("HEAD ")) current.head = line.slice(5);
+    else if (current && line.startsWith("branch ")) current.branch = line.slice(7).replace(/^refs\/heads\//, "");
+    else if (current && line === "detached") current.detached = true;
   }
   if (current) records.push(current);
   return records;
@@ -83,6 +99,37 @@ export function parseWorktreePorcelain(text) {
 
 function registryPath(managedRoot) {
   return path.join(managedRoot, ".axtask-agent-workspaces.json");
+}
+
+function lockPath(managedRoot) {
+  return path.join(managedRoot, ".axtask-agent-workspaces.lock");
+}
+
+export function acquireWorkspaceLock(managedRoot, operation = "mutation") {
+  fs.mkdirSync(managedRoot, { recursive: true });
+  const file = lockPath(managedRoot);
+  let fd;
+  try {
+    fd = fs.openSync(file, "wx", 0o600);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "EEXIST") {
+      throw new Error(`agent workspace registry is locked; another lifecycle mutation may be active: ${file}`);
+    }
+    throw error;
+  }
+  fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, operation, createdAt: new Date().toISOString() })}\n`, "utf8");
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    try { fs.closeSync(fd); } finally { fs.rmSync(file, { force: true }); }
+  };
+}
+
+function withWorkspaceLock(managedRoot, operation, action) {
+  const release = acquireWorkspaceLock(managedRoot, operation);
+  try { return action(); }
+  finally { release(); }
 }
 
 function emptyRegistry(repoRoot) {
@@ -122,9 +169,9 @@ export function diagnoseWorkspaces({ repoRoot, managedRoot, currentPath, worktre
 
   for (const wt of worktrees) {
     const primary = samePath(wt.path, primaryPath);
-    const managed = isWithinRoot(wt.path, managedRoot);
+    const managed = isWithinRoot(canonicalizePotentialPath(wt.path), canonicalizePotentialPath(managedRoot));
     const entry = findEntry(wt.path);
-    const temp = isTempLikeWorkspace(wt.path, tempRoot);
+    const temp = isTempLikeWorkspace(canonicalizePotentialPath(wt.path), canonicalizePotentialPath(tempRoot));
     if (temp && !primary) violations.push({ code: "TEMP_SECONDARY_WORKTREE", path: wt.path, message: "secondary durable worktree is under a temporary/AppData path" });
     if (!primary && !managed) violations.push({ code: "UNMANAGED_SECONDARY_WORKTREE", path: wt.path, message: "secondary worktree is outside the managed workspace root" });
     if (!primary && managed && !entry) violations.push({ code: "MISSING_REGISTRY_ENTRY", path: wt.path, message: "managed secondary worktree is not registered" });
@@ -134,24 +181,23 @@ export function diagnoseWorkspaces({ repoRoot, managedRoot, currentPath, worktre
   for (const entry of registryEntries) {
     if (!WORKSPACE_STATUSES.includes(entry.status)) violations.push({ code: "INVALID_REGISTRY_STATUS", path: entry.path, message: `invalid registry status ${entry.status}` });
     if (!worktrees.some((wt) => samePath(wt.path, entry.path))) violations.push({ code: "REGISTRY_WITHOUT_WORKTREE", path: entry.path, message: "registry entry has no matching Git worktree" });
-    if (!isWithinRoot(entry.path, managedRoot)) violations.push({ code: "REGISTRY_OUTSIDE_MANAGED_ROOT", path: entry.path, message: "registry entry points outside managed root" });
-    if (isTempLikeWorkspace(entry.path, tempRoot)) violations.push({ code: "REGISTRY_IN_TEMP", path: entry.path, message: "registry points into temporary/AppData storage" });
+    if (!isWithinRoot(canonicalizePotentialPath(entry.path), canonicalizePotentialPath(managedRoot))) violations.push({ code: "REGISTRY_OUTSIDE_MANAGED_ROOT", path: entry.path, message: "registry entry points outside managed root" });
+    if (isTempLikeWorkspace(canonicalizePotentialPath(entry.path), canonicalizePotentialPath(tempRoot))) violations.push({ code: "REGISTRY_IN_TEMP", path: entry.path, message: "registry points into temporary/AppData storage" });
   }
 
-  for (const dir of diskDirs) {
-    if (!worktrees.some((wt) => samePath(wt.path, dir))) warnings.push({ code: "ORPHAN_DIRECTORY", path: dir, message: "directory under managed root is not a registered Git worktree" });
-  }
-
+  for (const dir of diskDirs) if (!worktrees.some((wt) => samePath(wt.path, dir))) warnings.push({ code: "ORPHAN_DIRECTORY", path: dir, message: "directory under managed root is not a registered Git worktree" });
   const currentViolations = violations.filter((item) => item.global || (item.path && samePath(item.path, currentPath)));
   return { primaryPath, violations, warnings, currentViolations };
 }
 
-export function assessDeletionEligibility({ status, primary, clean, merged }) {
+export function assessDeletionEligibility({ status, primary, clean, merged, detached = false, branchMatches = true }) {
   if (status !== "REMOVE") return { safe: false, reason: "workspace status is not REMOVE" };
   if (primary) return { safe: false, reason: "primary worktree is never removed by the agent workspace helper" };
+  if (detached) return { safe: false, reason: "detached worktrees are preserved for manual inspection" };
+  if (!branchMatches) return { safe: false, reason: "registered branch does not match checked-out branch" };
   if (!clean) return { safe: false, reason: "worktree has uncommitted or untracked changes" };
   if (!merged) return { safe: false, reason: "workspace HEAD is not an ancestor of origin/main" };
-  return { safe: true, reason: "clean secondary worktree is merged into origin/main" };
+  return { safe: true, reason: "clean named secondary worktree is merged into origin/main" };
 }
 
 function currentState(repoRoot, managedRoot) {
@@ -166,9 +212,22 @@ function deletionForEntry(repoRoot, worktrees, entry) {
   const wt = worktrees.find((item) => samePath(item.path, entry.path));
   if (!wt) return { safe: false, reason: "no matching Git worktree" };
   const status = runGit(["-C", entry.path, "status", "--porcelain"], repoRoot, { allowFailure: true });
-  const clean = status.status === 0 && status.stdout.trim() === "";
+  const branchResult = runGit(["-C", entry.path, "symbolic-ref", "--quiet", "--short", "HEAD"], repoRoot, { allowFailure: true });
   const mergedResult = runGit(["-C", entry.path, "merge-base", "--is-ancestor", "HEAD", "origin/main"], repoRoot, { allowFailure: true });
-  return assessDeletionEligibility({ status: entry.status, primary: samePath(entry.path, primaryPath), clean, merged: mergedResult.status === 0 });
+  return assessDeletionEligibility({
+    status: entry.status,
+    primary: samePath(entry.path, primaryPath),
+    clean: status.status === 0 && status.stdout.trim() === "",
+    merged: mergedResult.status === 0,
+    detached: branchResult.status !== 0,
+    branchMatches: branchResult.status === 0 && branchResult.stdout.trim() === entry.branch,
+  });
+}
+
+export function worktreeAddPlan({ branch, workspacePath, baseRef, localBranchExists, remoteBranchExists }) {
+  if (localBranchExists) return { args: ["worktree", "add", workspacePath, branch], sourceRef: branch, createdBranch: false };
+  if (remoteBranchExists) return { args: ["worktree", "add", "-b", branch, workspacePath, `origin/${branch}`], sourceRef: `origin/${branch}`, createdBranch: true };
+  return { args: ["worktree", "add", "-b", branch, workspacePath, baseRef], sourceRef: baseRef, createdBranch: true };
 }
 
 function parseArgs(argv) {
@@ -196,10 +255,7 @@ function safeSlug(value) {
 }
 
 function printDoctor(result, mode, json) {
-  if (json) {
-    console.log(JSON.stringify({ mode, ...result }, null, 2));
-    return;
-  }
+  if (json) { console.log(JSON.stringify({ mode, ...result }, null, 2)); return; }
   console.log(`[agent-workspaces] mode=${mode} violations=${result.violations.length} warnings=${result.warnings.length}`);
   for (const item of result.violations) console.log(`VIOLATION ${item.code}: ${item.message} :: ${item.path}`);
   for (const item of result.warnings) console.log(`WARNING ${item.code}: ${item.message} :: ${item.path}`);
@@ -213,24 +269,19 @@ function main() {
   const rootProblem = managedRootProblem(repoRoot, managedRoot);
   if (rootProblem) throw new Error(`${rootProblem}: ${managedRoot}`);
 
-  if (command === "root") {
-    console.log(managedRoot);
-    return;
-  }
+  if (command === "root") { console.log(managedRoot); return; }
 
-  const state = currentState(repoRoot, managedRoot);
-  const diagnosis = diagnoseWorkspaces({ repoRoot, managedRoot, currentPath: state.currentPath, worktrees: state.worktrees, registryEntries: state.registry.entries, diskDirs: state.diskDirs });
-
-  if (command === "doctor") {
-    const strictAll = options["strict-all"] === true;
-    const strictCurrent = options["strict-current"] === true || !strictAll;
-    printDoctor(diagnosis, strictAll ? "strict-all" : "strict-current", options.json === true);
-    const failing = strictAll ? diagnosis.violations : strictCurrent ? diagnosis.currentViolations : [];
-    if (failing.length) process.exitCode = 1;
-    return;
-  }
-
-  if (command === "list") {
+  if (command === "doctor" || command === "list") {
+    const state = currentState(repoRoot, managedRoot);
+    const diagnosis = diagnoseWorkspaces({ repoRoot, managedRoot, currentPath: state.currentPath, worktrees: state.worktrees, registryEntries: state.registry.entries, diskDirs: state.diskDirs });
+    if (command === "doctor") {
+      const strictAll = options["strict-all"] === true;
+      const strictCurrent = options["strict-current"] === true || !strictAll;
+      printDoctor(diagnosis, strictAll ? "strict-all" : "strict-current", options.json === true);
+      const failing = strictAll ? diagnosis.violations : strictCurrent ? diagnosis.currentViolations : [];
+      if (failing.length) process.exitCode = 1;
+      return;
+    }
     const items = state.registry.entries.map((entry) => ({ ...entry, deletion: deletionForEntry(repoRoot, state.worktrees, entry) }));
     if (options.json === true) console.log(JSON.stringify({ managedRoot, worktrees: state.worktrees, registry: items, diagnosis }, null, 2));
     else {
@@ -255,52 +306,72 @@ function main() {
     const branch = requiredOption(options, "branch");
     const purpose = requiredOption(options, "purpose");
     const baseRef = typeof options.base === "string" ? options.base : "origin/main";
-    fs.mkdirSync(managedRoot, { recursive: true });
-    const id = `${safeSlug(taskId)}-${safeSlug(branch)}`;
-    const workspacePath = path.join(managedRoot, id);
-    if (fs.existsSync(workspacePath)) throw new Error(`workspace path already exists: ${workspacePath}`);
-    if (state.worktrees.some((wt) => wt.branch === branch)) throw new Error(`branch is already checked out in another worktree: ${branch}`);
-    const baseSha = runGit(["rev-parse", baseRef], repoRoot).stdout.trim();
-    runGit(["worktree", "add", "-b", branch, workspacePath, baseRef], repoRoot);
-    const next = readRegistry(managedRoot, repoRoot);
-    next.entries.push({ id, taskId, owner, path: workspacePath, branch, baseRef, baseSha, purpose, createdAt: new Date().toISOString(), status: "ACTIVE" });
-    try { writeRegistry(managedRoot, next); }
-    catch (error) {
-      runGit(["worktree", "remove", workspacePath], repoRoot, { allowFailure: true });
-      throw error;
-    }
-    console.log(`[agent-workspaces] CREATED id=${id} branch=${branch} path=${workspacePath}`);
-    return;
+    runGit(["check-ref-format", "--branch", branch], repoRoot);
+    return withWorkspaceLock(managedRoot, `create:${branch}`, () => {
+      const state = currentState(repoRoot, managedRoot);
+      if (state.worktrees.some((wt) => wt.branch === branch)) throw new Error(`branch is already checked out in another worktree: ${branch}`);
+      const id = `${safeSlug(taskId)}-${safeSlug(branch)}`;
+      const workspacePath = path.join(managedRoot, id);
+      if (fs.existsSync(workspacePath)) throw new Error(`workspace path already exists: ${workspacePath}`);
+      const localBranchExists = runGit(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], repoRoot, { allowFailure: true }).status === 0;
+      const remoteBranchExists = runGit(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`], repoRoot, { allowFailure: true }).status === 0;
+      const plan = worktreeAddPlan({ branch, workspacePath, baseRef, localBranchExists, remoteBranchExists });
+      const baseSha = runGit(["rev-parse", plan.sourceRef], repoRoot).stdout.trim();
+      runGit(plan.args, repoRoot);
+      const next = readRegistry(managedRoot, repoRoot);
+      next.entries.push({ id, taskId, owner, path: workspacePath, branch, baseRef: plan.sourceRef, baseSha, purpose, createdAt: new Date().toISOString(), status: "ACTIVE" });
+      try { writeRegistry(managedRoot, next); }
+      catch (error) {
+        runGit(["worktree", "remove", workspacePath], repoRoot, { allowFailure: true });
+        throw error;
+      }
+      console.log(`[agent-workspaces] CREATED id=${id} branch=${branch} path=${workspacePath} existing-branch=${localBranchExists ? "yes" : "no"}`);
+    });
   }
 
   if (command === "classify") {
     const id = requiredOption(options, "id");
     const status = requiredOption(options, "status").toUpperCase();
     if (!WORKSPACE_STATUSES.includes(status)) throw new Error(`--status must be one of ${WORKSPACE_STATUSES.join(", ")}`);
-    const registry = readRegistry(managedRoot, repoRoot);
-    const entry = registry.entries.find((item) => item.id === id);
-    if (!entry) throw new Error(`unknown workspace id: ${id}`);
-    entry.status = status;
-    entry.updatedAt = new Date().toISOString();
-    if (typeof options.reason === "string" && options.reason.trim()) entry.reason = options.reason.trim();
-    writeRegistry(managedRoot, registry);
-    console.log(`[agent-workspaces] CLASSIFIED id=${id} status=${status}`);
-    return;
+    return withWorkspaceLock(managedRoot, `classify:${id}`, () => {
+      const registry = readRegistry(managedRoot, repoRoot);
+      const entry = registry.entries.find((item) => item.id === id);
+      if (!entry) throw new Error(`unknown workspace id: ${id}`);
+      entry.status = status;
+      entry.updatedAt = new Date().toISOString();
+      if (typeof options.reason === "string" && options.reason.trim()) entry.reason = options.reason.trim();
+      writeRegistry(managedRoot, registry);
+      console.log(`[agent-workspaces] CLASSIFIED id=${id} status=${status}`);
+    });
   }
 
   if (command === "cleanup") {
     const id = requiredOption(options, "id");
-    const registry = readRegistry(managedRoot, repoRoot);
-    const entry = registry.entries.find((item) => item.id === id);
-    if (!entry) throw new Error(`unknown workspace id: ${id}`);
-    const eligibility = deletionForEntry(repoRoot, state.worktrees, entry);
-    if (!eligibility.safe) throw new Error(`refusing cleanup for ${id}: ${eligibility.reason}`);
-    runGit(["worktree", "remove", entry.path], repoRoot);
-    runGit(["worktree", "prune"], repoRoot);
-    registry.entries = registry.entries.filter((item) => item.id !== id);
-    writeRegistry(managedRoot, registry);
-    console.log(`[agent-workspaces] REMOVED id=${id}; branch preserved=${entry.branch}`);
-    return;
+    return withWorkspaceLock(managedRoot, `cleanup:${id}`, () => {
+      runGit(["fetch", "--no-tags", "origin", "main"], repoRoot);
+      let state = currentState(repoRoot, managedRoot);
+      let entry = state.registry.entries.find((item) => item.id === id);
+      if (!entry) throw new Error(`unknown workspace id: ${id}`);
+      let eligibility = deletionForEntry(repoRoot, state.worktrees, entry);
+      if (!eligibility.safe) throw new Error(`refusing cleanup for ${id}: ${eligibility.reason}`);
+      const expectedHead = runGit(["-C", entry.path, "rev-parse", "HEAD"], repoRoot).stdout.trim();
+      const expectedBranch = runGit(["-C", entry.path, "symbolic-ref", "--quiet", "--short", "HEAD"], repoRoot).stdout.trim();
+
+      state = currentState(repoRoot, managedRoot);
+      entry = state.registry.entries.find((item) => item.id === id);
+      if (!entry) throw new Error(`workspace registry changed during cleanup: ${id}`);
+      eligibility = deletionForEntry(repoRoot, state.worktrees, entry);
+      const currentHead = runGit(["-C", entry.path, "rev-parse", "HEAD"], repoRoot).stdout.trim();
+      const currentBranch = runGit(["-C", entry.path, "symbolic-ref", "--quiet", "--short", "HEAD"], repoRoot, { allowFailure: true }).stdout.trim();
+      if (!eligibility.safe) throw new Error(`refusing cleanup after recheck for ${id}: ${eligibility.reason}`);
+      if (currentHead !== expectedHead || currentBranch !== expectedBranch) throw new Error(`refusing cleanup for ${id}: HEAD or branch changed during safety check`);
+
+      runGit(["worktree", "remove", entry.path], repoRoot);
+      runGit(["worktree", "prune"], repoRoot);
+      state.registry.entries = state.registry.entries.filter((item) => item.id !== id);
+      writeRegistry(managedRoot, state.registry);
+      console.log(`[agent-workspaces] REMOVED id=${id}; branch preserved=${entry.branch}; verified-head=${expectedHead}`);
+    });
   }
 
   throw new Error(`unknown command: ${command}`);
