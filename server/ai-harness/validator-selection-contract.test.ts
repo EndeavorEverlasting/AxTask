@@ -112,6 +112,23 @@ describe("AI harness validator selection", () => {
     expect(ids(plan)).toEqual(["authority", "harness", "run-context", "release", "tests", "docs-contracts"]);
   });
 
+  it("selects run context for repository-location recovery workflow", () => {
+    const plan = selectValidators(REGISTRY, {
+      changedPaths: [".ai/workflows/repository-location-recovery.md"],
+      workflowId: "axtask.repository-location-recovery.v1",
+    });
+    expect(ids(plan)).toEqual(expect.arrayContaining([
+      "authority",
+      "harness",
+      "harness-infrastructure",
+      "repo-location-recovery",
+      "run-context",
+      "harness-tests",
+      "release",
+      "tests",
+    ]));
+  });
+
   it("selects workspace lifecycle plus run context for workspace workflow", () => {
     const plan = selectValidators(REGISTRY, {
       changedPaths: [".ai/agent-workspace-contract.json"],
