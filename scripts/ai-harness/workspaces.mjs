@@ -55,6 +55,13 @@ export function isTempLikeWorkspace(candidate, tempRoot = os.tmpdir()) {
   return value === "/tmp" || value.startsWith("/tmp/") || value === "/var/tmp" || value.startsWith("/var/tmp/");
 }
 
+export function managedRootProblem(repoRoot, managedRoot, tempRoot = os.tmpdir()) {
+  if (isTempLikeWorkspace(managedRoot, tempRoot)) return "managed workspace root may not be temporary/AppData storage";
+  if (isWithinRoot(managedRoot, repoRoot)) return "managed workspace root may not be inside the repository";
+  if (isWithinRoot(repoRoot, managedRoot)) return "managed workspace root may not contain the primary repository";
+  return null;
+}
+
 export function parseWorktreePorcelain(text) {
   const records = [];
   let current = null;
@@ -108,6 +115,8 @@ function diskDirectories(managedRoot) {
 export function diagnoseWorkspaces({ repoRoot, managedRoot, currentPath, worktrees, registryEntries, diskDirs, tempRoot = os.tmpdir() }) {
   const violations = [];
   const warnings = [];
+  const rootProblem = managedRootProblem(repoRoot, managedRoot, tempRoot);
+  if (rootProblem) violations.push({ code: "INVALID_MANAGED_ROOT", path: managedRoot, message: rootProblem, global: true });
   const primaryPath = worktrees[0]?.path ?? repoRoot;
   const findEntry = (workspacePath) => registryEntries.find((entry) => samePath(entry.path, workspacePath));
 
@@ -133,7 +142,7 @@ export function diagnoseWorkspaces({ repoRoot, managedRoot, currentPath, worktre
     if (!worktrees.some((wt) => samePath(wt.path, dir))) warnings.push({ code: "ORPHAN_DIRECTORY", path: dir, message: "directory under managed root is not a registered Git worktree" });
   }
 
-  const currentViolations = violations.filter((item) => item.path && samePath(item.path, currentPath));
+  const currentViolations = violations.filter((item) => item.global || (item.path && samePath(item.path, currentPath)));
   return { primaryPath, violations, warnings, currentViolations };
 }
 
@@ -201,6 +210,8 @@ function main() {
   const command = positional[0] ?? "list";
   const repoRoot = resolveRepoRoot(DEFAULT_REPO_ROOT);
   const managedRoot = resolveManagedRoot(repoRoot);
+  const rootProblem = managedRootProblem(repoRoot, managedRoot);
+  if (rootProblem) throw new Error(`${rootProblem}: ${managedRoot}`);
 
   if (command === "root") {
     console.log(managedRoot);
@@ -244,7 +255,6 @@ function main() {
     const branch = requiredOption(options, "branch");
     const purpose = requiredOption(options, "purpose");
     const baseRef = typeof options.base === "string" ? options.base : "origin/main";
-    if (isTempLikeWorkspace(managedRoot)) throw new Error(`managed workspace root may not be temporary: ${managedRoot}`);
     fs.mkdirSync(managedRoot, { recursive: true });
     const id = `${safeSlug(taskId)}-${safeSlug(branch)}`;
     const workspacePath = path.join(managedRoot, id);
