@@ -53,8 +53,9 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
       requireText("configuration", config, ["path", "role"], errors);
       if (nonEmpty(config?.path) && !fs.existsSync(path.join(rootDir, config.path))) errors.push(`.ai/codebase-map.json: missing configuration ${config.path}`);
     }
-    if (array(map.knownTraps).length < 5 || array(map.knownTraps).some((item) => !nonEmpty(item))) errors.push(".ai/codebase-map.json: knownTraps must contain at least five non-empty entries");
-    if (!array(map.knownTraps).some((item) => item.includes("folder named AxTask") || item.includes("folder named AxTask") || item.includes("shell path"))) errors.push(".ai/codebase-map.json: knownTraps must cover false AxTask directory identity");
+    const knownTraps = array(map.knownTraps);
+    if (knownTraps.length < 5 || knownTraps.some((item) => !nonEmpty(item))) errors.push(".ai/codebase-map.json: knownTraps must contain at least five non-empty entries");
+    if (!knownTraps.some((item) => nonEmpty(item) && (item.includes("folder named AxTask") || item.includes("shell path")))) errors.push(".ai/codebase-map.json: knownTraps must cover false AxTask directory identity");
     if (map.deploymentModel?.directDeployCommandRegistered !== false) errors.push(".ai/codebase-map.json: deploymentModel must state that no direct live deploy command is registered");
   }
 
