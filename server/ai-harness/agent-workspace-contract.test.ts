@@ -50,16 +50,16 @@ describe("agent workspace ownership harness", () => {
   });
 
   it("resolves symlinked managed roots before containment checks", () => {
-    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "axtask-workspace-symlink-"));
+    const fixture = fs.mkdtempSync(path.join(path.dirname(repoRoot), "axtask-workspace-symlink-"));
     try {
-      const repo = path.join(temp, "repo");
+      const repo = path.join(fixture, "repo");
       const nestedTarget = path.join(repo, ".nested-worktrees");
-      const link = path.join(temp, "managed-link");
+      const link = path.join(fixture, "managed-link");
       fs.mkdirSync(nestedTarget, { recursive: true });
       fs.symlinkSync(nestedTarget, link, process.platform === "win32" ? "junction" : "dir");
-      expect(managedRootProblem(repo, link, path.join(temp, "other-temp"))).toContain("inside the repository");
+      expect(managedRootProblem(repo, link, os.tmpdir())).toContain("inside the repository");
     } finally {
-      fs.rmSync(temp, { recursive: true, force: true });
+      fs.rmSync(fixture, { recursive: true, force: true });
     }
   });
 
