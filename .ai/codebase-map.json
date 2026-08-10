@@ -37,7 +37,8 @@
     {"id":"agent-workspace-list","command":"node scripts/ai-harness/workspaces.mjs list","role":"inventory registered and unmanaged agent Git worktrees with deletion safety","mutation":"none"},
     {"id":"agent-workspace-create","command":"node scripts/ai-harness/workspaces.mjs create --task <id> --owner <agent> --branch <branch> --purpose <text> --base origin/main","role":"create and register one durable secondary Git worktree under the managed root","mutation":"managed sibling worktree plus machine-local untracked registry"},
     {"id":"agent-workspace-doctor","command":"node scripts/ai-harness/workspaces.mjs doctor --strict-all","role":"compare Git worktrees, local registry, managed-root directories, and temp-root policy","mutation":"none"},
-    {"id":"agent-workspace-cleanup","command":"node scripts/ai-harness/workspaces.mjs cleanup --id <id>","role":"remove only a clean merged secondary workspace classified REMOVE; preserve branch","mutation":"safe registered worktree removal and git worktree prune"},
+    {"id":"agent-workspace-classify","command":"node scripts/ai-harness/workspaces.mjs classify --id <id> --status ACTIVE|PRESERVE|REMOVE --reason <text>","role":"record the explicit lifecycle state for one managed workspace before handoff or cleanup","mutation":"machine-local untracked workspace registry"},
+    {"id":"agent-workspace-cleanup","command":"node scripts/ai-harness/workspaces.mjs cleanup --id <id>","role":"remove only a semantically clean merged secondary workspace classified REMOVE; preserve branch","mutation":"safe registered worktree removal and git worktree prune"},
     {"id":"ship","command":"npm run ship -- \"<conventional message>\"","role":"stage, commit, and push the current feature branch","mutation":"Git index, commit, and remote feature branch"}
   ],
   "validationSurfaces": [
@@ -48,7 +49,8 @@
     "Preserve unknown dirty work and use an isolated worktree when the sprint does not own it.",
     "Durable agent worktrees belong under the managed repository-sibling root; AppData/Local/Temp, os.tmpdir(), /tmp, and /var/tmp may hold caches but never unique sprint state.",
     "Use workspaces.mjs create instead of freehand git worktree add or a second clone so workspace ownership remains inventoryable.",
-    "REMOVE is a request, not deletion proof: cleanup still requires a clean secondary worktree whose HEAD is already an ancestor of origin/main, and the branch is preserved.",
+    "REMOVE is a request, not deletion proof: cleanup still requires a semantically clean secondary worktree whose HEAD is already an ancestor of current origin/main, and the branch is preserved.",
+    "Proven Git-attribute text CRLF/LF checkout noise is non-unique state; staged, untracked, semantic tracked, detached, branch-mismatched, or unmerged work always blocks cleanup.",
     "Replit compatibility files and replit.md are not current deployment authority.",
     "Repository or CI proof does not prove live Render, Neon, deployment, or operator acceptance.",
     "Production startup must not run interactive Drizzle schema push by default.",
