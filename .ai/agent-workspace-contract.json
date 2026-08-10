@@ -28,6 +28,9 @@
   "cleanup": {
     "statusRequired": "REMOVE",
     "cleanWorktreeRequired": true,
+    "lineEndingOnlyTrackedNoiseAllowed": true,
+    "stagedOrUntrackedChangesAllowed": false,
+    "semanticTrackedChangesAllowed": false,
     "headAncestorOf": "origin/main",
     "forceRemovalAllowed": false,
     "deleteBranch": false,
