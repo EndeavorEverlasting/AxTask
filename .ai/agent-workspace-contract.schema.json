@@ -10,6 +10,7 @@
     "contractId": {"const": "axtask.agent-workspace-ownership.v1"},
     "workspaceRoot": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["defaultStrategy", "siblingSuffix", "environmentOverride", "primaryWorktreeMayLiveOutsideManagedRoot", "managedRootMayBeInsideRepository", "managedRootMayContainRepository"],
       "properties": {
         "defaultStrategy": {"const": "repository-sibling"},
@@ -22,6 +23,7 @@
     },
     "durableWorkspacePolicy": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["type", "managedRootRequiredForSecondary", "rawGitWorktreeCreationByAgents", "agentClonesAllowed", "uniqueRepoStateInTempAllowed", "forbiddenTempMatchers"],
       "properties": {
         "type": {"const": "git-worktree-only"},
@@ -29,22 +31,24 @@
         "rawGitWorktreeCreationByAgents": {"const": false},
         "agentClonesAllowed": {"const": false},
         "uniqueRepoStateInTempAllowed": {"const": false},
-        "forbiddenTempMatchers": {"type": "array", "minItems": 4, "items": {"type": "string"}}
+        "forbiddenTempMatchers": {"const": ["os.tmpdir", "AppData/Local/Temp", "/tmp", "/var/tmp"]}
       }
     },
     "registry": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["fileName", "location", "tracked", "statuses", "requiredFields"],
       "properties": {
         "fileName": {"const": ".axtask-agent-workspaces.json"},
         "location": {"const": "managed-workspace-root"},
         "tracked": {"const": false},
-        "statuses": {"type": "array", "items": {"enum": ["ACTIVE", "PRESERVE", "REMOVE"]}},
-        "requiredFields": {"type": "array", "items": {"type": "string"}}
+        "statuses": {"const": ["ACTIVE", "PRESERVE", "REMOVE"]},
+        "requiredFields": {"const": ["id", "taskId", "owner", "path", "branch", "baseRef", "baseSha", "purpose", "createdAt", "status"]}
       }
     },
     "cleanup": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["statusRequired", "cleanWorktreeRequired", "headAncestorOf", "forceRemovalAllowed", "deleteBranch", "pruneAfterRemoval"],
       "properties": {
         "statusRequired": {"const": "REMOVE"},
@@ -57,6 +61,7 @@
     },
     "validation": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["hookMode", "operatorAuditMode", "personalPathsTracked"],
       "properties": {
         "hookMode": {"const": "strict-current"},
