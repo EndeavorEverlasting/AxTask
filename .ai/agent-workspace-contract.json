@@ -6,7 +6,8 @@
     "defaultStrategy": "repository-sibling",
     "siblingSuffix": "-worktrees",
     "environmentOverride": "AXTASK_AGENT_WORKSPACE_ROOT",
-    "primaryWorktreeMayLiveOutsideManagedRoot": true
+    "primaryWorktreeMayLiveOutsideManagedRoot": true,
+    "managedRootMayBeInsideRepository": false
   },
   "durableWorkspacePolicy": {
     "type": "git-worktree-only",
