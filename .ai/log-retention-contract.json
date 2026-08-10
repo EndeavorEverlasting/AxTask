@@ -24,12 +24,106 @@
       "reason": "Agent/operator run logs must remain bounded instead of accumulating indefinitely."
     }
   ],
+  "retentionWindows": [
+    {
+      "table": "security_logs",
+      "column": "created_at",
+      "window": "90 days"
+    },
+    {
+      "table": "security_events",
+      "column": "created_at",
+      "window": "90 days"
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "created_at",
+      "window": "7 days"
+    },
+    {
+      "table": "mfa_challenges",
+      "column": "expires_at",
+      "window": "1 day"
+    },
+    {
+      "table": "password_reset_tokens",
+      "column": "expires_at",
+      "window": "1 day"
+    },
+    {
+      "table": "task_import_fingerprints",
+      "column": "created_at",
+      "window": "90 days"
+    },
+    {
+      "table": "invoice_events",
+      "column": "created_at",
+      "window": "365 days"
+    },
+    {
+      "table": "premium_events",
+      "column": "created_at",
+      "window": "365 days"
+    },
+    {
+      "table": "study_review_events",
+      "column": "created_at",
+      "window": "730 days"
+    },
+    {
+      "table": "usage_snapshots",
+      "column": "created_at",
+      "window": "180 days"
+    },
+    {
+      "table": "organization_aptitude_events",
+      "column": "created_at",
+      "window": "180 days"
+    },
+    {
+      "table": "dm_messages",
+      "column": "created_at",
+      "window": "365 days"
+    },
+    {
+      "table": "user_location_events",
+      "column": "created_at",
+      "window": "90 days"
+    },
+    {
+      "table": "ai_interactions",
+      "column": "created_at",
+      "window": "30 days"
+    },
+    {
+      "table": "foundry_run_logs",
+      "column": "created_at",
+      "window": "90 days"
+    },
+    {
+      "table": "task_reminders",
+      "column": "created_at",
+      "window": "365 days"
+    },
+    {
+      "table": "backup_records",
+      "column": "created_at",
+      "window": "365 days"
+    },
+    {
+      "table": "backup_jobs",
+      "column": "created_at",
+      "window": "90 days"
+    }
+  ],
   "scheduler": {
     "serviceName": "axtask-db-retention",
     "type": "cron",
     "schedule": "15 4 * * *",
     "command": "node scripts/db-retention.mjs",
-    "requiredEnv": ["DATABASE_URL"],
+    "requiredEnv": [
+      "DATABASE_URL"
+    ],
     "disabledFlag": "DISABLE_DB_RETENTION_CRON",
     "disabledValue": "true"
   },
