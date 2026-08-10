@@ -24,7 +24,7 @@ Use this workflow whenever a sprint needs an isolated Git worktree, a fresh agen
 5. Before stopping, classify the workspace `ACTIVE`, `PRESERVE`, or `REMOVE`. `ACTIVE` means execution continues; `PRESERVE` means unique/unmerged state must remain; `REMOVE` is only a cleanup request, not proof deletion is safe.
 6. Cleanup uses `node scripts/ai-harness/workspaces.mjs cleanup --id <id>`. The command must refuse removal unless the workspace is secondary, named, branch-matched, status `REMOVE`, semantically clean, and its HEAD is already an ancestor of freshly fetched `origin/main`.
 7. Semantic cleanliness is strict: staged changes, untracked files, and semantic tracked changes always block cleanup. The only dirty tracked case allowed is a proven CRLF↔LF-only difference on a path explicitly marked `text` by Git attributes. Git may require `worktree remove --force` for that checkout artifact; the helper may use force only after proving the entire dirty set is line-ending-only and revalidating HEAD, branch, and noise set immediately before removal. General force removal remains forbidden.
-8. Branches are never deleted automatically. Lifecycle mutations are serialized through the machine-local workspace lock.
+8. Branches are never deleted automatically. Lifecycle mutations are serialized through the machine-local workspace lock, stale locks are recovered only after owner/age checks, and Git operations use bounded timeouts.
 9. Record the sanitized operator report. Never commit the machine-local registry or absolute personal paths.
 
 ## Known traps
@@ -33,7 +33,7 @@ Use this workflow whenever a sprint needs an isolated Git worktree, a fresh agen
 - A pushed branch is not automatically safe to delete; cleanup requires the workspace HEAD to be merged into current `origin/main`.
 - Existing AxTask history contains tracked Markdown whose checkout can appear dirty solely from CRLF/LF normalization. Never treat that as permission to ignore arbitrary dirty state; the helper proves each allowed path against the HEAD blob and `text` attribute.
 - `git worktree prune` removes stale administrative records, not unique unmerged commits; never use it as proof that cleanup is safe.
-- The primary checkout may live outside the managed root. Secondary agent worktrees may not.
+- The primary checkout may live outside the managed root. Secondary agent worktrees may not. Running the helper from a secondary worktree still anchors the managed root to Git's primary worktree.
 - Do not hide a separately cloned repository from the workspace registry; agent-owned durable isolation is worktree-only.
 
 ## Outputs
@@ -45,7 +45,7 @@ Use this workflow whenever a sprint needs an isolated Git worktree, a fresh agen
 
 ## Stop conditions
 
-Stop only when the requested workspace exists and is registered, the current workspace passes strict-current doctor, or an exact unsafe/unmanaged workspace blocker is reported. Never delete an unsafe workspace just to make validation green.
+A workspace-creation request succeeds only when the requested workspace exists, is registered, is usable, and is classified `ACTIVE`. A newly created `PRESERVE` workspace is an exact blocker requiring inspection; its mere existence/registration is not success. For audit/cleanup requests, stop only when strict-current or the requested cleanup gate passes, or when the helper reports an exact unsafe/unmanaged blocker. Never delete an unsafe workspace just to make validation green.
 
 ## Proof ceiling
 
