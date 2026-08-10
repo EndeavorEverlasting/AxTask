@@ -167,7 +167,7 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   if (reportArtifact?.template !== ".ai/reports/agent-workspace-report-template.md" || reportArtifact?.tracked !== false) errors.push("agent-workspace-report artifact wiring mismatch");
   const validator = validators?.validators?.find((item) => item?.id === "agent-workspaces");
   if (validator?.command !== "node scripts/ai-harness/validate-agent-workspaces.mjs") errors.push("agent-workspaces validator command mismatch");
-  for (const commandId of ["agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-cleanup"]) if (!hasId(map?.commands, commandId)) errors.push(`codebase map missing ${commandId}`);
+  for (const commandId of ["agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-classify", "agent-workspace-cleanup"]) if (!hasId(map?.commands, commandId)) errors.push(`codebase map missing ${commandId}`);
 
   const workflow = readText(rootDir, ".ai/workflows/agent-workspace-lifecycle.md", errors);
   for (const heading of ["## Use when", "## Inputs", "## Steps", "## Known traps", "## Outputs", "## Stop conditions", "## Proof ceiling"]) if (!workflow.includes(heading)) errors.push(`workspace workflow missing ${heading}`);
