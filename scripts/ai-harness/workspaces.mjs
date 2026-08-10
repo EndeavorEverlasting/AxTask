@@ -7,28 +7,72 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
+const DEFAULT_WORKTREE_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
+const WORKSPACE_CONTRACT_PATH = path.join(DEFAULT_WORKTREE_ROOT, ".ai", "agent-workspace-contract.json");
+const WORKSPACE_CONTRACT = JSON.parse(fs.readFileSync(WORKSPACE_CONTRACT_PATH, "utf8"));
+const DEFAULT_GIT_TIMEOUT_MS = 120_000;
+const LOCK_STALE_AFTER_MS = 30 * 60 * 1000;
+const LOCK_PARSE_GRACE_MS = 5_000;
 export const WORKSPACE_STATUSES = ["ACTIVE", "PRESERVE", "REMOVE"];
 
-function runGit(args, cwd, { allowFailure = false, encoding = "utf8" } = {}) {
-  const result = spawnSync("git", args, { cwd, encoding, stdio: ["ignore", "pipe", "pipe"] });
+function runGit(args, cwd, { allowFailure = false, encoding = "utf8", timeoutMs = DEFAULT_GIT_TIMEOUT_MS } = {}) {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding,
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error?.code === "ETIMEDOUT") {
+    throw new Error(`git ${args.join(" ")} timed out after ${timeoutMs}ms`);
+  }
+  if (result.error && !allowFailure) throw result.error;
   if (result.status !== 0 && !allowFailure) {
     const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : result.stderr;
     const stdout = Buffer.isBuffer(result.stdout) ? result.stdout.toString("utf8") : result.stdout;
-    throw new Error(`git ${args.join(" ")} failed: ${(stderr || stdout || "unknown error").trim()}`);
+    throw new Error(`git ${args.join(" ")} failed: ${(stderr || stdout || result.error?.message || "unknown error").trim()}`);
   }
-  return { status: result.status ?? 1, stdout: result.stdout ?? (encoding === null ? Buffer.alloc(0) : ""), stderr: result.stderr ?? (encoding === null ? Buffer.alloc(0) : "") };
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout ?? (encoding === null ? Buffer.alloc(0) : ""),
+    stderr: result.stderr ?? (encoding === null ? Buffer.alloc(0) : ""),
+  };
 }
 
 export function resolveRepoRoot(cwd = process.cwd()) {
-  const result = runGit(["rev-parse", "--show-toplevel"], cwd);
-  return path.resolve(result.stdout.trim());
+  return path.resolve(runGit(["rev-parse", "--show-toplevel"], cwd).stdout.trim());
 }
 
-export function resolveManagedRoot(repoRoot, env = process.env) {
+export function parseWorktreePorcelain(text) {
+  const records = [];
+  let current = null;
+  for (const line of String(text).split(/\r?\n/)) {
+    if (line.startsWith("worktree ")) {
+      if (current) records.push(current);
+      current = { path: line.slice(9), head: null, branch: null, detached: false };
+    } else if (current && line.startsWith("HEAD ")) current.head = line.slice(5);
+    else if (current && line.startsWith("branch ")) current.branch = line.slice(7).replace(/^refs\/heads\//, "");
+    else if (current && line === "detached") current.detached = true;
+  }
+  if (current) records.push(current);
+  return records;
+}
+
+export function primaryWorktreePath(worktrees, fallback) {
+  return path.resolve(worktrees[0]?.path ?? fallback);
+}
+
+export function resolvePrimaryWorktree(cwd = DEFAULT_WORKTREE_ROOT) {
+  const worktrees = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd).stdout);
+  return primaryWorktreePath(worktrees, resolveRepoRoot(cwd));
+}
+
+export function resolveManagedRoot(repoRoot, env = process.env, contract = WORKSPACE_CONTRACT) {
   const override = env.AXTASK_AGENT_WORKSPACE_ROOT?.trim();
   if (override) return path.resolve(override);
-  return path.resolve(path.dirname(repoRoot), `${path.basename(repoRoot)}-worktrees`);
+  const suffix = contract?.workspaceRoot?.siblingSuffix;
+  if (typeof suffix !== "string" || !suffix) throw new Error("workspace contract is missing workspaceRoot.siblingSuffix");
+  return path.resolve(path.dirname(repoRoot), `${path.basename(repoRoot)}${suffix}`);
 }
 
 function realpath(pathname) {
@@ -84,48 +128,65 @@ export function managedRootProblem(repoRoot, managedRoot, tempRoot = os.tmpdir()
   return null;
 }
 
-export function parseWorktreePorcelain(text) {
-  const records = [];
-  let current = null;
-  for (const line of String(text).split(/\r?\n/)) {
-    if (line.startsWith("worktree ")) {
-      if (current) records.push(current);
-      current = { path: line.slice(9), head: null, branch: null, detached: false };
-    } else if (current && line.startsWith("HEAD ")) current.head = line.slice(5);
-    else if (current && line.startsWith("branch ")) current.branch = line.slice(7).replace(/^refs\/heads\//, "");
-    else if (current && line === "detached") current.detached = true;
-  }
-  if (current) records.push(current);
-  return records;
-}
-
-function registryPath(managedRoot) {
-  return path.join(managedRoot, ".axtask-agent-workspaces.json");
+function registryPath(managedRoot, contract = WORKSPACE_CONTRACT) {
+  const fileName = contract?.registry?.fileName;
+  if (typeof fileName !== "string" || !fileName) throw new Error("workspace contract is missing registry.fileName");
+  return path.join(managedRoot, fileName);
 }
 
 function lockPath(managedRoot) {
   return path.join(managedRoot, ".axtask-agent-workspaces.lock");
 }
 
+function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "EPERM") return true;
+    return false;
+  }
+}
+
+function lockState(file) {
+  if (!fs.existsSync(file)) return null;
+  const stat = fs.statSync(file);
+  const ageMs = Math.max(0, Date.now() - stat.mtimeMs);
+  let payload = null;
+  try { payload = JSON.parse(fs.readFileSync(file, "utf8")); } catch { /* fresh writer may not have completed */ }
+  const alive = payload ? processAlive(Number(payload.pid)) : ageMs < LOCK_PARSE_GRACE_MS;
+  return { payload, ageMs, alive };
+}
+
 export function acquireWorkspaceLock(managedRoot, operation = "mutation") {
   fs.mkdirSync(managedRoot, { recursive: true });
   const file = lockPath(managedRoot);
-  let fd;
-  try {
-    fd = fs.openSync(file, "wx", 0o600);
-  } catch (error) {
-    if (error && typeof error === "object" && error.code === "EEXIST") {
-      throw new Error(`agent workspace registry is locked; another lifecycle mutation may be active: ${file}`);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let fd;
+    try {
+      fd = fs.openSync(file, "wx", 0o600);
+      fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, operation, createdAt: new Date().toISOString() })}\n`, "utf8");
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        process.off("exit", release);
+        try { fs.closeSync(fd); } finally { fs.rmSync(file, { force: true }); }
+      };
+      process.once("exit", release);
+      return release;
+    } catch (error) {
+      if (!(error && typeof error === "object" && error.code === "EEXIST")) throw error;
+      const state = lockState(file);
+      const stale = state && (!state.alive || state.ageMs > LOCK_STALE_AFTER_MS);
+      if (!stale || attempt > 0) throw new Error(`agent workspace registry is locked; another lifecycle mutation may be active: ${file}`);
+      console.warn(`[agent-workspaces] removing stale workspace lock age-ms=${Math.round(state.ageMs)} owner-pid=${state.payload?.pid ?? "unknown"}`);
+      fs.rmSync(file, { force: true });
     }
-    throw error;
   }
-  fs.writeFileSync(fd, `${JSON.stringify({ pid: process.pid, operation, createdAt: new Date().toISOString() })}\n`, "utf8");
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    try { fs.closeSync(fd); } finally { fs.rmSync(file, { force: true }); }
-  };
+  throw new Error(`unable to acquire agent workspace registry lock: ${file}`);
 }
 
 function withWorkspaceLock(managedRoot, operation, action) {
@@ -134,21 +195,21 @@ function withWorkspaceLock(managedRoot, operation, action) {
   finally { release(); }
 }
 
-function emptyRegistry(repoRoot) {
-  return { schemaVersion: 1, repository: path.basename(repoRoot), entries: [] };
+function emptyRegistry(repoRoot, contract = WORKSPACE_CONTRACT) {
+  return { schemaVersion: contract.schemaVersion, repository: path.basename(repoRoot), entries: [] };
 }
 
-export function readRegistry(managedRoot, repoRoot) {
-  const file = registryPath(managedRoot);
-  if (!fs.existsSync(file)) return emptyRegistry(repoRoot);
+export function readRegistry(managedRoot, repoRoot, contract = WORKSPACE_CONTRACT) {
+  const file = registryPath(managedRoot, contract);
+  if (!fs.existsSync(file)) return emptyRegistry(repoRoot, contract);
   const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (parsed?.schemaVersion !== 1 || !Array.isArray(parsed.entries)) throw new Error(`invalid workspace registry: ${file}`);
+  if (parsed?.schemaVersion !== contract.schemaVersion || !Array.isArray(parsed.entries)) throw new Error(`invalid workspace registry: ${file}`);
   return parsed;
 }
 
-function writeRegistry(managedRoot, registry) {
+function writeRegistry(managedRoot, registry, contract = WORKSPACE_CONTRACT) {
   fs.mkdirSync(managedRoot, { recursive: true });
-  const file = registryPath(managedRoot);
+  const file = registryPath(managedRoot, contract);
   const tmp = `${file}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
   fs.renameSync(tmp, file);
@@ -166,7 +227,7 @@ export function diagnoseWorkspaces({ repoRoot, managedRoot, currentPath, worktre
   const warnings = [];
   const rootProblem = managedRootProblem(repoRoot, managedRoot, tempRoot);
   if (rootProblem) violations.push({ code: "INVALID_MANAGED_ROOT", path: managedRoot, message: rootProblem, global: true });
-  const primaryPath = worktrees[0]?.path ?? repoRoot;
+  const primaryPath = primaryWorktreePath(worktrees, repoRoot);
   const findEntry = (workspacePath) => registryEntries.find((entry) => samePath(entry.path, workspacePath));
 
   for (const wt of worktrees) {
@@ -240,14 +301,14 @@ export function assessDeletionEligibility({ status, primary, clean, merged, deta
 }
 
 function currentState(repoRoot, managedRoot) {
-  const worktrees = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], repoRoot).stdout);
-  const currentPath = resolveRepoRoot(process.cwd());
+  const worktrees = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], DEFAULT_WORKTREE_ROOT).stdout);
+  const currentPath = resolveRepoRoot(DEFAULT_WORKTREE_ROOT);
   const registry = readRegistry(managedRoot, repoRoot);
   return { worktrees, currentPath, registry, diskDirs: diskDirectories(managedRoot) };
 }
 
 function deletionForEntry(repoRoot, worktrees, entry) {
-  const primaryPath = worktrees[0]?.path ?? repoRoot;
+  const primaryPath = primaryWorktreePath(worktrees, repoRoot);
   const wt = worktrees.find((item) => samePath(item.path, entry.path));
   if (!wt) return { safe: false, reason: "no matching Git worktree", cleanliness: null };
   const cleanliness = inspectWorkspaceCleanliness(entry.path, repoRoot);
@@ -292,6 +353,11 @@ function requiredOption(options, key) {
   return value.trim();
 }
 
+function flag(options, key) {
+  const value = options[key];
+  return value === true || value === "true" || value === "1";
+}
+
 function safeSlug(value) {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "workspace";
 }
@@ -306,7 +372,7 @@ function printDoctor(result, mode, json) {
 function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
   const command = positional[0] ?? "list";
-  const repoRoot = resolveRepoRoot(DEFAULT_REPO_ROOT);
+  const repoRoot = resolvePrimaryWorktree(DEFAULT_WORKTREE_ROOT);
   const managedRoot = resolveManagedRoot(repoRoot);
   const rootProblem = managedRootProblem(repoRoot, managedRoot);
   if (rootProblem) throw new Error(`${rootProblem}: ${managedRoot}`);
@@ -316,16 +382,17 @@ function main() {
   if (command === "doctor" || command === "list") {
     const state = currentState(repoRoot, managedRoot);
     const diagnosis = diagnoseWorkspaces({ repoRoot, managedRoot, currentPath: state.currentPath, worktrees: state.worktrees, registryEntries: state.registry.entries, diskDirs: state.diskDirs });
+    const json = flag(options, "json");
     if (command === "doctor") {
-      const strictAll = options["strict-all"] === true;
-      const strictCurrent = options["strict-current"] === true || !strictAll;
-      printDoctor(diagnosis, strictAll ? "strict-all" : "strict-current", options.json === true);
+      const strictAll = flag(options, "strict-all");
+      const strictCurrent = flag(options, "strict-current") || !strictAll;
+      printDoctor(diagnosis, strictAll ? "strict-all" : "strict-current", json);
       const failing = strictAll ? diagnosis.violations : strictCurrent ? diagnosis.currentViolations : [];
       if (failing.length) process.exitCode = 1;
       return;
     }
     const items = state.registry.entries.map((entry) => ({ ...entry, deletion: deletionForEntry(repoRoot, state.worktrees, entry) }));
-    if (options.json === true) console.log(JSON.stringify({ managedRoot, worktrees: state.worktrees, registry: items, diagnosis }, null, 2));
+    if (json) console.log(JSON.stringify({ managedRoot, worktrees: state.worktrees, registry: items, diagnosis }, null, 2));
     else {
       console.log(`AXTASK AGENT WORKSPACES\nmanaged-root: ${managedRoot}`);
       for (const status of WORKSPACE_STATUSES) {
