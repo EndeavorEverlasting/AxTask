@@ -4,6 +4,7 @@
   "registryId": "axtask.triggers.v1",
   "triggers": [
     {"id":"new-agent-session","event":"new-agent-session","condition":"A fresh agent enters the repository or operational truth is uncertain.","workflowId":"axtask.repository-intake.v1"},
+    {"id":"repository-location-uncertain","event":"repository-location-uncertain","condition":"The shell/editor path is not a Git repository, a folder is merely named AxTask without canonical origin proof, or checkout/worktree identity is uncertain.","workflowId":"axtask.repository-location-recovery.v1"},
     {"id":"close-pr-or-merge","event":"close-pr-or-merge","condition":"An existing pull request needs repair, rebasing, rebuilding, validation, merging, or closure.","workflowId":"axtask.pr-closeout.v1"},
     {"id":"validator-or-workflow-failed","event":"validator-or-workflow-failed","condition":"A registered validator, hook, build, CI job, or workflow step returns non-zero or fails an assertion.","workflowId":"axtask.failure-recovery.v1"},
     {"id":"harness-files-changed","event":"harness-files-changed","condition":"Any file under .ai/, AGENTS.md, AGENT_GUARDRAILS.md, scripts/ai-harness/, server/ai-harness/, or .githooks/ changes.","skillId":"axtask.skill.harness-maintenance.v1"},

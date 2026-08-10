@@ -1,0 +1,50 @@
+name: Harness Repository Location Recovery
+
+on:
+  pull_request:
+    paths:
+      - ".ai/**"
+      - "scripts/ai-harness/resolve-checkout.mjs"
+      - "scripts/ai-harness/validate-repo-location-recovery.mjs"
+      - ".githooks/**"
+      - ".github/workflows/harness-repo-location.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-repo-location:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate authority
+        run: node scripts/ai-harness/validate-authority.mjs
+
+      - name: Validate harness
+        run: node scripts/ai-harness/validate-harness.mjs
+
+      - name: Validate harness infrastructure
+        run: node scripts/ai-harness/validate-harness-infrastructure.mjs
+
+      - name: Prove repository-location recovery
+        run: node scripts/ai-harness/validate-repo-location-recovery.mjs
+
+      - name: Check diff whitespace
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"

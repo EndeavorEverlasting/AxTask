@@ -6,6 +6,7 @@
     {"id":"axtask.repository-intake.v1","path":".ai/workflows/repository-intake.md","description":"Fresh-agent repository intake and first safe sprint selection."},
     {"id":"axtask.pr-closeout.v1","path":".ai/workflows/pr-closeout.md","description":"Pull request convergence, repair, validation, and merge or closure."},
     {"id":"axtask.failure-recovery.v1","path":".ai/workflows/failure-recovery.md","description":"Bounded diagnosis, repair, rerun, reporting, and handoff after a validator or workflow failure."},
+    {"id":"axtask.repository-location-recovery.v1","path":".ai/workflows/repository-location-recovery.md","description":"Recover canonical AxTask checkout identity when the shell path is not a Git repository or checkout/worktree location is uncertain."},
     {"id":"axtask.local-deployment-certification.v1","path":".ai/workflows/local-deployment-certification.md","description":"Disposable local production certification for a deployment candidate."},
     {"id":"axtask.parallel-sprint-intake.v1","path":".ai/workflows/parallel-sprint-intake.md","description":"Parallel sprint intake, path overlap inspection, and collision ledger generation."},
     {"id":"axtask.prompt-leap-routing.v1","path":".ai/workflows/prompt-leap-routing.md","description":"Task-demand classification and executor capability admission with deterministic routing."},
