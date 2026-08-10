@@ -12,11 +12,16 @@ A fresh Windows checkout can contain inherited Markdown whose working-tree bytes
 
 - added `scripts/ai-harness/validate-working-diff.mjs`;
 - kept staged whitespace proof strict with `git diff --cached --check`;
-- checks the live working tree with `git diff --check --ignore-cr-at-eol`;
-- reports paths independently classified by the workspace harness as proven line-ending-only noise;
+- uses the workspace cleanliness classifier to partition unstaged tracked paths into semantic changes versus proven CRLF/LF-only checkout noise;
+- runs `git diff --check --ignore-cr-at-eol -- <semantic-paths...>` only for semantic tracked paths, so legacy trailing spaces in EOL-only checkout noise cannot masquerade as newly introduced defects;
+- reports the excluded line-ending-only paths explicitly;
 - keeps semantic tracked whitespace failures strict;
 - records the split in the agent-workspace contract/schema, workflow, skill, report, README, pre-commit hook, focused tests, and dedicated CI;
 - retains strict `git diff --check <base>...HEAD` for committed PR/branch ranges.
+
+## Review hardening
+
+Automated review correctly identified that `--ignore-cr-at-eol` alone is insufficient: `git diff --check` may still diagnose inherited trailing spaces on converted lines. The repair therefore excludes only the paths independently proven EOL-only and adds focused negative routing tests proving semantic paths remain in the Git whitespace check.
 
 ## Safety
 

@@ -57,7 +57,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run focused workspace lifecycle contracts
-        run: npx --no-install vitest run server/ai-harness/agent-workspace-contract.test.ts
+        run: npx --no-install vitest run server/ai-harness/agent-workspace-contract.test.ts server/ai-harness/working-diff-hygiene-contract.test.ts
       - name: Exercise create, inventory, cleanup, and existing-branch resume
         shell: bash
         run: |

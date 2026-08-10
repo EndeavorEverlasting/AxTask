@@ -34,6 +34,12 @@ export function summarizeWorkingDiff(cleanliness) {
   };
 }
 
+export function workingDiffCheckArgs(cleanliness) {
+  const semanticPaths = [...new Set(cleanliness?.semanticTracked ?? [])].filter(Boolean);
+  if (!semanticPaths.length) return null;
+  return ["diff", "--check", "--ignore-cr-at-eol", "--", ...semanticPaths];
+}
+
 export function validateWorkingDiff(rootDir = process.cwd(), { stagedOnly = false, json = false } = {}) {
   const repoRoot = resolveRepoRoot(rootDir);
   const errors = [];
@@ -45,8 +51,11 @@ export function validateWorkingDiff(rootDir = process.cwd(), { stagedOnly = fals
   if (!stagedOnly) {
     const cleanliness = inspectWorkspaceCleanliness(repoRoot, repoRoot);
     summary = summarizeWorkingDiff(cleanliness);
-    const working = runGit(["diff", "--check", "--ignore-cr-at-eol"], repoRoot);
-    if (working.status !== 0) errors.push((working.stdout || working.stderr || "working diff contains whitespace errors").trim());
+    const workingArgs = workingDiffCheckArgs(cleanliness);
+    if (workingArgs) {
+      const working = runGit(workingArgs, repoRoot);
+      if (working.status !== 0) errors.push((working.stdout || working.stderr || "semantic working diff contains whitespace errors").trim());
+    }
   }
 
   const result = {
