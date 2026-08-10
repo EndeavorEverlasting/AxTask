@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveAxTaskCheckout } from "./resolve-checkout.mjs";
+import { isCanonicalOrigin, resolveAxTaskCheckout } from "./resolve-checkout.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -47,6 +47,21 @@ for (const heading of ["## REPOSITORY", "## OBSERVED LOCATION", "## DISCOVERED C
   if (!report.includes(heading)) fail(`repository-location report missing ${heading}`);
 }
 
+for (const origin of [
+  "https://github.com/EndeavorEverlasting/AxTask.git",
+  "git@github.com:EndeavorEverlasting/AxTask.git",
+  "ssh://git@github.com/EndeavorEverlasting/AxTask.git",
+]) {
+  if (!isCanonicalOrigin(origin)) fail(`canonical origin was rejected: ${origin}`);
+}
+for (const origin of [
+  "https://evilgithub.com/EndeavorEverlasting/AxTask.git",
+  "https://example.test/github.com/EndeavorEverlasting/AxTask.git",
+  "git@github.example:EndeavorEverlasting/AxTask.git",
+]) {
+  if (isCanonicalOrigin(origin)) fail(`non-canonical origin was accepted: ${origin}`);
+}
+
 if (process.exitCode) process.exit();
 
 const originalCwd = process.cwd();
@@ -57,13 +72,14 @@ fs.mkdirSync(fakeAxTask);
 try {
   process.chdir(fakeAxTask);
   const result = resolveAxTaskCheckout({
-    starts: [fakeAxTask],
+    starts: [fakeAxTask, REPO_ROOT],
     searchRoots: [path.dirname(REPO_ROOT)],
   });
   if (!result.ok) fail(`resolver could not recover from non-repository cwd: ${result.error}`);
   if (result.repository !== "EndeavorEverlasting/AxTask") fail(`unexpected repository identity: ${result.repository}`);
   if (!result.primary || !fs.existsSync(result.primary)) fail("resolver did not return an existing primary checkout");
   if (!Array.isArray(result.worktrees) || result.worktrees.length < 1) fail("resolver did not return Git worktree evidence");
+  if (!Array.isArray(result.usableWorktrees) || result.usableWorktrees.length < 1) fail("resolver did not return a usable Git worktree");
   if (result.current !== null) fail("fake AxTask directory was incorrectly accepted as a Git checkout");
 } finally {
   process.chdir(originalCwd);
