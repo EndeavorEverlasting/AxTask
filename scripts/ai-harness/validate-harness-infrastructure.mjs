@@ -22,22 +22,11 @@ function readJson(rootDir, relativePath, errors) {
   }
 }
 
-function array(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function nonEmpty(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function ids(items) {
-  return new Set(array(items).map((item) => item?.id).filter(nonEmpty));
-}
-
+function array(value) { return Array.isArray(value) ? value : []; }
+function nonEmpty(value) { return typeof value === "string" && value.trim().length > 0; }
+function ids(items) { return new Set(array(items).map((item) => item?.id).filter(nonEmpty)); }
 function requireText(label, item, fields, errors) {
-  for (const field of fields) {
-    if (!nonEmpty(item?.[field])) errors.push(`${label} ${item?.id ?? "unknown"} requires ${field}`);
-  }
+  for (const field of fields) if (!nonEmpty(item?.[field])) errors.push(`${label} ${item?.id ?? "unknown"} requires ${field}`);
 }
 
 export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
@@ -56,7 +45,7 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
 
   if (map) {
     const commandIds = ids(map.commands);
-    for (const required of ["install", "development", "typecheck", "test", "build", "deploy-contract", "production-start"]) {
+    for (const required of ["install", "development", "typecheck", "test", "build", "deploy-contract", "production-start", "agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-cleanup"]) {
       if (!commandIds.has(required)) errors.push(`.ai/codebase-map.json: missing command ${required}`);
     }
     for (const command of array(map.commands)) requireText("codebase command", command, ["command", "role", "mutation"], errors);
@@ -64,17 +53,13 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
       requireText("configuration", config, ["path", "role"], errors);
       if (nonEmpty(config?.path) && !fs.existsSync(path.join(rootDir, config.path))) errors.push(`.ai/codebase-map.json: missing configuration ${config.path}`);
     }
-    if (array(map.knownTraps).length < 5 || array(map.knownTraps).some((item) => !nonEmpty(item))) {
-      errors.push(".ai/codebase-map.json: knownTraps must contain at least five non-empty entries");
-    }
-    if (map.deploymentModel?.directDeployCommandRegistered !== false) {
-      errors.push(".ai/codebase-map.json: deploymentModel must state that no direct live deploy command is registered");
-    }
+    if (array(map.knownTraps).length < 5 || array(map.knownTraps).some((item) => !nonEmpty(item))) errors.push(".ai/codebase-map.json: knownTraps must contain at least five non-empty entries");
+    if (map.deploymentModel?.directDeployCommandRegistered !== false) errors.push(".ai/codebase-map.json: deploymentModel must state that no direct live deploy command is registered");
   }
 
   if (artifacts) {
     const artifactIds = ids(artifacts.artifacts);
-    for (const required of ["run-context", "repo-snapshot", "validator-plan", "runtime-proof", "failure-report", "operator-report", "final-handoff", "release-evidence", "prompt"]) {
+    for (const required of ["run-context", "repo-snapshot", "validator-plan", "runtime-proof", "failure-report", "operator-report", "final-handoff", "release-evidence", "prompt", "agent-workspace-contract", "agent-workspace-report"]) {
       if (!artifactIds.has(required)) errors.push(`.ai/artifact-registry.json: missing artifact ${required}`);
     }
     for (const artifact of array(artifacts.artifacts)) {
@@ -83,62 +68,65 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
       if (typeof artifact?.sanitized !== "boolean") errors.push(`artifact ${artifact?.id ?? "unknown"} requires boolean sanitized`);
       if (nonEmpty(artifact?.template) && !fs.existsSync(path.join(rootDir, artifact.template))) errors.push(`artifact ${artifact.id} references missing template ${artifact.template}`);
     }
-    for (const forbidden of [".ai/runs/ content", ".ai/generated/ content"]) {
+    for (const forbidden of [".ai/runs/ content", ".ai/generated/ content", "personal machine paths", "agent workspace registry"]) {
       if (!array(artifacts.forbiddenTrackedOutputs).includes(forbidden)) errors.push(`.ai/artifact-registry.json: must forbid tracking ${forbidden}`);
     }
   }
 
   const workflowIds = ids(workflows?.workflows);
   if (!workflowIds.has("axtask.failure-recovery.v1")) errors.push(".ai/workflow-registry.json: missing workflow axtask.failure-recovery.v1");
+  if (!workflowIds.has("axtask.agent-workspace-lifecycle.v1")) errors.push(".ai/workflow-registry.json: missing workflow axtask.agent-workspace-lifecycle.v1");
   const failureWorkflow = array(workflows?.workflows).find((item) => item?.id === "axtask.failure-recovery.v1");
   if (failureWorkflow) {
     requireText("workflow", failureWorkflow, ["path", "description"], errors);
     const text = readHarnessText(rootDir, failureWorkflow.path, errors);
-    for (const heading of ["## Use when", "## Inputs", "## Steps", "## Bounded retry policy", "## Stop conditions", "## Outputs", "## Proof ceiling"]) {
-      if (!text.includes(heading)) errors.push(`failure recovery workflow missing ${heading}`);
-    }
+    for (const heading of ["## Use when", "## Inputs", "## Steps", "## Bounded retry policy", "## Stop conditions", "## Outputs", "## Proof ceiling"]) if (!text.includes(heading)) errors.push(`failure recovery workflow missing ${heading}`);
+  }
+
+  const workspaceWorkflow = array(workflows?.workflows).find((item) => item?.id === "axtask.agent-workspace-lifecycle.v1");
+  if (workspaceWorkflow) {
+    requireText("workflow", workspaceWorkflow, ["path", "description"], errors);
+    const text = readHarnessText(rootDir, workspaceWorkflow.path, errors);
+    for (const heading of ["## Use when", "## Inputs", "## Steps", "## Known traps", "## Outputs", "## Stop conditions", "## Proof ceiling"]) if (!text.includes(heading)) errors.push(`agent workspace workflow missing ${heading}`);
   }
 
   const failureTrigger = array(triggers?.triggers).find((item) => item?.id === "validator-or-workflow-failed");
   if (failureTrigger?.workflowId !== "axtask.failure-recovery.v1") errors.push(".ai/trigger-registry.json: validator-or-workflow-failed must route to axtask.failure-recovery.v1");
+  const workspaceTrigger = array(triggers?.triggers).find((item) => item?.id === "agent-workspace-needed");
+  if (workspaceTrigger?.workflowId !== "axtask.agent-workspace-lifecycle.v1") errors.push(".ai/trigger-registry.json: agent-workspace-needed must route to axtask.agent-workspace-lifecycle.v1");
 
   const skillComponents = array(harness.components).filter((item) => item?.type === "skill");
   const skillText = skillComponents.map((item) => readHarnessText(rootDir, item?.path, errors)).join("\n");
-  for (const skillId of array(harness.skills)) {
-    if (!skillText.includes(skillId)) errors.push(`registered skill has no specification: ${skillId}`);
-  }
+  for (const skillId of array(harness.skills)) if (!skillText.includes(skillId)) errors.push(`registered skill has no specification: ${skillId}`);
   if (!array(harness.skills).includes("axtask.skill.failure-recovery.v1")) errors.push(".ai/harness.json: missing failure recovery skill");
+  if (!array(harness.skills).includes("axtask.skill.agent-workspace-lifecycle.v1")) errors.push(".ai/harness.json: missing agent workspace lifecycle skill");
 
   const failureReport = readHarnessText(rootDir, ".ai/reports/failure-report-template.md", errors);
-  for (const heading of ["## FAILURE", "## CLASSIFICATION", "## REPRODUCTION", "## OWNERSHIP", "## ATTEMPTS", "## VALIDATION STATE", "## REPAIR OR BLOCKER", "## NEXT OWNER"]) {
-    if (!failureReport.includes(heading)) errors.push(`failure report template missing ${heading}`);
-  }
+  for (const heading of ["## FAILURE", "## CLASSIFICATION", "## REPRODUCTION", "## OWNERSHIP", "## ATTEMPTS", "## VALIDATION STATE", "## REPAIR OR BLOCKER", "## NEXT OWNER"]) if (!failureReport.includes(heading)) errors.push(`failure report template missing ${heading}`);
+  const workspaceReport = readHarnessText(rootDir, ".ai/reports/agent-workspace-report-template.md", errors);
+  for (const heading of ["## REPOSITORY", "## MANAGED ROOT", "## WORKSPACES", "## WORKING", "## BROKEN", "## MISSING", "## CLEANUP SAFETY", "## PROOF CEILING", "## NEXT ACTION"]) if (!workspaceReport.includes(heading)) errors.push(`agent workspace report template missing ${heading}`);
 
   if (harness.hookPolicy?.automaticInstall !== false) errors.push(".ai/harness.json: hooks must remain opt-in");
   if (!array(harness.hookPolicy?.preCommitRuns).includes("harness")) errors.push(".ai/harness.json: preCommitRuns must include harness");
-  for (const id of ["authority", "harness", "harness-infrastructure", "harness-tests"]) {
-    if (!array(harness.hookPolicy?.prePushRuns).includes(id)) errors.push(`.ai/harness.json: prePushRuns must include ${id}`);
-  }
+  if (!array(harness.hookPolicy?.preCommitRuns).includes("agent-workspaces")) errors.push(".ai/harness.json: preCommitRuns must include agent-workspaces");
+  for (const id of ["authority", "harness", "harness-infrastructure", "agent-workspaces", "harness-tests"]) if (!array(harness.hookPolicy?.prePushRuns).includes(id)) errors.push(`.ai/harness.json: prePushRuns must include ${id}`);
 
   const prePush = readHarnessText(rootDir, ".githooks/pre-push", errors);
-  for (const expected of ["validate-authority.mjs", "validate-harness.mjs", "validate-harness-infrastructure.mjs", "harness-infrastructure-contract.test.ts", "--no-install"]) {
-    if (!prePush.includes(expected)) errors.push(`.githooks/pre-push missing ${expected}`);
-  }
+  for (const expected of ["validate-authority.mjs", "validate-harness.mjs", "validate-harness-infrastructure.mjs", "validate-agent-workspaces.mjs", "workspaces.mjs doctor --strict-current", "harness-infrastructure-contract.test.ts", "agent-workspace-contract.test.ts", "--no-install"]) if (!prePush.includes(expected)) errors.push(`.githooks/pre-push missing ${expected}`);
 
   const validatorIds = ids(validators?.validators);
   if (!validatorIds.has("harness-infrastructure")) errors.push(".ai/validator-registry.json: missing validator harness-infrastructure");
+  if (!validatorIds.has("agent-workspaces")) errors.push(".ai/validator-registry.json: missing validator agent-workspaces");
   const infrastructureValidator = array(validators?.validators).find((item) => item?.id === "harness-infrastructure");
-  if (infrastructureValidator?.command !== "node scripts/ai-harness/validate-harness-infrastructure.mjs") {
-    errors.push(".ai/validator-registry.json: harness-infrastructure command mismatch");
+  if (infrastructureValidator?.command !== "node scripts/ai-harness/validate-harness-infrastructure.mjs") errors.push(".ai/validator-registry.json: harness-infrastructure command mismatch");
+  const workspaceValidator = array(validators?.validators).find((item) => item?.id === "agent-workspaces");
+  if (workspaceValidator?.command !== "node scripts/ai-harness/validate-agent-workspaces.mjs") errors.push(".ai/validator-registry.json: agent-workspaces command mismatch");
+
+  for (const componentId of ["agent-workspace-contract", "agent-workspace-contract-schema", "agent-workspace-workflow", "agent-workspace-skill", "agent-workspace-tool", "agent-workspace-validator", "agent-workspace-report", "agent-workspace-contract-test", "agent-workspace-ci"]) {
+    if (!array(harness.components).some((item) => item?.id === componentId)) errors.push(`.ai/harness.json: missing agent workspace component ${componentId}`);
   }
 
-  return {
-    authorityId: base.authorityId,
-    harnessId: base.harnessId,
-    componentsChecked: base.componentsChecked,
-    errors,
-    warnings,
-  };
+  return { authorityId: base.authorityId, harnessId: base.harnessId, componentsChecked: base.componentsChecked, errors, warnings };
 }
 
 function main() {

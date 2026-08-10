@@ -1,0 +1,95 @@
+name: harness-agent-workspaces
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.ai/**'
+      - 'scripts/ai-harness/**'
+      - 'server/ai-harness/**'
+      - '.githooks/**'
+      - '.github/workflows/harness-agent-workspaces.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.ai/**'
+      - 'scripts/ai-harness/**'
+      - 'server/ai-harness/**'
+      - '.githooks/**'
+      - '.github/workflows/harness-agent-workspaces.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agent-workspace-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Fetch pull-request base without force
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+      - name: Reject whitespace errors in changed commit
+        if: github.event_name == 'pull_request'
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+      - name: Validate authority
+        run: node scripts/ai-harness/validate-authority.mjs
+      - name: Validate harness
+        run: node scripts/ai-harness/validate-harness.mjs
+      - name: Validate harness completeness
+        run: node scripts/ai-harness/validate-harness-infrastructure.mjs
+      - name: Validate agent workspace contract
+        run: node scripts/ai-harness/validate-agent-workspaces.mjs
+      - name: Validate current checkout placement
+        run: node scripts/ai-harness/workspaces.mjs doctor --strict-current
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused workspace lifecycle contracts
+        run: npx --no-install vitest run server/ai-harness/agent-workspace-contract.test.ts
+      - name: Exercise create, inventory, cleanup, and existing-branch resume
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --unset-all http.https://github.com/.extraheader || true
+          branch="ci/agent-workspace-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          slug="ci-agent-workspace-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          first_id="ci-new-${slug}"
+          resumed_id="ci-resume-${slug}"
+          managed_root="$(node scripts/ai-harness/workspaces.mjs root)"
+
+          node scripts/ai-harness/workspaces.mjs create \
+            --task CI-NEW \
+            --owner github-actions \
+            --branch "$branch" \
+            --purpose "workspace lifecycle smoke: new branch" \
+            --base origin/main
+          node scripts/ai-harness/workspaces.mjs doctor --strict-all
+          node scripts/ai-harness/workspaces.mjs classify --id "$first_id" --status REMOVE --reason "CI smoke complete"
+          echo "STATUS BEFORE FIRST CLEANUP"
+          git -C "$managed_root/$first_id" status --short --untracked-files=all
+          node scripts/ai-harness/workspaces.mjs cleanup --id "$first_id"
+
+          git show-ref --verify --quiet "refs/heads/$branch"
+
+          node scripts/ai-harness/workspaces.mjs create \
+            --task CI-RESUME \
+            --owner github-actions \
+            --branch "$branch" \
+            --purpose "workspace lifecycle smoke: existing branch resume" \
+            --base origin/main
+          node scripts/ai-harness/workspaces.mjs doctor --strict-all
+          node scripts/ai-harness/workspaces.mjs classify --id "$resumed_id" --status REMOVE --reason "CI resume smoke complete"
+          echo "STATUS BEFORE RESUMED CLEANUP"
+          git -C "$managed_root/$resumed_id" status --short --untracked-files=all
+          node scripts/ai-harness/workspaces.mjs cleanup --id "$resumed_id"
+          node scripts/ai-harness/workspaces.mjs doctor --strict-all

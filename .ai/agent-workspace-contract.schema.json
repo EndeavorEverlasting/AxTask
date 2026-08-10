@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axtask.agent-workspace-ownership.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "authorityRef", "contractId", "workspaceRoot", "durableWorkspacePolicy", "registry", "cleanup", "validation"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "authorityRef": {"const": "axtask.agent-authority.v1"},
+    "contractId": {"const": "axtask.agent-workspace-ownership.v1"},
+    "workspaceRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultStrategy", "siblingSuffix", "environmentOverride", "primaryWorktreeMayLiveOutsideManagedRoot", "managedRootMayBeInsideRepository", "managedRootMayContainRepository"],
+      "properties": {
+        "defaultStrategy": {"const": "repository-sibling"},
+        "siblingSuffix": {"type": "string", "minLength": 1},
+        "environmentOverride": {"const": "AXTASK_AGENT_WORKSPACE_ROOT"},
+        "primaryWorktreeMayLiveOutsideManagedRoot": {"const": true},
+        "managedRootMayBeInsideRepository": {"const": false},
+        "managedRootMayContainRepository": {"const": false}
+      }
+    },
+    "durableWorkspacePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "managedRootRequiredForSecondary", "rawGitWorktreeCreationByAgents", "agentClonesAllowed", "uniqueRepoStateInTempAllowed", "forbiddenTempMatchers"],
+      "properties": {
+        "type": {"const": "git-worktree-only"},
+        "managedRootRequiredForSecondary": {"const": true},
+        "rawGitWorktreeCreationByAgents": {"const": false},
+        "agentClonesAllowed": {"const": false},
+        "uniqueRepoStateInTempAllowed": {"const": false},
+        "forbiddenTempMatchers": {"const": ["os.tmpdir", "AppData/Local/Temp", "/tmp", "/var/tmp"]}
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileName", "location", "tracked", "statuses", "requiredFields"],
+      "properties": {
+        "fileName": {"const": ".axtask-agent-workspaces.json"},
+        "location": {"const": "managed-workspace-root"},
+        "tracked": {"const": false},
+        "statuses": {"const": ["ACTIVE", "PRESERVE", "REMOVE"]},
+        "requiredFields": {"const": ["id", "taskId", "owner", "path", "branch", "baseRef", "baseSha", "purpose", "createdAt", "status"]}
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statusRequired", "cleanWorktreeRequired", "lineEndingOnlyTrackedNoiseAllowed", "stagedOrUntrackedChangesAllowed", "semanticTrackedChangesAllowed", "headAncestorOf", "forceRemovalAllowed", "forceRemovalForProvenLineEndingOnlyNoise", "deleteBranch", "pruneAfterRemoval"],
+      "properties": {
+        "statusRequired": {"const": "REMOVE"},
+        "cleanWorktreeRequired": {"const": true},
+        "lineEndingOnlyTrackedNoiseAllowed": {"const": true},
+        "stagedOrUntrackedChangesAllowed": {"const": false},
+        "semanticTrackedChangesAllowed": {"const": false},
+        "headAncestorOf": {"const": "origin/main"},
+        "forceRemovalAllowed": {"const": false},
+        "forceRemovalForProvenLineEndingOnlyNoise": {"const": true},
+        "deleteBranch": {"const": false},
+        "pruneAfterRemoval": {"const": true}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hookMode", "operatorAuditMode", "personalPathsTracked"],
+      "properties": {
+        "hookMode": {"const": "strict-current"},
+        "operatorAuditMode": {"const": "strict-all"},
+        "personalPathsTracked": {"const": false}
+      }
+    }
+  }
+}

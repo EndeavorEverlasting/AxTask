@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "contractId": "axtask.agent-workspace-ownership.v1",
+  "workspaceRoot": {
+    "defaultStrategy": "repository-sibling",
+    "siblingSuffix": "-worktrees",
+    "environmentOverride": "AXTASK_AGENT_WORKSPACE_ROOT",
+    "primaryWorktreeMayLiveOutsideManagedRoot": true,
+    "managedRootMayBeInsideRepository": false,
+    "managedRootMayContainRepository": false
+  },
+  "durableWorkspacePolicy": {
+    "type": "git-worktree-only",
+    "managedRootRequiredForSecondary": true,
+    "rawGitWorktreeCreationByAgents": false,
+    "agentClonesAllowed": false,
+    "uniqueRepoStateInTempAllowed": false,
+    "forbiddenTempMatchers": ["os.tmpdir", "AppData/Local/Temp", "/tmp", "/var/tmp"]
+  },
+  "registry": {
+    "fileName": ".axtask-agent-workspaces.json",
+    "location": "managed-workspace-root",
+    "tracked": false,
+    "statuses": ["ACTIVE", "PRESERVE", "REMOVE"],
+    "requiredFields": ["id", "taskId", "owner", "path", "branch", "baseRef", "baseSha", "purpose", "createdAt", "status"]
+  },
+  "cleanup": {
+    "statusRequired": "REMOVE",
+    "cleanWorktreeRequired": true,
+    "lineEndingOnlyTrackedNoiseAllowed": true,
+    "stagedOrUntrackedChangesAllowed": false,
+    "semanticTrackedChangesAllowed": false,
+    "headAncestorOf": "origin/main",
+    "forceRemovalAllowed": false,
+    "forceRemovalForProvenLineEndingOnlyNoise": true,
+    "deleteBranch": false,
+    "pruneAfterRemoval": true
+  },
+  "validation": {
+    "hookMode": "strict-current",
+    "operatorAuditMode": "strict-all",
+    "personalPathsTracked": false
+  }
+}
