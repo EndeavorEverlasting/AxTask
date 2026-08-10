@@ -2,6 +2,24 @@
 
 This directory is the machine-readable operating layer for repository agents. Prompts may be produced by workflows, but prompts are artifacts, not the harness.
 
+## If the shell says AxTask but Git says it is not a repository
+
+A folder name, editor title, or stale prompt is not repository identity. Do not continue chaining `git -C` commands from a null/empty path and do not run `git init` inside an occupied directory just to make the error disappear.
+
+From any proven AxTask checkout, run:
+
+```bash
+node scripts/ai-harness/resolve-checkout.mjs --json
+```
+
+If no checkout path is known on Windows but GitHub access is available, bootstrap the **tracked resolver only** into temporary tooling and let it search durable development roots:
+
+```powershell
+$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/resolve-checkout.mjs'; $t=Join-Path $env:TEMP 'axtask-resolve-checkout.mjs'; Invoke-WebRequest -UseBasicParsing $u -OutFile $t; node $t --json; if($LASTEXITCODE){exit $LASTEXITCODE}
+```
+
+The temporary resolver is disposable tooling, not a worktree and not a place for sprint state. When it returns a canonical checkout, resume repository work from that proven path and run the workspace doctor. If it finds nothing, inspect the occupied expected path before deciding whether a fresh durable clone is safe. Full procedure: `.ai/workflows/repository-location-recovery.md`.
+
 ## Start here
 
 1. Read `AGENTS.md` and `AGENT_GUARDRAILS.md`.
@@ -10,7 +28,7 @@ This directory is the machine-readable operating layer for repository agents. Pr
 4. Use `.ai/codebase-map.json` to find entry points, commands, configurations, high-risk surfaces, and known traps.
 5. Run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`. If isolation is needed, create it through `workspaces.mjs create`; do not invent an AppData/Local/Temp worktree path or a second clone.
 6. If the task changes a stateful/runtime boundary — serverless/stateless work, server removal, persistence/session changes, background jobs, functions/queues/KV/object storage, or provider/runtime factoring — read and validate `.ai/stateful-surface-ledger.json` before choosing a workflow or editing application code.
-7. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; workspace isolation/lifecycle routes to `axtask.agent-workspace-lifecycle.v1`.
+7. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; workspace isolation/lifecycle routes to `axtask.agent-workspace-lifecycle.v1`; uncertain checkout identity routes to `axtask.repository-location-recovery.v1`.
 8. Create a run context matching `.ai/run-context.schema.json`.
 9. Select validators from changed paths and workflow; do not confuse selection with execution.
 10. Run the selected commands and record exact pass, fail, and skip results.
@@ -84,6 +102,8 @@ The artifact registry records each artifact's producer, generation procedure, na
 ## Commands
 
 ```bash
+node scripts/ai-harness/resolve-checkout.mjs --json
+node scripts/ai-harness/validate-repo-location-recovery.mjs
 node scripts/ai-harness/inspect-repo.mjs
 node scripts/ai-harness/workspaces.mjs doctor --strict-current
 node scripts/ai-harness/validate-agent-workspaces.mjs
@@ -111,6 +131,6 @@ node scripts/ai-harness/install-hooks.mjs
 ```
 
 - `pre-commit` runs repository security guards plus authority, harness, work-queue, stateful-architecture, agent-workspace contract, strict-current workspace doctor, and artifact-hygiene validators.
-- `pre-push` runs repository security guards, authority, harness completeness, work-queue, stateful-architecture, retention, agent-workspace contract, strict-current workspace doctor, and focused harness contract tests with `npx --no-install`.
+- `pre-push` runs repository security guards, authority, harness completeness, repository-location recovery, work-queue, stateful-architecture, retention, agent-workspace contract, strict-current workspace doctor, and focused harness contract tests with `npx --no-install`.
 
 The installer does not silently replace a different local hook path.
