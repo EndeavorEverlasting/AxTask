@@ -26,6 +26,7 @@ export function validateAgentWorkspacePolicy(contract) {
   if (contract?.workspaceRoot?.defaultStrategy !== "repository-sibling") errors.push("workspace root must default to repository-sibling");
   if (contract?.workspaceRoot?.environmentOverride !== "AXTASK_AGENT_WORKSPACE_ROOT") errors.push("workspace root override must be AXTASK_AGENT_WORKSPACE_ROOT");
   if (contract?.workspaceRoot?.primaryWorktreeMayLiveOutsideManagedRoot !== true) errors.push("primary worktree exception must remain explicit");
+  if (contract?.workspaceRoot?.managedRootMayBeInsideRepository !== false) errors.push("managed workspace root must remain outside the repository");
   const policy = contract?.durableWorkspacePolicy;
   if (policy?.type !== "git-worktree-only") errors.push("durable agent isolation must be git-worktree-only");
   if (policy?.managedRootRequiredForSecondary !== true) errors.push("secondary worktrees must use managed root");
@@ -56,6 +57,7 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   if (contract) errors.push(...validateAgentWorkspacePolicy(contract));
   if (schema?.type !== "object" || schema?.$id !== "axtask.agent-workspace-ownership.v1") errors.push("workspace schema root/id mismatch");
   if (!Array.isArray(schema?.required) || !schema.required.includes("cleanup") || !schema.required.includes("durableWorkspacePolicy")) errors.push("workspace schema missing required policy sections");
+  if (!schema?.properties?.workspaceRoot?.required?.includes("managedRootMayBeInsideRepository")) errors.push("workspace schema must require non-nested root policy");
 
   const harness = readJson(rootDir, ".ai/harness.json", errors);
   const workflows = readJson(rootDir, ".ai/workflow-registry.json", errors);
