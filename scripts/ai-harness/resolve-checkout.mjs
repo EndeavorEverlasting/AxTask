@@ -173,12 +173,16 @@ export function resolveAxTaskCheckout(options = {}) {
     };
   }
 
-  let worktrees = [];
+  const worktrees = [];
+  const worktreeSeen = new Set();
   for (const repo of found) {
     const list = git(["-C", repo.root, "worktree", "list", "--porcelain"], repo.root);
-    if (list.status === 0) {
-      worktrees = parseWorktrees(list.stdout);
-      if (worktrees.length > 0) break;
+    if (list.status !== 0) continue;
+    for (const item of parseWorktrees(list.stdout)) {
+      const id = key(item.path);
+      if (worktreeSeen.has(id)) continue;
+      worktreeSeen.add(id);
+      worktrees.push({ ...item, sourceRoot: repo.root });
     }
   }
 
