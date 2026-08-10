@@ -1,5 +1,7 @@
 # AxTask deployment/recovery handoff — 2026-08-09
 
+authorityRef: axtask.agent-authority.v1
+
 - Repo: `EndeavorEverlasting/AxTask`
 - Branch: `ops/axtask-deployment-handoff-20260809`
 - Base: `main@605f169ddae6ef13de193e877523510f800d5eff` (attestation-only child of validated app commit `8d5f896351b52c60e02d7259e64bb21092a52fa7`)
