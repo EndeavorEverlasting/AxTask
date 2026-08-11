@@ -4,6 +4,10 @@
  * Reads migrations/*.sql in lexicographic order, tracks applied files in
  * an `applied_sql_migrations` table, and skips already-applied files.
  *
+ * Migration concurrency is serialized with a session advisory lock. Database
+ * lock waits, statements, idle transactions, pool connection attempts, and
+ * migration-runner coordination all have bounded timeouts configurable by env.
+ *
  * Exits 0 on success, 1 on any failure.
  *
  * Usage:  node scripts/apply-migrations.mjs
@@ -14,6 +18,12 @@ const pg = pgModule.default || pgModule;
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  acquireMigrationCoordinator,
+  configureMigrationSession,
+  migrationSafetyConfig,
+  releaseMigrationCoordinator,
+} from "./migration-safety.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "..", "migrations");
@@ -24,6 +34,8 @@ async function main() {
     console.error("[migrate] DATABASE_URL is not set.");
     process.exit(1);
   }
+
+  const safety = migrationSafetyConfig();
 
   // Migration airlock: refuse to run DDL without a recent verified backup.
   // CI/test bootstrap databases are disposable, so allow them to bypass the
@@ -49,11 +61,30 @@ async function main() {
     console.warn(`[migrate] WARNING: migration airlock bypassed (${bypassReason}).`);
   }
 
-  const pool = new pg.Pool({ connectionString: url, max: 1 });
-  const client = await pool.connect();
+  const pool = new pg.Pool({
+    connectionString: url,
+    max: 1,
+    connectionTimeoutMillis: safety.connectionTimeoutMs,
+  });
+  let client;
+  let coordinatorAcquired = false;
 
   try {
-    // Ensure tracking table exists
+    client = await pool.connect();
+    await configureMigrationSession(client, safety);
+    console.log(
+      `[migrate] safety lock=${safety.lockTimeoutMs}ms statement=${safety.statementTimeoutMs}ms ` +
+      `idle-tx=${safety.idleInTransactionTimeoutMs}ms connect=${safety.connectionTimeoutMs}ms ` +
+      `coordination=${safety.coordinationTimeoutMs}ms`,
+    );
+
+    const coordination = await acquireMigrationCoordinator(client, safety);
+    coordinatorAcquired = true;
+    console.log(
+      `[migrate] coordinator acquired attempts=${coordination.attempts} waited=${coordination.waitedMs}ms`,
+    );
+
+    // Ensure tracking table exists only after this process owns the migration coordinator.
     await client.query(`
       CREATE TABLE IF NOT EXISTS "applied_sql_migrations" (
         "filename" text PRIMARY KEY,
@@ -61,7 +92,8 @@ async function main() {
       );
     `);
 
-    // Read already-applied set
+    // Read already-applied set while still holding the coordinator so no second
+    // runner can race the file decision and metadata write.
     const { rows: applied } = await client.query(
       `SELECT filename FROM applied_sql_migrations`
     );
@@ -84,6 +116,8 @@ async function main() {
       console.log(`[migrate] applying: ${file} …`);
 
       try {
+        // Do not wrap migration files here: some existing migrations own their
+        // transaction boundary explicitly. Session-level timeouts still apply.
         await client.query(sql);
         await client.query(
           `INSERT INTO applied_sql_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
@@ -101,7 +135,16 @@ async function main() {
       `[migrate] done. ${appliedCount} applied, ${files.length - appliedCount} skipped.`
     );
   } finally {
-    client.release();
+    if (client && coordinatorAcquired) {
+      try {
+        await releaseMigrationCoordinator(client);
+        console.log("[migrate] coordinator released");
+      } catch (err) {
+        // Closing the session below also releases session advisory locks.
+        console.error(`[migrate] coordinator release warning: ${err.message}`);
+      }
+    }
+    if (client) client.release();
     await pool.end();
   }
 }
@@ -110,4 +153,3 @@ main().catch((err) => {
   console.error("[migrate] fatal:", err);
   process.exit(1);
 });
-
