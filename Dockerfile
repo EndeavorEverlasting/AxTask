@@ -28,7 +28,9 @@ RUN test -f /app/scripts/production-start.mjs \
   && test -f /app/scripts/deploy/check-env.mjs \
   && test -f /app/scripts/deploy/check-db-capacity.mjs \
   && test -f /app/scripts/apply-migrations.mjs \
-  && test -f /app/scripts/migration-airlock.mjs
+  && test -f /app/scripts/migration-airlock.mjs \
+  && test -f /app/scripts/migration-safety.mjs \
+  && test -f /app/scripts/drizzle-push.mjs
 
 # Attachment storage directory (backed by volume in docker-compose).
 RUN mkdir -p /app/storage/attachments && chown -R axtask:axtask /app/storage
