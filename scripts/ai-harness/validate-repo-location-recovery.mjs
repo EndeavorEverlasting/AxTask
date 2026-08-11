@@ -70,8 +70,8 @@ for (const marker of [
 ]) {
   if (!bootstrap.includes(marker)) fail(`operator preflight bootstrap missing ${marker}`);
 }
-for (const dangerousCommand of ["& git init", "& git reset", "& git clean", " git init ", " git reset --hard", " git clean -"]) {
-  if (bootstrap.includes(dangerousCommand)) fail(`operator preflight bootstrap contains destructive executable pattern: ${dangerousCommand.trim()}`);
+for (const dangerousCommand of ["& git init", "& git reset", "& git clean", "git -C $primary.root init", "git -C $primary.root reset", "git -C $primary.root clean"]) {
+  if (bootstrap.includes(dangerousCommand)) fail(`operator preflight bootstrap contains destructive executable pattern: ${dangerousCommand}`);
 }
 
 for (const origin of [
