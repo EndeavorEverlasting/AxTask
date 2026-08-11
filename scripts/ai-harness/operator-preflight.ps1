@@ -160,6 +160,7 @@ if ($Json) {
   return
 }
 
+$trackedResolverDisplay = if ($result.trackedResolver) { $result.trackedResolver } else { '(not present in this checkout)' }
 Write-Host "[axtask-operator-preflight] PASS repository=$ExpectedRepository"
 Write-Host "current=$($result.current)"
 Write-Host "primary=$($result.primary)"
@@ -167,7 +168,7 @@ Write-Host "head=$($result.head)"
 Write-Host "branch=$($result.branch)"
 Write-Host "dirty=$($result.dirty)"
 if ($Fetch) { Write-Host "origin/main=$($result.originMain)" }
-Write-Host "trackedResolver=$($result.trackedResolver ?? '(not present in this checkout)')"
+Write-Host "trackedResolver=$trackedResolverDisplay"
 Write-Host "next=$($result.nextAction)"
 
 if ($result.dirty) {
