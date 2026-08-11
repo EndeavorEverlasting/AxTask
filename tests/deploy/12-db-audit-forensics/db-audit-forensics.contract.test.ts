@@ -50,6 +50,24 @@ describe("[12-db-audit-forensics] db-size-audit.mjs --forensics", () => {
     expect(auditSource).toContain('["O", "A"].includes');
     expect(auditSource).toContain("triggerEnableCode");
   });
+
+  it("collects exact event counts and timestamp ranges in one security_events aggregate", () => {
+    expect(auditSource).toContain("COUNT(*)::bigint AS cnt");
+    expect(auditSource).toContain("MIN(created_at) AS oldest");
+    expect(auditSource).toContain("MAX(created_at) AS newest");
+    expect(auditSource).toContain('forensicsMode && table === "security_events"');
+    expect(auditSource).toContain("single-pass security_events forensic aggregate");
+    expect(auditSource).not.toContain("WHERE event_type IS NOT DISTINCT FROM $1");
+    expect(auditSource).not.toContain("let dominantTypes");
+  });
+
+  it("fails closed when required R1 forensic evidence is incomplete", () => {
+    expect(auditSource).toContain("evidenceComplete: false");
+    expect(auditSource).toContain("eventTypeAggregationComplete");
+    expect(auditSource).toContain("migrationLedgerCheckComplete");
+    expect(auditSource).toContain("forensic evidence is incomplete; refusing to report R1 success");
+    expect(auditSource).toContain("process.exitCode = 2");
+  });
 });
 
 describe("[12-db-audit-forensics] db-reclaim-api-request.mjs safety", () => {
