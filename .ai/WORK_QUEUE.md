@@ -62,6 +62,16 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 
 ---
 
+## Urgent recovery concurrency
+
+Deployment recovery must not serialize independent preservation and local-proof work behind one operator step. Follow `docs/DB_RECOVERY_SUBPART_WAVE.md`:
+
+- **Wave A now:** AXQ-001 R1 operator evidence, AXQ-003 R3 source-read-only backup/restore, and AXQ-007 R7 local certification proceed in parallel.
+- **Wave B after R1:** AXQ-002 R1.5 evidence preservation and AXQ-006 R2 containment assessment proceed in parallel. Any R2 mutation still waits for AXQ-003.
+- **Wave C:** AXQ-004 R4 cleanup only after AXQ-002, AXQ-003, and AXQ-006 satisfy their gates.
+- **Wave D:** AXQ-008 R5/R6 physical-capacity convergence.
+- **Wave E:** AXQ-005 one controlled Render recovery only after AXQ-007 and AXQ-008.
+
 ## AXQ-001 — Production R1 read-only database forensics
 
 - **Status:** OPERATOR
@@ -72,11 +82,11 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 - **Forbidden:** row mutation, retention cleanup, reclaim, migrations, Render resume/deploy
 - **Dependencies:** none
 - **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`, `scripts/db-size-audit.mjs`
-- **Acceptance gate:** production R1 evidence records the current database/table size distribution and confirms the account/evidence scope needed for preservation
+- **Acceptance gate:** production R1 evidence records current database/table size distribution, exact `security_events` event mix/timestamps, containment-trigger state, and migration-9999 ledger state
 - **Gate:** requires operator-controlled production `DATABASE_URL` / Neon access; repository and disposable CI proof cannot satisfy live R1
-- **Last proof:** merge:511522e1ba8c5eb45cf90c87fb30defd2973586e added the preservation tooling and recovery gates; no live R1 proof exists
-- **Next action:** operator runs the read-only R1 procedure in `docs/DB_RECOVERY_RUNBOOK.md` against production and records sanitized proof outside Git
-- **Updated:** 2026-08-09
+- **Last proof:** merge:6b57add26207c8130a3b333755ec21059176c6bc merged the single-pass fail-closed R1 implementation; no durable live R1 artifact has been recorded in this queue
+- **Next action:** operator runs the read-only R1 procedure in `docs/DB_RECOVERY_RUNBOOK.md` against production and records sanitized proof outside Git while AXQ-003 and AXQ-007 proceed independently
+- **Updated:** 2026-08-11T17:36:00Z
 
 ## AXQ-002 — Production R1.5 portable account evidence preservation
 
@@ -87,57 +97,105 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 - **Scope:** run the merged read-only account evidence exporter against production, verify hashes/sentinel, and create the required independently controlled preservation copies
 - **Forbidden:** production row mutation, cleanup/reclaim, committing evidence bundles or secrets to Git
 - **Dependencies:** AXQ-001
-- **References:** `scripts/db/export-account-evidence.mjs`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`, `docs/DB_RECOVERY_RUNBOOK.md`
+- **References:** `scripts/db/export-account-evidence.mjs`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`, `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`
 - **Acceptance gate:** successful production export; `EXPORT_INCOMPLETE` absent without manual removal; manifest/per-file hashes verified; at least two independently controlled verified copies exist; attachment object bytes separately preserved when in scope
 - **Gate:** blocked until AXQ-001 establishes current live scope; execution also requires operator-controlled production credentials and protected absolute output storage
-- **Last proof:** workflow:31323886919 passed the disposable PostgreSQL account-evidence certification before PR #115 merged; no production evidence bundle exists
-- **Next action:** after AXQ-001 is satisfied, operator executes the protected production R1.5 command documented in `docs/ACCOUNT_EVIDENCE_PRESERVATION.md` and records sanitized hash/copy proof
-- **Updated:** 2026-08-09
+- **Last proof:** workflow:31323886919 passed disposable PostgreSQL account-evidence certification before PR #115 merged; no production evidence bundle exists
+- **Next action:** immediately after AXQ-001 is satisfied, Sub-Part C executes the protected R1.5 command and copy verification while AXQ-006 performs containment assessment
+- **Updated:** 2026-08-11T17:36:00Z
 
-## AXQ-003 — Production R3 raw backup and disposable restore proof
+## AXQ-003 — Production R3 source-read-only backup and disposable restore proof
 
-- **Status:** BLOCKED
+- **Status:** OPERATOR
 - **Priority:** P0
-- **Owner:** unclaimed
+- **Owner:** operator
 - **Branch / PR:** none
-- **Scope:** raw PostgreSQL backup plus disposable restore verification required before destructive recovery work
-- **Forbidden:** source cleanup, retention deletion, reclaim, Render resume/deploy before preservation gates are met
-- **Dependencies:** AXQ-002
-- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`
-- **Acceptance gate:** raw production backup exists in protected storage and restores successfully into a disposable database with the required verification evidence
-- **Gate:** blocked until R1.5 preservation is complete; production backup requires operator-controlled database access and protected storage
-- **Last proof:** repository/disposable CI validates backup/evidence tooling only; no raw production backup/restore proof exists
-- **Next action:** after AXQ-002 is satisfied, operator runs the R3 backup + disposable restore procedure from `docs/DB_RECOVERY_RUNBOOK.md` and records sanitized proof
-- **Updated:** 2026-08-09
-
-## AXQ-004 — Evaluate production containment / telemetry cleanup
-
-- **Status:** BLOCKED
-- **Priority:** P0
-- **Owner:** unclaimed
-- **Branch / PR:** none
-- **Scope:** evaluate the smallest safe containment/cleanup action for pathological production telemetry after preservation gates are proven
-- **Forbidden:** any destructive database action before AXQ-002 and AXQ-003 are complete; broad deletion without scoped diagnosis; bypassing recovery doctrine
-- **Dependencies:** AXQ-002, AXQ-003
-- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RETENTION_POLICY.md`, `scripts/db-reclaim.mjs`
-- **Acceptance gate:** a bounded, evidence-backed cleanup/containment action is either safely executed with proof or explicitly rejected as unnecessary; post-action storage/health proof is captured
-- **Gate:** destructive production work is forbidden until both preservation gates complete and an operator authorizes the exact mutation
+- **Scope:** create one raw PostgreSQL backup without source-ledger mutation, verify its hash, then restore it into disposable PostgreSQL
+- **Forbidden:** source cleanup, retention deletion, source backup-ledger insertion during recovery, reclaim, Render resume/deploy
+- **Dependencies:** none
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `scripts/db/preflight-backup.mjs`, `scripts/db/backup.mjs`, `scripts/db/restore-test.mjs`
+- **Acceptance gate:** protected dump + manifest exist; `sourceLedgerMode` is `skipped`; SHA-256 verifies; disposable restore succeeds; manifest records non-null `restoreTestedAt`
+- **Gate:** requires operator-controlled production `DATABASE_URL`, `BACKUP_STORAGE_TARGET`, protected storage, PostgreSQL client tools, and a separate disposable `RESTORE_DATABASE_URL`
 - **Last proof:** none
-- **Next action:** once AXQ-002 and AXQ-003 are DONE, re-read current production evidence and recovery doctrine, then prepare/execute only the smallest operator-authorized mutation with rollback/proof
-- **Updated:** 2026-08-09
+- **Next action:** Sub-Part A runs `npm run db:backup:preflight -- --no-ledger`, then points `RESTORE_DATABASE_URL` at a disposable database and runs `npm run db:restore:test`; do not run a second `npm run db:backup`
+- **Updated:** 2026-08-11T17:36:00Z
+
+## AXQ-004 — Production R4 targeted logical cleanup
+
+- **Status:** BLOCKED
+- **Priority:** P0
+- **Owner:** unclaimed
+- **Branch / PR:** none
+- **Scope:** bounded deletion of only eligible historical `api_request` rows followed by post-cleanup R1 audit
+- **Forbidden:** starting before preservation/backup/containment gates, deleting non-`api_request` events, automatic `VACUUM FULL`, Render resume/deploy
+- **Dependencies:** AXQ-002, AXQ-003, AXQ-006
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `scripts/db-reclaim-api-request.mjs`
+- **Acceptance gate:** authorized bounded cleanup completes with origin-active containment; no eligible historical `api_request` rows remain; post-cleanup R1 audit is preserved
+- **Gate:** blocked until R1.5 preservation, R3 backup/restore, and R2 containment are all proven; destructive execution additionally requires operator authorization of the exact command
+- **Last proof:** none
+- **Next action:** after AXQ-002, AXQ-003, and AXQ-006 satisfy their gates, run the R4 dry run, review its exact target, then execute only the runbook-authorized bounded cleanup
+- **Updated:** 2026-08-11T17:36:00Z
 
 ## AXQ-005 — Render recovery and controlled deployment from current main
 
-- **Status:** OPERATOR
-- **Priority:** P1
+- **Status:** BLOCKED
+- **Priority:** P0
 - **Owner:** operator
 - **Branch / PR:** none
-- **Scope:** establish current Render provider state, then—only after database recovery dependencies permit it—reconcile service configuration with current `main`, perform one controlled exact-commit deployment, and capture live health/startup proof
-- **Forbidden:** assuming historical suspension is still current, repeated blind resumes/deploys, bypassing R1.5/R3, assuming `render.yaml` automatically governs the existing manually configured Docker service, exposing secrets
-- **Dependencies:** AXQ-004
+- **Scope:** reconcile current Render provider state with exact recovery-certified `main`, perform one controlled deployment, and capture live startup/health proof
+- **Forbidden:** repeated blind resumes/deploys, bypassing recovery gates, assuming `render.yaml` automatically governs existing provider state, exposing secrets
+- **Dependencies:** AXQ-007, AXQ-008
 - **References:** `render.yaml`, `Dockerfile`, `scripts/production-start.mjs`, `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ENVIRONMENT_VARIABLES.md`
-- **Acceptance gate:** current provider state is revalidated; after AXQ-004 is DONE, the exact intended `main` commit is deployed once under verified environment/health settings; startup gates and Render health succeed; live proof is recorded without secrets
-- **Gate:** current live Render state is unverified and requires operator/provider inspection; any resume/deploy action remains additionally blocked by AXQ-004 until the database recovery sequence permits it
-- **Last proof:** historical operator evidence on 2026-08-09 showed the service suspended after repeated crashes, but that state must not be treated as current without revalidation; no current live Render proof exists
-- **Next action:** operator opens the AxTask Render service and records the current service state, linked branch, health-check path, and auto-deploy mode without changing or exposing environment-secret values; do not resume or deploy while AXQ-004 remains incomplete
-- **Updated:** 2026-08-09
+- **Acceptance gate:** R0-R7 proof is recorded; exact intended `main` SHA is deployed once with verified environment/health settings; startup gates and Render health succeed; live proof is recorded without secrets
+- **Gate:** blocked until local certification and post-cleanup capacity convergence are complete; R8 also requires explicit operator authorization for the one live attempt
+- **Last proof:** historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists
+- **Next action:** when AXQ-007 and AXQ-008 are DONE, operator records exact main SHA/provider settings and authorizes one R8 resume/deploy attempt
+- **Updated:** 2026-08-11T17:36:00Z
+
+## AXQ-006 — Production R2 containment assessment and repair
+
+- **Status:** BLOCKED
+- **Priority:** P0
+- **Owner:** unclaimed
+- **Branch / PR:** none
+- **Scope:** establish that `trg_suppress_api_request_security_events` is origin-active; repair only that containment mechanism if R1 shows it is absent/disabled
+- **Forbidden:** historical row deletion, general migrations, migration-ledger forgery, containment mutation before R3 restore proof, Render startup
+- **Dependencies:** AXQ-001
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `scripts/db-contain-api-request.mjs`
+- **Acceptance gate:** durable evidence proves containment is origin-active; if it was already active no mutation occurs; if repair was required, AXQ-003 restore proof existed first and the authorized one-off containment command succeeded
+- **Gate:** assessment waits for R1 trigger evidence; any containment mutation additionally waits for AXQ-003
+- **Last proof:** none
+- **Next action:** after AXQ-001, Sub-Part D runs `node scripts/db-contain-api-request.mjs --json`; record existing containment if active, otherwise wait for AXQ-003 then execute only the runbook-authorized containment repair
+- **Updated:** 2026-08-11T17:36:00Z
+
+## AXQ-007 — R7 local production certification
+
+- **Status:** READY
+- **Priority:** P0
+- **Owner:** unclaimed
+- **Branch / PR:** none
+- **Scope:** certify the exact recovery candidate against disposable local PostgreSQL and run deployment/build validators
+- **Forbidden:** production credentials, production DB mutation, Render resume/deploy, claiming local proof as live deployment proof
+- **Dependencies:** none
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `.ai/workflows/local-deployment-certification.md`, `scripts/deploy/run-local-cert.mjs`
+- **Acceptance gate:** local production certificate proves launcher start, `/health`, `/ready`, client shell, and fail-closed recovery defaults for the exact candidate SHA; deploy validators/build pass
+- **Gate:** none
+- **Last proof:** workflow:31506420398 attested merged R1 main, but R7 should be rerun/recorded as an explicit recovery sub-part for the exact deployment candidate
+- **Next action:** Sub-Part B runs `AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs`, then `npm run test:deploy` and `npm run build`, preserving the generated sanitized runtime proof/report
+- **Updated:** 2026-08-11T17:36:00Z
+
+## AXQ-008 — R5/R6 physical reclaim and capacity convergence
+
+- **Status:** BLOCKED
+- **Priority:** P0
+- **Owner:** unclaimed
+- **Branch / PR:** none
+- **Scope:** decide from post-R4 evidence whether physical reclaim is required, perform it only if separately authorized, then establish the explicit R6 operational capacity policy
+- **Forbidden:** automatic `VACUUM FULL`, capacity-bypass flags, reusing the obsolete 10 GiB assumption, Render resume/deploy
+- **Dependencies:** AXQ-004
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `scripts/db-reclaim-api-request.mjs`, `scripts/deploy/check-db-capacity.mjs`
+- **Acceptance gate:** post-R4 physical-size evidence is recorded; R5 is either proven unnecessary or separately authorized/completed; R6 capacity check passes under an explicit deliberate operator budget decision or documented report-only policy
+- **Gate:** blocked until R4 completes and post-cleanup physical size is known
+- **Last proof:** none
+- **Next action:** after AXQ-004, run the R5 dry run and post-cleanup size audit; if physical reclaim is unnecessary, skip it explicitly, then run `node scripts/deploy/check-db-capacity.mjs` under the chosen R6 policy
+- **Updated:** 2026-08-11T17:36:00Z
