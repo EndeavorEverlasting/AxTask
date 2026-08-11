@@ -22,6 +22,20 @@ function block(source, id) {
   return next < 0 ? rest : rest.slice(0, next + 1);
 }
 
+function section(source, startHeading, endHeading) {
+  const start = source.indexOf(startHeading);
+  if (start < 0) throw new Error(`missing runbook section: ${startHeading}`);
+  const end = source.indexOf(endHeading, start + startHeading.length);
+  return end < 0 ? source.slice(start) : source.slice(start, end);
+}
+
+function fencedCommands(source) {
+  return [...source.matchAll(/```(?:bash|sh|text)?\s*\n([\s\S]*?)```/g)]
+    .map((match) => match[1].trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 const errors = [];
 const requireText = (source, needle, label) => {
   if (!source.includes(needle)) errors.push(`${label}: missing '${needle}'`);
@@ -52,11 +66,15 @@ try {
   requireText(r5, "**Dependencies:** AXQ-007, AXQ-008", "AXQ-005");
 
   requireText(runbook, "## Recovery acceleration — parallel sub-part wave", "runbook");
-  requireText(runbook, "npm run db:backup:preflight -- --no-ledger", "runbook R3");
-  if (/npm run db:backup:preflight[\s\S]{0,200}npm run db:backup\b/.test(runbook)) {
-    errors.push("runbook R3 must not create a duplicate second backup after preflight");
-  }
   requireText(runbook, "docs/DB_RECOVERY_SUBPART_WAVE.md", "runbook");
+
+  const r3Runbook = section(runbook, "## R3 — backup and rollback proof", "## R4 — targeted logical cleanup");
+  const r3Commands = fencedCommands(r3Runbook);
+  requireText(r3Commands, "npm run db:backup:preflight -- --no-ledger", "runbook R3 commands");
+  requireText(r3Commands, "npm run db:restore:test", "runbook R3 commands");
+  if (/^\s*npm run db:backup\s*$/m.test(r3Commands)) {
+    errors.push("runbook R3 must not execute a duplicate standalone db:backup after preflight");
+  }
 
   requireText(wave, "Sub-Part Agent A — R3 backup/restore", "sub-part wave");
   requireText(wave, "Sub-Part Agent B — R7 local certification", "sub-part wave");
