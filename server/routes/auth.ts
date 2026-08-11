@@ -75,7 +75,7 @@ function maskEmailForOtp(email: string): string {
 
 export function registerAuthRoutes(app: Express, requireAuth: RequireAuthMiddleware) {
 
-  app.post("/api/auth/register", registerLimiter, async (req: Request, res: Response) => {
+  app.post("/api/auth/register", registerLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (registration.mode === "closed") {
         return res.status(403).json({ message: "Registration is currently closed" });
@@ -97,7 +97,7 @@ export function registerAuthRoutes(app: Express, requireAuth: RequireAuthMiddlew
         return res.status(409).json({ message: "An account with this email already exists" });
       }
       const user = await createUser(email, password, displayName);
-      await appendSecurityEvent({
+      void appendSecurityEvent({
         eventType: "auth_register_success",
         actorUserId: user.id,
         route: req.path,
@@ -105,18 +105,22 @@ export function registerAuthRoutes(app: Express, requireAuth: RequireAuthMiddlew
         statusCode: 201,
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
+      }).catch((auditError) => {
+        console.warn(
+          "[auth] registration audit append failed:",
+          (auditError as Error)?.message || String(auditError),
+        );
       });
       req.login(user, (err) => {
-        if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
+        if (err) return next(err);
         void awardLoginRewards(user.id);
         res.status(201).json(toPublicSessionUser(user));
       });
     } catch (error) {
-      if (error instanceof Error) {
-        res.status(400).json({ message: error.message });
-      } else {
-        res.status(500).json({ message: "Registration failed" });
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.message });
       }
+      next(error);
     }
   });
 
@@ -474,4 +478,3 @@ export function registerAuthRoutes(app: Express, requireAuth: RequireAuthMiddlew
     }
   });
 }
-
