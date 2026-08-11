@@ -25,7 +25,9 @@ if (prodLike && !process.env.BACKUP_STORAGE_TARGET) {
   process.exit(1);
 }
 
-const run = spawnSync(process.execPath, ["scripts/db/backup.mjs"], { stdio: "inherit", env: process.env });
+const noLedger = process.argv.includes("--no-ledger");
+const backupArgs = ["scripts/db/backup.mjs", ...(noLedger ? ["--no-ledger"] : [])];
+const run = spawnSync(process.execPath, backupArgs, { stdio: "inherit", env: process.env });
 if (run.status !== 0) process.exit(run.status ?? 1);
 
 const manifestPath = latestDbManifest();
@@ -41,6 +43,10 @@ if (!existsSync(manifest.dumpFile)) {
 const hash = createHash("sha256").update(readFileSync(manifest.dumpFile)).digest("hex");
 if (hash !== manifest.sha256) {
   console.error("[db:backup:preflight] sha256 mismatch");
+  process.exit(1);
+}
+if (noLedger && manifest.sourceLedgerMode !== "skipped") {
+  console.error("[db:backup:preflight] --no-ledger requested but manifest does not prove source ledger skip");
   process.exit(1);
 }
 console.log("[db:backup:preflight] passed");
