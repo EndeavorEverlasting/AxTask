@@ -5,6 +5,7 @@ on:
     paths:
       - ".ai/**"
       - "scripts/ai-harness/resolve-checkout.mjs"
+      - "scripts/ai-harness/operator-preflight.ps1"
       - "scripts/ai-harness/validate-repo-location-recovery.mjs"
       - ".githooks/**"
       - ".github/workflows/harness-repo-location.yml"
