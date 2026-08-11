@@ -54,9 +54,10 @@ export async function throwIfResNotOk(
     payload && typeof payload.errorClass === "string"
       ? payload.errorClass
       : undefined;
-  const serverRetryable =
+  const serverRetryable = Boolean(
     payload && payload.retryable === true &&
-    typeof errorClass === "string" && errorClass.startsWith("DB_");
+    typeof errorClass === "string" && errorClass.startsWith("DB_"),
+  );
   const retryable = options?.allowDbReadRetry === true && serverRetryable;
   const requestIdFromBody =
     payload && typeof payload.requestId === "string"
