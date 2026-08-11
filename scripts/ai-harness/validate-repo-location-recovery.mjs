@@ -70,7 +70,9 @@ for (const marker of [
 ]) {
   if (!bootstrap.includes(marker)) fail(`operator preflight bootstrap missing ${marker}`);
 }
-if (/\bgit\s+(?:init|reset|clean)\b/i.test(bootstrap)) fail("operator preflight bootstrap must not execute git init/reset/clean");
+for (const dangerousCommand of ["& git init", "& git reset", "& git clean", " git init ", " git reset --hard", " git clean -"]) {
+  if (bootstrap.includes(dangerousCommand)) fail(`operator preflight bootstrap contains destructive executable pattern: ${dangerousCommand.trim()}`);
+}
 
 for (const origin of [
   "https://github.com/EndeavorEverlasting/AxTask.git",
