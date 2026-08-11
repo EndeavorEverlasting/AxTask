@@ -95,6 +95,13 @@ describe("[04-migrations] task graph projection and PostgreSQL 19 native graph g
     expect(workflow).toContain("Verify PostgreSQL 19 graph gate skips on PG16 baseline");
   });
 
+  it("normalizes graph identity endpoints to one exact text equality type", () => {
+    expect(migration).toContain("id::text AS id");
+    expect(migration).toContain("source.id::text AS source_task_id");
+    expect(migration).toContain("dependency.target_task_id::text AS target_task_id");
+    expect(migration).toContain("target.id::text = dependency.target_task_id");
+  });
+
   it("prevents cross-user dependency edges in the relational graph projection", () => {
     expect(migration).toMatch(/target\.user_id\s+IS NOT DISTINCT FROM\s+source\.user_id/i);
     expect(migration).toMatch(/source\.deleted_at IS NULL/i);
@@ -140,6 +147,8 @@ describe("[04-migrations] task graph projection and PostgreSQL 19 native graph g
     expect(workflow).toContain("postgres:19beta2-alpine");
     expect(workflow).toContain("--require-supported");
     expect(workflow).toContain("GRAPH_TABLE (");
-    expect(workflow).toContain("native traversal source=graph-ci-source target=graph-ci-target relation=depends_on");
+    expect(workflow).toContain("graph-ci-source");
+    expect(workflow).toContain("graph-ci-target");
+    expect(workflow).toContain("expected one native dependency traversal");
   });
 });

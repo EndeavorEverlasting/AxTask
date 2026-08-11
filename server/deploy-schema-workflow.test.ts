@@ -28,12 +28,12 @@ describe("deploy / schema workflow guards", () => {
     expect(dockerfile).toContain("test -f /app/scripts/production-start.mjs");
   });
 
-  it("production-start runs env gate, capacity gate, SQL migrations, drizzle push, then server", () => {
+  it("production-start runs env gate, capacity gate, SQL migrations, coordinated drizzle push, then server", () => {
     const src = fs.readFileSync(path.join(projectRoot, "scripts", "production-start.mjs"), "utf8");
     const envIdx = src.indexOf("check-env.mjs");
     const capacityIdx = src.indexOf("check-db-capacity.mjs");
     const applyIdx = src.indexOf("apply-migrations.mjs");
-    const pushIdx = src.indexOf('[drizzleBin, "push", "--force"]');
+    const pushIdx = src.indexOf('[drizzlePushScript, "--force"]');
     const serverSpawn = src.indexOf("spawn(process.execPath, [distIndex]");
 
     expect(envIdx).toBeGreaterThan(-1);
@@ -41,7 +41,8 @@ describe("deploy / schema workflow guards", () => {
     expect(applyIdx).toBeGreaterThan(capacityIdx);
     expect(pushIdx).toBeGreaterThan(applyIdx);
     expect(serverSpawn).toBeGreaterThan(pushIdx);
-    expect(src).toContain('stdio: ["ignore", "inherit", "pipe"]');
+    expect(src).toContain("scripts/drizzle-push.mjs");
+    expect(src).toContain('stdio: "inherit"');
   });
 
   it("docker-compose migrate closes stdin on drizzle-kit push", () => {
@@ -192,13 +193,13 @@ describe("deploy / schema workflow guards", () => {
     expect(buildIdx).toBeGreaterThan(cmdIdx);
   });
 
-  it("npm run start uses production-start (migrations + drizzle push before server)", () => {
+  it("npm run start uses production-start (migrations + coordinated drizzle push before server)", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
     expect(pkg.scripts.start).toContain("production-start.mjs");
     expect(pkg.dependencies["drizzle-kit"]).toBeTruthy();
     const src = fs.readFileSync(path.join(projectRoot, "scripts", "production-start.mjs"), "utf8");
     const applyIdx = src.indexOf("apply-migrations.mjs");
-    const pushIdx = src.indexOf('[drizzleBin, "push", "--force"]');
+    const pushIdx = src.indexOf('[drizzlePushScript, "--force"]');
     const serverSpawn = src.indexOf("spawn(process.execPath, [distIndex]");
     expect(applyIdx).toBeGreaterThan(-1);
     expect(pushIdx).toBeGreaterThan(applyIdx);

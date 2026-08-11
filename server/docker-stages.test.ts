@@ -49,6 +49,8 @@ describe("Dockerfile build and runtime stages", () => {
       "test -f /app/scripts/production-start.mjs",
       "test -f /app/scripts/apply-migrations.mjs",
       "test -f /app/scripts/migration-airlock.mjs",
+      "test -f /app/scripts/migration-safety.mjs",
+      "test -f /app/scripts/drizzle-push.mjs",
     ];
     for (const line of required) {
       expect(dockerfile, `Missing Dockerfile line: ${line}`).toContain(line);
@@ -74,7 +76,7 @@ describe("Dockerfile build and runtime stages", () => {
     const envIdx = src.indexOf("check-env.mjs");
     const capacityIdx = src.indexOf("check-db-capacity.mjs");
     const applyIdx = src.indexOf("apply-migrations.mjs");
-    const pushIdx = src.indexOf('[drizzleBin, "push", "--force"]');
+    const pushIdx = src.indexOf('[drizzlePushScript, "--force"]');
     const nodeIdx = src.indexOf("spawn(process.execPath, [distIndex]");
 
     expect(envIdx).toBeGreaterThan(-1);
@@ -83,8 +85,9 @@ describe("Dockerfile build and runtime stages", () => {
     expect(pushIdx).toBeGreaterThan(applyIdx);
     expect(nodeIdx).toBeGreaterThan(pushIdx);
 
-    // Must close stdin on drizzle-kit push to prevent interactive prompts on Render.
-    expect(src).toContain('stdio: ["ignore", "inherit", "pipe"]');
+    // The wrapper owns non-interactive drizzle-kit stdin and database coordination.
+    expect(src).toContain("scripts/drizzle-push.mjs");
+    expect(src).toContain('stdio: "inherit"');
   });
 });
 

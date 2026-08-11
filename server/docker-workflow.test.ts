@@ -33,14 +33,15 @@ describe("docker workflow assets", () => {
       path.join(projectRoot, "scripts", "production-start.mjs"),
       "utf8",
     );
-    // Runtime entrypoint must run SQL migrations, then drizzle-kit push, then server.
+    // Runtime entrypoint must run SQL migrations, then the coordinated Drizzle wrapper, then server.
     expect(productionStart).toContain("apply-migrations.mjs");
-    expect(productionStart).toContain('[drizzleBin, "push", "--force"]');
+    expect(productionStart).toContain("scripts/drizzle-push.mjs");
+    expect(productionStart).toContain('[drizzlePushScript, "--force"]');
     expect(productionStart).toContain("spawn(process.execPath, [distIndex]");
-    expect(productionStart).toContain('stdio: ["ignore", "inherit", "pipe"]');
+    expect(productionStart).toContain('stdio: "inherit"');
 
     const migrateIdx = productionStart.indexOf("apply-migrations.mjs");
-    const pushIdx = productionStart.indexOf('[drizzleBin, "push", "--force"]');
+    const pushIdx = productionStart.indexOf('[drizzlePushScript, "--force"]');
     const nodeIdx = productionStart.indexOf("spawn(process.execPath, [distIndex]");
     expect(migrateIdx).toBeLessThan(pushIdx);
     expect(pushIdx).toBeLessThan(nodeIdx);
