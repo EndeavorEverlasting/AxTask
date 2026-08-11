@@ -58,12 +58,8 @@ function shouldSendDedupe(key: string, ttlMs: number): boolean {
 async function resolveAdminEmails(options?: { allowDbFallback?: boolean }): Promise<string[]> {
   const configured = parseCsv(process.env.ADMIN_ALERT_EMAILS);
   if (configured.length > 0) return configured;
-
-  // A DB incident must not recursively query the failing DB just to discover
-  // recipients. Configured ADMIN_ALERT_EMAILS and the webhook remain available.
   if (options?.allowDbFallback === false) return [];
 
-  // Fallback: send to DB admins (users.role === "admin")
   const { db } = await import("../db");
   const rows = await db
     .select({ email: users.email })
@@ -112,6 +108,7 @@ async function postWebhook(text: string): Promise<void> {
 }
 
 export async function notifyAdminsOfApiError(alert: ApiErrorAlert): Promise<void> {
+  if (alert.statusCode < 500) return;
   if (!shouldNotify()) return;
 
   const key = `${alert.statusCode}:${alert.method}:${alert.route}:${alert.errorName}:${alert.errorMessage.slice(0, 80)}`;
