@@ -23,17 +23,21 @@ function Test-CanonicalOrigin([string]$Origin) {
 
 function Invoke-GitCapture([string]$Path, [string[]]$GitArgs) {
   # Candidate probing expects Git exit 128 for ordinary non-repository paths.
-  # Suppress PowerShell's optional native nonzero promotion only for the probe;
-  # callers classify the result from LASTEXITCODE.
+  # Windows PowerShell 5.1 can promote native stderr to a terminating error when
+  # ErrorActionPreference is Stop. Temporarily relax only this bounded probe and
+  # classify the result from LASTEXITCODE; restore caller preferences immediately.
+  $savedErrorPreference = $ErrorActionPreference
   $nativeVar = Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
   $savedNativePreference = if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference } else { $null }
   try {
+    $ErrorActionPreference = 'Continue'
     if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference = $false }
     $output = & git -C $Path @GitArgs 2>$null
     $status = $LASTEXITCODE
     return [pscustomobject]@{ Status = $status; Output = @($output) }
   }
   finally {
+    $ErrorActionPreference = $savedErrorPreference
     if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference = $savedNativePreference }
   }
 }
