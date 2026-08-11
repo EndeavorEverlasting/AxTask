@@ -8,6 +8,7 @@ import pgModule from "pg";
 import { databaseTargetFingerprint, runPgTool } from "./pg-tools.mjs";
 
 const pg = pgModule.default || pgModule;
+const noLedger = process.argv.includes("--no-ledger");
 
 function requireDatabaseUrl() {
   const url = process.env.DATABASE_URL;
@@ -105,11 +106,16 @@ async function main() {
     byteSize: statSync(dumpFile).size,
     retentionClass: "daily",
     restoreTestedAt: null,
+    sourceLedgerMode: noLedger ? "skipped" : "attempted",
   };
   writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   if (!existsSync(manifestFile)) throw new Error("manifest missing");
 
-  await writeLedger(manifest);
+  if (noLedger) {
+    console.log("[db:backup] source ledger skipped (--no-ledger)");
+  } else {
+    await writeLedger(manifest);
+  }
   console.log(`[db:backup] wrote ${dumpFile}`);
   console.log(`[db:backup] manifest ${manifestFile}`);
 }
