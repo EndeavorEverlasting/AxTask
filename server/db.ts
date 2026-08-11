@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
+import { classifyDbRuntimeError, getDbPoolSnapshot } from "./db-runtime";
 
 const { Pool } = pg;
 
@@ -13,12 +14,21 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 pool.on("error", (err) => {
-  const code = (err as NodeJS.ErrnoException)?.code;
-  const hint =
-    code === "ECONNREFUSED"
-      ? "Database refused the connection. Start Postgres (for example `npm run docker:start` from the repo root), then confirm `DATABASE_URL` in `.env` matches the running instance. See docs/DEV_DATABASE_AND_SCHEMA.md."
-      : "Check DATABASE_URL and database availability.";
-  console.warn(`[db] Unexpected pool error (${code || "unknown"}): ${err.message}. ${hint}`);
+  const classified = classifyDbRuntimeError(err) ?? {
+    errorClass: "DB_UNKNOWN" as const,
+    retryable: false,
+    ...(typeof (err as NodeJS.ErrnoException)?.code === "string"
+      ? { code: String((err as NodeJS.ErrnoException).code) }
+      : {}),
+  };
+  const event = {
+    event: "db_pool_error",
+    errorClass: classified.errorClass,
+    retryable: classified.retryable,
+    code: classified.code,
+    pool: getDbPoolSnapshot(pool),
+  };
+  console.warn(`[db] ${JSON.stringify(event)}`);
 });
 
 export const db = drizzle(pool, { schema });

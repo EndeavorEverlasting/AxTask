@@ -15,6 +15,10 @@ describe("[06-health] server health endpoints", () => {
     path.join(repoRoot, "server", "index.ts"),
     "utf8",
   );
+  const dbRuntimeSrc = fs.readFileSync(
+    path.join(repoRoot, "server", "db-runtime.ts"),
+    "utf8",
+  );
 
   it("mounts GET /health", () => {
     expect(indexSrc).toMatch(/app\.get\(\s*["']\/health["']/);
@@ -24,8 +28,19 @@ describe("[06-health] server health endpoints", () => {
     expect(indexSrc).toMatch(/app\.get\(\s*["']\/ready["']/);
   });
 
-  it("/ready does a DB ping (SELECT 1)", () => {
-    expect(indexSrc).toMatch(/\/ready[\s\S]{0,800}SELECT 1/i);
+  it("/ready delegates to the cheap DB probe and the probe does SELECT 1", () => {
+    expect(indexSrc).toMatch(/\/ready[\s\S]{0,800}probeDatabase\(pool\)/i);
+    expect(dbRuntimeSrc).toMatch(/pool\.query\(["']SELECT 1["']\)/i);
+  });
+
+  it("/ready exposes only coarse DB failure diagnostics", () => {
+    const readyBlock = indexSrc.match(
+      /app\.get\(\s*["']\/ready["'][\s\S]{0,2400}?\n\}\);/,
+    )?.[0] ?? "";
+    expect(readyBlock).toContain("errorClass");
+    expect(readyBlock).toContain("retryable");
+    expect(readyBlock).toContain("Retry-After");
+    expect(readyBlock).not.toMatch(/DATABASE_URL|connectionString|password/i);
   });
 
   it("/health does NOT touch the DB (cheap liveness)", () => {
@@ -36,6 +51,21 @@ describe("[06-health] server health endpoints", () => {
     const healthBody = healthBlockMatch?.[0] ?? "";
     expect(healthBody).not.toMatch(/SELECT/i);
     expect(healthBody).not.toMatch(/pool\.query/i);
+    expect(healthBody).not.toMatch(/probeDatabase/i);
+  });
+
+  it("classifies runtime DB errors before building the API error response", () => {
+    expect(indexSrc).toMatch(/const dbFailure = classifyDbRuntimeError\(err\)/);
+    expect(indexSrc).toMatch(/dbFailure && rawStatus >= 500 \? 503 : rawStatus/);
+    expect(indexSrc).toMatch(/errorClass:\s*dbFailure\.errorClass/);
+    expect(indexSrc).toMatch(/requestId:\s*ctx\?\.requestId/);
+  });
+
+  it("does not recursively append DB incidents to security_events", () => {
+    expect(indexSrc).toMatch(
+      /if \(dbFailure\)[\s\S]{0,1200}else \{[\s\S]{0,500}appendSecurityEvent\(/,
+    );
+    expect(indexSrc).toMatch(/appendSecurityEvent\([\s\S]{0,1200}\.catch\(/);
   });
 });
 

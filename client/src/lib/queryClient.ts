@@ -6,11 +6,80 @@ const csrfCookiePattern = new RegExp(
   `(?:^|;\\s*)${AXTASK_CSRF_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
 );
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+export class ApiError extends Error {
+  readonly status: number;
+  readonly errorClass?: string;
+  readonly retryable: boolean;
+  readonly requestId?: string;
+
+  constructor(
+    status: number,
+    message: string,
+    options?: { errorClass?: string; retryable?: boolean; requestId?: string },
+  ) {
+    super(`${status}: ${message}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.errorClass = options?.errorClass;
+    this.retryable = options?.retryable === true;
+    this.requestId = options?.requestId;
   }
+}
+
+function parseErrorPayload(text: string): Record<string, unknown> | null {
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function throwIfResNotOk(res: Response): Promise<void> {
+  if (res.ok) return;
+
+  const text = (await res.text()) || res.statusText;
+  const payload = parseErrorPayload(text);
+  const message =
+    payload && typeof payload.message === "string"
+      ? payload.message
+      : text || res.statusText || "Request failed";
+  const explicitRetryable =
+    payload && typeof payload.retryable === "boolean"
+      ? payload.retryable
+      : undefined;
+  const retryable = explicitRetryable ?? res.status === 503;
+  const errorClass =
+    payload && typeof payload.errorClass === "string"
+      ? payload.errorClass
+      : undefined;
+  const requestIdFromBody =
+    payload && typeof payload.requestId === "string"
+      ? payload.requestId
+      : undefined;
+  const requestId = requestIdFromBody || res.headers.get("x-request-id") || undefined;
+
+  throw new ApiError(res.status, message, {
+    errorClass,
+    retryable,
+    requestId,
+  });
+}
+
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  return (
+    failureCount < 2 &&
+    error instanceof ApiError &&
+    error.status === 503 &&
+    error.retryable
+  );
+}
+
+export function queryRetryDelayMs(failureIndex: number): number {
+  return Math.min(250 * (2 ** Math.max(0, failureIndex)), 1_000);
 }
 
 export function getCsrfToken(): string | null {
@@ -92,6 +161,10 @@ export const DEFAULT_QUERY_STALE_TIME_MS = 5 * 60 * 1000;
  * db-size card, storage rollups) opt in at the `useQuery` site with a
  * deliberate interval, scoped to their `enabled: adminApiEnabled` gate so
  * the polling only fires while an admin is looking at the panel.
+ *
+ * Transient 503s get at most two short retries for read queries. Mutations
+ * remain non-retried so AxTask never duplicates a write after an ambiguous
+ * database failure.
  */
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -103,7 +176,8 @@ export const queryClient = new QueryClient({
       staleTime: DEFAULT_QUERY_STALE_TIME_MS,
       gcTime: 24 * 60 * 60 * 1000,
       networkMode: "offlineFirst",
-      retry: false,
+      retry: shouldRetryQuery,
+      retryDelay: queryRetryDelayMs,
     },
     mutations: {
       retry: false,

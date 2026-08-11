@@ -9,6 +9,7 @@ import { getSessionMaxAgeMs } from "./session-config";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
+import { classifyDbRuntimeError, getDbPoolSnapshot, probeDatabase } from "./db-runtime";
 import { installProbeSink } from "./probe-sink";
 import { setupCollaborationWs } from "./collaboration";
 import { setupShoppingListWs } from "./shopping-list-ws";
@@ -241,21 +242,45 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/ready", async (_req, res) => {
-  try {
-    await pool.query("SELECT 1");
-    res.json({
+  const readiness = await probeDatabase(pool);
+  if (readiness.reachable) {
+    return res.json({
       status: "ready",
       service: "axtask",
       timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    res.status(503).json({
-      status: "not_ready",
-      service: "axtask",
-      timestamp: new Date().toISOString(),
-      message: "Database not reachable",
+      db: {
+        reachable: true,
+        latencyMs: readiness.latencyMs,
+      },
     });
   }
+
+  const errorClass = readiness.errorClass || "DB_UNKNOWN";
+  log(JSON.stringify({
+    event: "db_readiness_failed",
+    errorClass,
+    retryable: readiness.retryable === true,
+    code: readiness.code,
+    latencyMs: readiness.latencyMs,
+    pool: readiness.pool,
+  }), "db");
+  void notifyAdminsOfApiError({
+    route: "/ready",
+    method: "GET",
+    statusCode: 503,
+    errorName: errorClass,
+    errorMessage: "Database readiness check failed",
+  }).catch(() => {});
+
+  if (readiness.retryable) res.setHeader("Retry-After", "2");
+  return res.status(503).json({
+    status: "not_ready",
+    service: "axtask",
+    timestamp: new Date().toISOString(),
+    message: "Database temporarily unavailable",
+    errorClass,
+    retryable: readiness.retryable === true,
+  });
 });
 
 setupAuth(app);
@@ -462,20 +487,37 @@ function warnIfInviteConfigBroken(): void {
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const req = _req as Request & { monitor?: { requestId?: string; params?: any; query?: any; body?: any; headers?: any } };
-    const status = err.status || err.statusCode || 500;
-    const message =
-      process.env.NODE_ENV === "production" && status >= 500
+    const dbFailure = classifyDbRuntimeError(err);
+    const rawStatus = err.status || err.statusCode || 500;
+    const status = dbFailure && rawStatus >= 500 ? 503 : rawStatus;
+    const message = dbFailure
+      ? "Service temporarily unavailable"
+      : process.env.NODE_ENV === "production" && status >= 500
         ? "Internal Server Error"
         : err.message || "Internal Server Error";
+    const ctx = req.monitor;
+    const errorName = dbFailure?.errorClass || (err?.name ? String(err.name) : "Error");
+    const errorMessage = dbFailure
+      ? "Database runtime failure"
+      : err?.message ? String(err.message) : String(err);
 
     console.error(`[error] ${status} — ${err.message || err}`);
 
-    // Best-effort audit event for server-side errors (never blocks response).
-    try {
+    // Database incidents are logged out-of-band and must not recursively write
+    // another security_events row into the same unavailable/overloaded DB.
+    if (dbFailure) {
+      log(JSON.stringify({
+        event: "db_runtime_failure",
+        requestId: ctx?.requestId,
+        route: req.path,
+        method: req.method,
+        errorClass: dbFailure.errorClass,
+        retryable: dbFailure.retryable,
+        code: dbFailure.code,
+        pool: getDbPoolSnapshot(pool),
+      }), "db");
+    } else {
       (req as any).__axtaskApiErrorEmitted = true;
-      const ctx = req.monitor;
-      const errorName = err?.name ? String(err.name) : "Error";
-      const errorMessage = err?.message ? String(err.message) : String(err);
       void appendSecurityEvent({
         eventType: "api_error",
         actorUserId: (req.user as any)?.id,
@@ -494,20 +536,32 @@ function warnIfInviteConfigBroken(): void {
           errorMessage,
           ...(process.env.NODE_ENV !== "production" ? { stack: err?.stack ? String(err.stack) : undefined } : {}),
         },
+      }).catch((auditError) => {
+        console.warn("[security-event] api_error append failed:", (auditError as Error)?.message || String(auditError));
       });
-      void notifyAdminsOfApiError({
-        requestId: ctx?.requestId,
-        route: req.path,
-        method: req.method,
-        statusCode: status,
-        errorName,
-        errorMessage,
-      });
-    } catch {
-      // ignore
     }
+
+    void notifyAdminsOfApiError({
+      requestId: ctx?.requestId,
+      route: req.path,
+      method: req.method,
+      statusCode: status,
+      errorName,
+      errorMessage,
+    }).catch(() => {});
+
     if (!res.headersSent) {
-      res.status(status).json({ message });
+      if (dbFailure?.retryable) res.setHeader("Retry-After", "2");
+      res.status(status).json(
+        dbFailure
+          ? {
+              message,
+              errorClass: dbFailure.errorClass,
+              retryable: dbFailure.retryable,
+              requestId: ctx?.requestId,
+            }
+          : { message },
+      );
     }
   });
 

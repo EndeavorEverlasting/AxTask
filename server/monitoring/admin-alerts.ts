@@ -25,6 +25,10 @@ function shouldNotify(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
+export function isDbIncidentAlert(alert: Pick<ApiErrorAlert, "errorName">): boolean {
+  return alert.errorName.startsWith("DB_");
+}
+
 function buildSubject(alert: ApiErrorAlert): string {
   const rid = alert.requestId ? ` rid=${alert.requestId}` : "";
   return `[AxTask] API error ${alert.statusCode} ${alert.method} ${alert.route}${rid}`;
@@ -51,9 +55,13 @@ function shouldSendDedupe(key: string, ttlMs: number): boolean {
   return true;
 }
 
-async function resolveAdminEmails(): Promise<string[]> {
+async function resolveAdminEmails(options?: { allowDbFallback?: boolean }): Promise<string[]> {
   const configured = parseCsv(process.env.ADMIN_ALERT_EMAILS);
   if (configured.length > 0) return configured;
+
+  // A DB incident must not recursively query the failing DB just to discover
+  // recipients. Configured ADMIN_ALERT_EMAILS and the webhook remain available.
+  if (options?.allowDbFallback === false) return [];
 
   // Fallback: send to DB admins (users.role === "admin")
   const { db } = await import("../db");
@@ -113,7 +121,9 @@ export async function notifyAdminsOfApiError(alert: ApiErrorAlert): Promise<void
   const subject = buildSubject(alert);
   const text = buildText(alert);
 
-  const recipients = await resolveAdminEmails().catch(() => []);
+  const recipients = await resolveAdminEmails({
+    allowDbFallback: !isDbIncidentAlert(alert),
+  }).catch(() => []);
   const tasks: Array<Promise<void>> = [];
   if (recipients.length > 0) {
     tasks.push(sendResendAlertEmail(recipients, subject, text));
@@ -122,4 +132,3 @@ export async function notifyAdminsOfApiError(alert: ApiErrorAlert): Promise<void
 
   await Promise.allSettled(tasks);
 }
-
