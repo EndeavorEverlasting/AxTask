@@ -22,21 +22,19 @@ function Test-CanonicalOrigin([string]$Origin) {
 }
 
 function Invoke-GitCapture([string]$Path, [string[]]$Args) {
-  # Probing an arbitrary candidate is expected to produce Git exit 128 for
-  # non-repositories. PowerShell 7 may promote native nonzero exits to
-  # terminating errors when PSNativeCommandUseErrorActionPreference is enabled,
-  # so disable that behavior only inside this bounded probe and classify via
-  # LASTEXITCODE ourselves.
-  $hadNativePreference = $null -ne (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue)
-  if ($hadNativePreference) { $savedNativePreference = $PSNativeCommandUseErrorActionPreference }
+  # Candidate probing expects Git exit 128 for ordinary non-repository paths.
+  # Suppress PowerShell's optional native nonzero promotion only for the probe;
+  # callers classify the result from LASTEXITCODE.
+  $nativeVar = Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+  $savedNativePreference = if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference } else { $null }
   try {
-    if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $false }
+    if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference = $false }
     $output = & git -C $Path @Args 2>$null
     $status = $LASTEXITCODE
-    [pscustomobject]@{ Status = $status; Output = @($output) }
+    return [pscustomobject]@{ Status = $status; Output = @($output) }
   }
   finally {
-    if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $savedNativePreference }
+    if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference = $savedNativePreference }
   }
 }
 
@@ -54,7 +52,7 @@ function Probe-Checkout([string]$Candidate) {
   $branch = Invoke-GitCapture $root @('branch','--show-current')
   $dirty = Invoke-GitCapture $root @('status','--short')
 
-  [pscustomobject]@{
+  return [pscustomobject]@{
     root = $root
     origin = [string]$origin.Output[0]
     head = if ($head.Status -eq 0 -and $head.Output.Count) { [string]$head.Output[0] } else { $null }
@@ -66,7 +64,7 @@ function Probe-Checkout([string]$Candidate) {
 function Add-Candidate([System.Collections.Generic.List[string]]$List, [System.Collections.Generic.HashSet[string]]$Seen, [string]$Path) {
   if ([string]::IsNullOrWhiteSpace($Path)) { return }
   try { $full = [IO.Path]::GetFullPath($Path) } catch { return }
-  if ($Seen.Add($full.ToLowerInvariant())) { $List.Add($full) }
+  if ($Seen.Add($full.ToLowerInvariant())) { [void]$List.Add($full) }
 }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -117,12 +115,14 @@ if ($found.Count -eq 0) {
     error = 'No canonical AxTask checkout was found. A folder named AxTask is not repository identity.'
     nextAction = 'Inspect the occupied AxTask folder before cloning. Do not git init, reset, clean, delete, or overwrite it.'
   }
-  if ($Json) { $result | ConvertTo-Json -Depth 6 } else {
+  if ($Json) {
+    $result | ConvertTo-Json -Depth 6
+  } else {
     Write-Host '[axtask-operator-preflight] FAIL no canonical checkout found'
     Write-Host $result.nextAction
     Write-Host ('searched=' + ($result.searchedRoots -join '; '))
   }
-  exit 2
+  return
 }
 
 $primary = $found[0]
@@ -130,10 +130,11 @@ $fetchStatus = 'not-requested'
 $originMain = $null
 if ($Fetch) {
   & git -C $primary.root fetch --no-force origin main
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  if ($LASTEXITCODE -ne 0) { throw "AxTask fetch failed with exit code $LASTEXITCODE" }
   $fetchStatus = 'passed'
   $remote = Invoke-GitCapture $primary.root @('rev-parse','origin/main')
-  if ($remote.Status -eq 0 -and $remote.Output.Count) { $originMain = [string]$remote.Output[0] }
+  if ($remote.Status -ne 0 -or $remote.Output.Count -eq 0) { throw 'Fetch completed but origin/main could not be resolved.' }
+  $originMain = [string]$remote.Output[0]
 }
 
 $trackedResolver = Join-Path $primary.root 'scripts\ai-harness\resolve-checkout.mjs'
@@ -156,7 +157,7 @@ $result = [ordered]@{
 
 if ($Json) {
   $result | ConvertTo-Json -Depth 6
-  exit 0
+  return
 }
 
 Write-Host "[axtask-operator-preflight] PASS repository=$ExpectedRepository"
