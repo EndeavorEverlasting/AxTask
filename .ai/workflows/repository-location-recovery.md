@@ -17,13 +17,20 @@ Use this workflow when the shell prompt, editor, shortcut, or copied command cla
 ## Steps
 
 1. Do not run `git init`, reset, clean, delete, rename, or overwrite the suspicious directory.
-2. Run `node scripts/ai-harness/resolve-checkout.mjs --json` from any canonical AxTask checkout. If no checkout is currently addressable, use the bootstrap command documented in `.ai/README.md` to run the tracked resolver from a temporary downloaded copy; that temporary copy is tooling only and may not own sprint state.
-3. Accept a candidate only when Git resolves a top-level directory and its `origin` matches `EndeavorEverlasting/AxTask`. A directory name such as `AxTask` is not proof.
-4. Inspect the resolver's `primary`, optional `main`, `current`, and `worktrees` fields. Do not require branch `main` to be checked out merely to fetch or inspect `origin/main`.
-5. If a canonical checkout exists, run repository commands with `git -C <resolved-path> ...` or change directory to that proven path. For mutation requiring isolation, return to `axtask.agent-workspace-lifecycle.v1` and use `workspaces.mjs create`.
-6. If no canonical checkout exists, inspect the occupied expected path for unique operator files before cloning. Never convert an arbitrary occupied directory into a repository just to make the error disappear.
-7. Capture a sanitized repository-location report when the recovery is operationally significant. Absolute personal paths are runtime evidence and remain untracked.
-8. After recovery, run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`, then resume the owning workflow.
+2. **Operator preflight invariant:** never begin a pasted operator sequence by assuming `(git rev-parse --show-toplevel).Trim()` will succeed. When checkout identity is not already proven, route through `scripts/ai-harness/operator-preflight.ps1` or the raw bootstrap form below before any repository-relative command.
+3. From any canonical AxTask checkout, run `node scripts/ai-harness/resolve-checkout.mjs --json` for the full tracked checkout/worktree inventory.
+4. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling, run it with `-Fetch -Json`, validate its result, and use its `primary` checkout. The temporary file may not own sprint state:
+
+```powershell
+$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'; $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'; Invoke-WebRequest -UseBasicParsing $u -OutFile $t; $raw=& $t -Fetch -Json; $r=($raw -join "`n")|ConvertFrom-Json; if(-not $r.ok){throw $r.error}; Set-Location -LiteralPath $r.primary
+```
+
+5. Accept a candidate only when Git resolves a top-level directory and its `origin` matches `EndeavorEverlasting/AxTask`. A directory name such as `AxTask` is not proof.
+6. Inspect the resolver's `primary`, optional `main`, `current`, and `worktrees` fields. Do not require branch `main` to be checked out merely to fetch or inspect `origin/main`.
+7. If a canonical checkout exists, run repository commands with `git -C <resolved-path> ...` or change directory to that proven path. For mutation requiring isolation, return to `axtask.agent-workspace-lifecycle.v1` and use `workspaces.mjs create`.
+8. If no canonical checkout exists, inspect the occupied expected path for unique operator files before cloning. Never convert an arbitrary occupied directory into a repository just to make the error disappear.
+9. Capture a sanitized repository-location report when the recovery is operationally significant. Absolute personal paths are runtime evidence and remain untracked.
+10. After recovery, run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`, then resume the owning workflow.
 
 ## Known traps
 
@@ -32,7 +39,9 @@ Use this workflow when the shell prompt, editor, shortcut, or copied command cla
 - A failed `$Start=(git rev-parse --show-toplevel).Trim()` leaves `$Start` null; subsequent `git -C $Start ...` commands can reinterpret later arguments as paths and produce misleading secondary failures.
 - `git worktree list` cannot bootstrap from a non-repository directory. First locate one canonical checkout, then ask Git for its registered worktrees.
 - No checked-out `main` worktree is not itself an error. `origin/main` can be fetched from another canonical checkout, and mutation should use managed isolation when appropriate.
-- Temporary downloaded resolver code may help locate a durable checkout, but `%TEMP%`, AppData, `/tmp`, and `/var/tmp` must never become the owner of unique sprint state.
+- Temporary downloaded bootstrap/resolver code may help locate a durable checkout, but `%TEMP%`, AppData, `/tmp`, and `/var/tmp` must never become the owner of unique sprint state.
+- The operator bootstrap may perform a no-force `fetch origin main` when `-Fetch` is supplied; it never merges, resets, cleans, initializes, or deletes repository state.
+- The bootstrap returns structured `ok: false` evidence when no checkout is found instead of using `exit` to terminate an interactive PowerShell host.
 
 ## Outputs
 

@@ -5,6 +5,7 @@ on:
     paths:
       - ".ai/**"
       - "scripts/ai-harness/resolve-checkout.mjs"
+      - "scripts/ai-harness/operator-preflight.ps1"
       - "scripts/ai-harness/validate-repo-location-recovery.mjs"
       - ".githooks/**"
       - ".github/workflows/harness-repo-location.yml"
@@ -40,6 +41,28 @@ jobs:
 
       - name: Prove repository-location recovery
         run: node scripts/ai-harness/validate-repo-location-recovery.mjs
+
+      - name: Execute Windows PowerShell 5.1 operator preflight from non-repository AxTask folder
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Scratch=Join-Path $env:RUNNER_TEMP 'operator-preflight-not-a-repo\AxTask'
+          New-Item -ItemType Directory -Force -Path $Scratch | Out-Null
+          Push-Location $Scratch
+          try {
+            $SearchRoot=Split-Path -Parent $env:GITHUB_WORKSPACE
+            $Raw=& "$env:GITHUB_WORKSPACE\scripts\ai-harness\operator-preflight.ps1" -SearchRoot $SearchRoot -Json
+            $Result=($Raw -join "`n") | ConvertFrom-Json
+            if(-not $Result.ok){ throw 'operator preflight did not report ok=true' }
+            if($Result.repository -ne 'EndeavorEverlasting/AxTask'){ throw "unexpected repository: $($Result.repository)" }
+            if([IO.Path]::GetFullPath($Result.primary) -ne [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
+              throw "operator preflight resolved unexpected checkout: $($Result.primary)"
+            }
+          }
+          finally {
+            Pop-Location
+          }
 
       - name: Check diff whitespace
         if: runner.os == 'Linux'
