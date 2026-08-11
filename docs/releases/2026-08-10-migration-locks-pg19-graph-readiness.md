@@ -2,7 +2,7 @@
 
 ## Scope
 
-This release hardens AxTask's SQL migration runner against lock pileups and concurrent migration processes, while preparing task dependencies for PostgreSQL SQL/PGQ property graphs without upgrading the database or changing durable task storage.
+This release hardens AxTask's SQL migration runner against lock pileups and concurrent migration processes, while preparing task dependencies for PostgreSQL SQL/PGQ property graphs without upgrading the application database or changing durable task storage.
 
 ## Migration concurrency safety
 
@@ -16,6 +16,8 @@ This release hardens AxTask's SQL migration runner against lock pileups and conc
 - `MIGRATION_COORDINATION_RETRY_MS` — default `250`
 
 Only one AxTask SQL migration runner may make migration decisions at a time. The runner uses `pg_try_advisory_lock` with bounded retries rather than a blocking advisory-lock call. The coordinator is acquired before creating/reading `applied_sql_migrations` and held until migration files and metadata writes finish.
+
+`scripts/verify-migration-contention.mjs` supplies executable fail-fast proof on disposable loopback databases: it holds the coordinator, requires a competing runner to fail within the bounded coordination timeout, releases the lock, then requires the runner to recover successfully. The verifier refuses non-loopback database hosts.
 
 Existing migration files keep ownership of their transaction boundaries. The runner deliberately does not wrap every file in a new transaction because existing migrations can contain their own `BEGIN`/`COMMIT`.
 
@@ -33,16 +35,18 @@ Edges are constrained to matching users and ignore soft-deleted endpoints. This 
 `scripts/ensure-task-property-graph.mjs` is an explicit opt-in installer. It checks `server_version_num` before any SQL/PGQ DDL:
 
 - PostgreSQL < 19: prints a safe skip and leaves the relational views available.
-- PostgreSQL 19+: coordinates with the migration runner, verifies projection views, checks `information_schema.property_graphs`, and creates `public.axtask_task_dependencies` once.
+- PostgreSQL 19+: runs the existing migration backup airlock, coordinates with the migration runner, verifies projection views, checks `information_schema.property_graphs`, and creates `public.axtask_task_dependencies` once.
 - `--require-supported`: turns an unsupported server into a failing gate for upgrade certification.
 
 The native graph maps `task_graph_vertices` as task vertices and `task_graph_edges` as directed `depends_on` edges. It does not copy task data or replace PostgreSQL relational storage.
+
+PostgreSQL 19 is still a beta line at the time of this release. CI therefore tests it only in a disposable `postgres:19beta2-alpine` service. The application/local runtime baseline remains PostgreSQL 16. The beta job installs the real property graph and executes a `GRAPH_TABLE` traversal over two temporary task rows inside a rolled-back transaction.
 
 ## Non-goals / safety boundary
 
 This release does **not**:
 
-- upgrade Docker, Neon, Render, or any production database to PostgreSQL 19;
+- upgrade Docker Compose, Neon, Render, or any production database to PostgreSQL 19;
 - run native graph DDL during application startup;
 - modify production retention/recovery data;
 - normalize or rewrite task dependency data;
@@ -56,7 +60,8 @@ Current-baseline proof:
 ```bash
 npm run test:deploy:migrations
 CI=true DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/axtask_test node scripts/apply-migrations.mjs
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/axtask_test node scripts/verify-migration-contention.mjs
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/axtask_test node scripts/ensure-task-property-graph.mjs
 ```
 
-On PostgreSQL 16, the last command must report a native-graph skip, not attempt `CREATE PROPERTY GRAPH`. PostgreSQL 19 certification must rerun it with `--require-supported` and then prove a `GRAPH_TABLE` query before claiming native graph runtime proof.
+On PostgreSQL 16, the last command must report a native-graph skip, not attempt `CREATE PROPERTY GRAPH`. PostgreSQL 19 certification requires `--require-supported` plus an observed `GRAPH_TABLE` dependency traversal before claiming native graph runtime proof. Production adoption remains a separate major-version migration decision after PostgreSQL 19 reaches an approved release and provider support is proven.

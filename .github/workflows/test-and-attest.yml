@@ -84,6 +84,12 @@ jobs:
           node scripts/apply-migrations.mjs
           npm run db:push:ci </dev/null
 
+      - name: Verify bounded migration coordinator contention
+        run: node scripts/verify-migration-contention.mjs
+
+      - name: Verify PostgreSQL 19 graph gate skips on PG16 baseline
+        run: node scripts/ensure-task-property-graph.mjs
+
       - name: Account backup round-trip certification
         # Uses only the disposable loopback PostgreSQL service above. The runner
         # fails closed for non-loopback/production targets and emits ignored
@@ -119,6 +125,89 @@ jobs:
         with:
           commit_message: "chore(ci): update TEST_ATTESTATION.md [skip ci]"
           file_pattern: docs/TEST_ATTESTATION.md
+
+  postgres19-property-graph:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # PostgreSQL 19 is beta-only in this sprint. This service is disposable
+        # compatibility proof, not an application/runtime version upgrade.
+        image: postgres:19beta2-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: axtask_graph
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d axtask_graph"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5433/axtask_graph
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bootstrap PG19 schema and relational graph projection
+        run: |
+          npm run db:push:ci </dev/null
+          node scripts/apply-migrations.mjs
+
+      - name: Install native PostgreSQL 19 property graph
+        run: node scripts/ensure-task-property-graph.mjs --require-supported
+
+      - name: Prove native GRAPH_TABLE dependency traversal
+        run: |
+          node --input-type=module <<'NODE'
+          import pgModule from "pg";
+          const pg = pgModule.default || pgModule;
+          const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+          await client.connect();
+          try {
+            await client.query("BEGIN");
+            await client.query(`
+              INSERT INTO tasks (
+                id, date, activity, recurrence, priority, priority_score,
+                classification, status, depends_on
+              ) VALUES
+                ('graph-ci-target', '2026-08-10', 'PG19 target', 'none', 'medium', 1, 'ci', 'pending', NULL),
+                ('graph-ci-source', '2026-08-10', 'PG19 source', 'none', 'medium', 1, 'ci', 'pending', '["graph-ci-target"]'::jsonb)
+            `);
+            const { rows } = await client.query(`
+              SELECT source_task_id, target_task_id, relation
+              FROM GRAPH_TABLE (
+                public.axtask_task_dependencies
+                MATCH (source IS task)-[dependency IS depends_on]->(target IS task)
+                COLUMNS (
+                  source.id AS source_task_id,
+                  target.id AS target_task_id,
+                  dependency.relation AS relation
+                )
+              )
+              WHERE source_task_id = 'graph-ci-source'
+                AND target_task_id = 'graph-ci-target'
+            `);
+            if (rows.length !== 1 || rows[0].relation !== 'depends_on') {
+              throw new Error(`expected one native dependency traversal, got ${JSON.stringify(rows)}`);
+            }
+            console.log(`native traversal source=${rows[0].source_task_id} target=${rows[0].target_task_id} relation=${rows[0].relation}`);
+          } finally {
+            await client.query("ROLLBACK").catch(() => {});
+            await client.end();
+          }
+          NODE
 
   docker-build:
     runs-on: ubuntu-latest

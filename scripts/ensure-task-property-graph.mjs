@@ -13,6 +13,9 @@
  */
 import pgModule from "pg";
 const pg = pgModule.default || pgModule;
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   acquireMigrationCoordinator,
   configureMigrationSession,
@@ -20,6 +23,7 @@ import {
   releaseMigrationCoordinator,
 } from "./migration-safety.mjs";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIN_PROPERTY_GRAPH_VERSION = 190000;
 const GRAPH_SCHEMA = "public";
 const GRAPH_NAME = "axtask_task_dependencies";
@@ -31,6 +35,7 @@ CREATE PROPERTY GRAPH public.axtask_task_dependencies
       KEY (id)
       LABEL task
       PROPERTIES (
+        id,
         user_id,
         activity,
         status,
@@ -52,6 +57,32 @@ CREATE PROPERTY GRAPH public.axtask_task_dependencies
       PROPERTIES (user_id, relation)
   );
 `;
+
+function enforceNativeGraphAirlock() {
+  const explicitSkip = process.argv.includes("--skip-airlock") || process.env.MIGRATION_SKIP_AIRLOCK === "true";
+  const ciBypass = process.env.CI === "true" || process.env.NODE_ENV === "test";
+
+  if (ciBypass && !explicitSkip) {
+    console.warn("[graph] WARNING: migration airlock bypassed for CI/test disposable database.");
+    return;
+  }
+
+  const airlockPath = path.resolve(__dirname, "migration-airlock.mjs");
+  const args = [airlockPath];
+  if (explicitSkip) args.push("--skip-airlock");
+  const result = spawnSync(process.execPath, args, {
+    stdio: ["ignore", "inherit", "inherit"],
+    env: process.env,
+    cwd: path.resolve(__dirname, ".."),
+  });
+
+  if (result.status === 0) return;
+  if (explicitSkip && result.status === 2) {
+    console.warn("[graph] WARNING: native graph migration airlock explicitly bypassed.");
+    return;
+  }
+  throw new Error("migration airlock failed; refusing native property-graph DDL");
+}
 
 async function main() {
   const url = process.env.DATABASE_URL;
@@ -87,6 +118,9 @@ async function main() {
       return;
     }
 
+    // Native property-graph creation is DDL. Reuse the existing backup airlock
+    // before taking the migration coordinator or mutating schema metadata.
+    enforceNativeGraphAirlock();
     await configureMigrationSession(client, safety);
     const coordination = await acquireMigrationCoordinator(client, safety);
     coordinatorAcquired = true;
