@@ -4,8 +4,8 @@ This file is updated automatically when the `test-and-attest` workflow passes on
 
 | Field | Value |
 | --- | --- |
-| **Commit** | `6582b216a2a5a260ba462dc17cf508f0f33e5777` |
+| **Commit** | `16c78da0b7c805a47c108e87ed0f2a7e9cbb9d37` |
 | **Branch** | `main` |
-| **Workflow run** | https://github.com/EndeavorEverlasting/AxTask/actions/runs/31519775845 |
-| **Generated at (UTC)** | 2026-08-11T17:55:34.908Z |
+| **Workflow run** | https://github.com/EndeavorEverlasting/AxTask/actions/runs/31537353287 |
+| **Generated at (UTC)** | 2026-08-11T21:23:06.443Z |
 
