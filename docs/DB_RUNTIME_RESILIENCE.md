@@ -7,6 +7,8 @@ AxTask depends on PostgreSQL for authenticated application state. A short databa
 This contract keeps the response bounded and cheap:
 
 - classify database/runtime failures into a small stable taxonomy;
+- bound database connection acquisition instead of inheriting an unlimited wait;
+- tag runtime PostgreSQL sessions with `application_name=axtask` for cheap attribution;
 - emit structured process logs with pool counts instead of full SQL or parameters;
 - keep `/health` DB-free for process liveness;
 - make `/ready` perform only `SELECT 1` and return coarse database diagnostics;
@@ -25,7 +27,7 @@ This is application resilience and observability. It does not replace PostgreSQL
 | Class | Typical signals | Client retryable? |
 | --- | --- | --- |
 | `DB_CONNECTION_FAILED` | SQLSTATE `08xxx`, `ECONNREFUSED`, `ECONNRESET`, server shutdown/cannot-connect states | yes |
-| `DB_TIMEOUT` | connection timeout / `ETIMEDOUT` | yes |
+| `DB_TIMEOUT` | connection/acquisition timeout, `ETIMEDOUT`, statement timeout | yes |
 | `DB_POOL_EXHAUSTED` | SQLSTATE `53300`, too many clients/connections | yes |
 | `DB_LOCK_CONTENTION` | lock timeout / deadlock | yes |
 | `DB_AUTH_FAILED` | SQLSTATE class `28` | no |
@@ -36,6 +38,20 @@ This is application resilience and observability. It does not replace PostgreSQL
 Unknown application exceptions return `null` from the DB classifier and retain the normal application error path.
 
 The taxonomy deliberately omits raw SQL, parameters, connection strings, usernames, passwords, and hostnames.
+
+## Pool connection boundary
+
+`server/db.ts` gives the runtime pool a finite `connectionTimeoutMillis` instead of node-postgres's no-timeout default.
+
+- default: `5000` ms;
+- override: `AXTASK_DB_CONNECTION_TIMEOUT_MS`;
+- minimum accepted value: `1000` ms;
+- maximum accepted value: `30000` ms;
+- invalid values fall back to `5000` ms.
+
+The pool also sets `application_name: "axtask"`. That makes AxTask connections attributable in PostgreSQL activity/provider views without adding an observability vendor or writing telemetry rows.
+
+The timeout bounds connection acquisition; it is **not** a blanket SQL statement timeout and does not change transaction semantics.
 
 ## HTTP behavior
 
@@ -69,6 +85,12 @@ The central Express error handler classifies PostgreSQL/network errors before re
 ```
 
 The request ID is the existing privacy-safe monitoring correlation ID.
+
+### Registration failures
+
+Registration keeps Zod/input validation failures at HTTP 400. Database, network, and post-registration session failures are forwarded to the central error handler instead of being mislabeled as client input errors.
+
+The append-only `auth_register_success` security event is best-effort after account creation. A failure to append that non-essential audit event is logged but does not become a signup dependency.
 
 ## Client retry boundary
 
@@ -154,7 +176,7 @@ It does **not** enable:
 - `pg_stat_statements` collection changes;
 - a new monitoring vendor.
 
-The incremental cost is a small number of structured log lines on failures/readiness checks plus at most two extra GET/read requests during a retryable 503 window.
+The incremental cost is a small number of structured log lines on failures/readiness checks plus at most two extra GET/read requests during a retryable 503 window. The pool timeout and `application_name` tag do not create a new periodic workload.
 
 ## Operator incident workflow
 
@@ -166,9 +188,11 @@ When users report a 503:
 4. Check pool counts:
    - high `waitingCount` with no idle clients suggests pool pressure;
    - low/zero pool usage with connection errors suggests provider/network reachability;
+   - repeated `DB_TIMEOUT` near the configured connection-acquisition bound suggests slow/unavailable connection establishment or pool starvation;
    - capacity/schema/auth classes are non-retryable and require operator correction.
 5. Correlate affected API errors by `requestId`.
-6. Continue to use the protected R1-R7 database-recovery gates for any production DB mutation or recovery work. Runtime diagnostics do not authorize those actions.
+6. Use `application_name=axtask` when filtering PostgreSQL activity/provider connection views.
+7. Continue to use the protected R1-R7 database-recovery gates for any production DB mutation or recovery work. Runtime diagnostics do not authorize those actions.
 
 ## Safety boundaries
 

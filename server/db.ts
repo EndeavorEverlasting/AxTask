@@ -1,7 +1,11 @@
 import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
-import { classifyDbRuntimeError, getDbPoolSnapshot } from "./db-runtime";
+import {
+  classifyDbRuntimeError,
+  getDbPoolSnapshot,
+  resolveDbConnectionTimeoutMs,
+} from "./db-runtime";
 
 const { Pool } = pg;
 
@@ -11,7 +15,15 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionTimeoutMillis = resolveDbConnectionTimeoutMs(
+  process.env.AXTASK_DB_CONNECTION_TIMEOUT_MS,
+);
+
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis,
+  application_name: "axtask",
+});
 
 pool.on("error", (err) => {
   const classified = classifyDbRuntimeError(err) ?? {

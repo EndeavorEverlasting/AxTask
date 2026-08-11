@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_DB_CONNECTION_TIMEOUT_MS,
   classifyDbRuntimeError,
   getDbPoolSnapshot,
   probeDatabase,
+  resolveDbConnectionTimeoutMs,
 } from "../../../server/db-runtime";
 
 function errorWith(code: string, message: string): Error & { code: string } {
@@ -16,6 +18,8 @@ describe("[06-health] runtime DB failure classification", () => {
     [errorWith("08006", "connection failure"), "DB_CONNECTION_FAILED", true],
     [errorWith("28P01", "password authentication failed"), "DB_AUTH_FAILED", false],
     [errorWith("ETIMEDOUT", "connection timeout"), "DB_TIMEOUT", true],
+    [new Error("timeout exceeded when trying to connect"), "DB_TIMEOUT", true],
+    [errorWith("57014", "canceling statement due to statement timeout"), "DB_TIMEOUT", true],
     [errorWith("53300", "too many connections"), "DB_POOL_EXHAUSTED", true],
     [errorWith("53100", "project size limit has been exceeded"), "DB_CAPACITY_LIMIT", false],
     [errorWith("55P03", "lock timeout"), "DB_LOCK_CONTENTION", true],
@@ -30,6 +34,20 @@ describe("[06-health] runtime DB failure classification", () => {
 
   it("returns null for an unrelated application error", () => {
     expect(classifyDbRuntimeError(new Error("bad form input"))).toBeNull();
+  });
+});
+
+describe("[06-health] runtime DB connection timeout", () => {
+  it("defaults to a bounded timeout instead of node-postgres no-timeout behavior", () => {
+    expect(resolveDbConnectionTimeoutMs(undefined)).toBe(DEFAULT_DB_CONNECTION_TIMEOUT_MS);
+    expect(DEFAULT_DB_CONNECTION_TIMEOUT_MS).toBe(5_000);
+  });
+
+  it("accepts operator tuning only inside the safe 1s-30s range", () => {
+    expect(resolveDbConnectionTimeoutMs("2500")).toBe(2_500);
+    expect(resolveDbConnectionTimeoutMs("250")).toBe(1_000);
+    expect(resolveDbConnectionTimeoutMs("60000")).toBe(30_000);
+    expect(resolveDbConnectionTimeoutMs("not-a-number")).toBe(DEFAULT_DB_CONNECTION_TIMEOUT_MS);
   });
 });
 

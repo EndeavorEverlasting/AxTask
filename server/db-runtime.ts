@@ -41,6 +41,10 @@ type PoolLike = {
   waitingCount?: number;
 };
 
+export const DEFAULT_DB_CONNECTION_TIMEOUT_MS = 5_000;
+const MIN_DB_CONNECTION_TIMEOUT_MS = 1_000;
+const MAX_DB_CONNECTION_TIMEOUT_MS = 30_000;
+
 const CONNECTION_CODES = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
@@ -55,6 +59,16 @@ const CONNECTION_CODES = new Set([
 
 const LOCK_CODES = new Set(["55P03", "40P01"]);
 const SCHEMA_CODES = new Set(["42P01", "42703"]);
+
+export function resolveDbConnectionTimeoutMs(raw: string | undefined): number {
+  if (!raw?.trim()) return DEFAULT_DB_CONNECTION_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_DB_CONNECTION_TIMEOUT_MS;
+  return Math.max(
+    MIN_DB_CONNECTION_TIMEOUT_MS,
+    Math.min(MAX_DB_CONNECTION_TIMEOUT_MS, Math.round(parsed)),
+  );
+}
 
 function errorParts(error: unknown): { code: string; message: string } {
   if (!error || typeof error !== "object") {
@@ -110,7 +124,13 @@ export function classifyDbRuntimeError(error: unknown): DbRuntimeDiagnostic | nu
     return diagnostic("DB_POOL_EXHAUSTED", true, code);
   }
 
-  if (code === "ETIMEDOUT" || message.includes("timeout expired") || message.includes("connection timeout")) {
+  if (
+    code === "ETIMEDOUT" ||
+    message.includes("timeout expired") ||
+    message.includes("connection timeout") ||
+    message.includes("timeout exceeded when trying to connect") ||
+    (code === "57014" && message.includes("statement timeout"))
+  ) {
     return diagnostic("DB_TIMEOUT", true, code);
   }
 
