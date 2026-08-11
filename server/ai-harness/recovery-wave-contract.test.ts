@@ -1,11 +1,15 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 describe("post-R1 recovery wave contract", () => {
   it("keeps safe recovery work parallel and source-read-only", () => {
     const run = spawnSync(process.execPath, ["scripts/ai-harness/validate-recovery-wave.mjs"], {
-      cwd: process.cwd(),
+      cwd: REPO_ROOT,
       encoding: "utf8",
     });
 
@@ -13,10 +17,10 @@ describe("post-R1 recovery wave contract", () => {
     expect(run.stdout).toContain("[recovery-wave] PASS");
   });
 
-  it("requires fail-closed prerequisites before R3 dependent operator execution", () => {
-    const guardrails = fs.readFileSync("AGENT_GUARDRAILS.md", "utf8");
-    const queue = fs.readFileSync(".ai/WORK_QUEUE.md", "utf8");
-    const r3 = queue.match(/^## AXQ-003\b[\s\S]*?(?=^## AXQ-004\b)/m)?.[0] ?? "";
+  it("records the fail-closed operator rule alongside R3's declared prerequisites", () => {
+    const guardrails = fs.readFileSync(path.join(REPO_ROOT, "AGENT_GUARDRAILS.md"), "utf8");
+    const queue = fs.readFileSync(path.join(REPO_ROOT, ".ai", "WORK_QUEUE.md"), "utf8");
+    const r3 = queue.match(/^## AXQ-003\b[\s\S]*?(?=^## AXQ-\d+\b|(?![\s\S]))/m)?.[0] ?? "";
 
     expect(guardrails).toContain("**Fail-closed operator blocks.**");
     for (const marker of [

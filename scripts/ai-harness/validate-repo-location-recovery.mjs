@@ -81,9 +81,18 @@ for (const marker of [
   "Invoke-WebRequest -UseBasicParsing",
   "& $t -Fetch -Json",
   "ConvertFrom-Json",
+  "ls-tree -r --name-only",
+  "$r.originMain",
+  "worktree add --detach",
+  "Set-Location -LiteralPath $target",
   "never merges, resets, cleans, initializes, or deletes",
 ]) {
   if (!workflow.includes(marker)) fail(`recovery workflow missing operator-bootstrap contract: ${marker}`);
+}
+const rawBootstrap = workflow.match(/```powershell\n([\s\S]*?)```/)?.[1] ?? "";
+if (!rawBootstrap) fail("recovery workflow missing raw PowerShell bootstrap block");
+if (rawBootstrap.includes("Set-Location -LiteralPath $r.primary")) {
+  fail("raw bootstrap must not enter the discovered primary checkout before artifact-availability gating");
 }
 
 const skill = read(".ai/skills/repository-location-recovery.md");
@@ -100,6 +109,7 @@ for (const marker of [
   "## Procedure",
   "verify that its HEAD contains the required tracked resolver/workflow",
   "exact-target isolated worktree",
+  "nextAction` as provisional",
   "## Expected outputs",
   "## Safety",
 ]) {
