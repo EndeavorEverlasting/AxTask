@@ -13,6 +13,7 @@ const REQUIRED_FILES = [
   ".ai/skills/repository-location-recovery.md",
   ".ai/reports/repository-location-report-template.md",
   "scripts/ai-harness/resolve-checkout.mjs",
+  "scripts/ai-harness/operator-preflight.ps1",
   "scripts/ai-harness/validate-repo-location-recovery.mjs",
   ".github/workflows/harness-repo-location.yml",
 ];
@@ -36,6 +37,15 @@ const workflow = read(".ai/workflows/repository-location-recovery.md");
 for (const heading of ["## Use when", "## Inputs", "## Steps", "## Known traps", "## Outputs", "## Stop conditions", "## Proof ceiling"]) {
   if (!workflow.includes(heading)) fail(`recovery workflow missing ${heading}`);
 }
+for (const marker of [
+  "Operator preflight invariant",
+  "scripts/ai-harness/operator-preflight.ps1",
+  "Invoke-WebRequest -UseBasicParsing",
+  "& $t -Fetch",
+  "never merges, resets, cleans, initializes, or deletes",
+]) {
+  if (!workflow.includes(marker)) fail(`recovery workflow missing operator-bootstrap contract: ${marker}`);
+}
 
 const skill = read(".ai/skills/repository-location-recovery.md");
 for (const marker of ["authorityRef: axtask.agent-authority.v1", "skillId: axtask.skill.repository-location-recovery.v1", "## Trigger conditions", "## Required inputs", "## Procedure", "## Expected outputs", "## Safety"]) {
@@ -46,6 +56,21 @@ const report = read(".ai/reports/repository-location-report-template.md");
 for (const heading of ["## REPOSITORY", "## OBSERVED LOCATION", "## DISCOVERED CHECKOUTS", "## WORKTREE STATE", "## WORKING", "## BROKEN", "## MISSING", "## SAFETY", "## NEXT ACTION"]) {
   if (!report.includes(heading)) fail(`repository-location report missing ${heading}`);
 }
+
+const bootstrap = read("scripts/ai-harness/operator-preflight.ps1");
+for (const marker of [
+  "$ExpectedRepository = 'EndeavorEverlasting/AxTask'",
+  "Test-CanonicalOrigin",
+  "rev-parse','--show-toplevel",
+  "remote','get-url','origin",
+  "fetch --no-force origin main",
+  "No canonical AxTask checkout was found",
+  "Do not git init, reset, clean, delete, or overwrite it",
+  "scripts\\ai-harness\\resolve-checkout.mjs",
+]) {
+  if (!bootstrap.includes(marker)) fail(`operator preflight bootstrap missing ${marker}`);
+}
+if (/\bgit\s+(?:init|reset|clean)\b/i.test(bootstrap)) fail("operator preflight bootstrap must not execute git init/reset/clean");
 
 for (const origin of [
   "https://github.com/EndeavorEverlasting/AxTask.git",
@@ -86,4 +111,4 @@ try {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
 
-if (!process.exitCode) console.log("[repo-location-recovery] PASS non-repository cwd recovered to canonical AxTask checkout");
+if (!process.exitCode) console.log("[repo-location-recovery] PASS non-repository cwd recovered to canonical AxTask checkout with operator bootstrap contract");
