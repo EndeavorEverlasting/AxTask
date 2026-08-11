@@ -38,6 +38,33 @@ application separately stored those bytes inside PostgreSQL.
 - Do not reuse 10 GiB as an operator budget merely because an old repository comment used that number.
 - Normal `scripts/production-start.mjs` never performs recovery mutations.
 
+## Recovery acceleration — parallel sub-part wave
+
+The preservation and local-certification gates are not all serial dependencies. Use
+`docs/DB_RECOVERY_SUBPART_WAVE.md` to split the recovery across independent
+sub-parts without weakening the mutation gates.
+
+**Launch immediately, in parallel:**
+
+- R1 production SELECT-only forensics in the protected operator context;
+- R3 source-read-only raw backup + disposable restore proof;
+- R7 disposable local production certification.
+
+**Immediately after R1 is accepted, in parallel:**
+
+- R1.5 portable account-evidence preservation;
+- R2 containment assessment.
+
+If R2 containment is already origin-active, record it and do not mutate it. If R2
+requires a containment mutation, that mutation still waits for successful R3
+backup/restore proof.
+
+R4 remains the convergence mutation gate: it cannot start until R1.5 preservation,
+R3 backup/restore, and origin-active R2 containment are all proven. R5/R6 follow
+R4, and R8 remains blocked until R0-R7 are recorded.
+
+This parallelization is an execution optimization, not a safety exception.
+
 ## R0 — Render suspended
 
 **Gate:** production web service is visibly `Suspended`; auto-deploy is off.
@@ -170,24 +197,48 @@ That command installs/verifies only the suppression function and trigger. It:
 
 ## R3 — backup and rollback proof
 
-Before any production deletion or DDL recovery action:
+R3 is a preservation lane and may proceed in parallel with R1. It does not depend
+on R1.5; instead, R1.5 and R3 are both mandatory prerequisites before R4.
+
+For the recovery path, create exactly one source-read-only backup and verify its
+hash:
 
 ```bash
-npm run db:backup:preflight
-npm run db:backup
+npm run db:backup:preflight -- --no-ledger
 ```
 
-Then restore the backup into a disposable local PostgreSQL instance and run the
-repository's restore verification workflow.
+`db:backup:preflight` already invokes the backup tool, writes the dump and manifest,
+and verifies the dump SHA-256. Do **not** run `npm run db:backup` again after this
+command; doing so would create a redundant second dump.
 
-**Gate:** a current backup exists and a disposable restore proof is recorded.
+The `--no-ledger` recovery mode prevents `scripts/db/backup.mjs` from inserting a
+`backup_records` row into the source production database. The generated manifest
+must record:
+
+```text
+sourceLedgerMode: "skipped"
+```
+
+Then restore the resulting backup into a disposable PostgreSQL instance that is
+not the source database:
+
+```bash
+RESTORE_DATABASE_URL='postgres://...disposable...' npm run db:restore:test
+```
+
+The restore verifier rejects a restore target equal to `DATABASE_URL`, runs schema
+verification, and records `restoreTestedAt` in the backup manifest after success.
+
+**Gate:** a current protected backup exists, its SHA-256 verifies, the manifest
+proves source-ledger skip, and a disposable restore proof is recorded.
 
 The raw database dump and R1.5 account evidence bundle are complementary:
 
 - raw DB dump = database-level rollback artifact;
 - account evidence bundle = portable account/audit artifact with explicit hashes and provider-independent files.
 
-Neither substitutes for the other before destructive cleanup.
+Neither substitutes for the other before destructive cleanup, but they should be
+produced in parallel when operator/runtime capacity permits.
 
 ## R4 — targeted logical cleanup
 
@@ -268,6 +319,9 @@ deliberately chooses a current threshold from provider/budget evidence.
 
 ## R7 — local production certification
 
+R7 may be executed in parallel with R1/R3 because it uses disposable local
+PostgreSQL and does not prove or mutate production state.
+
 Against disposable local PostgreSQL:
 
 ```bash
@@ -342,9 +396,15 @@ Repository tests can prove the tools and safety contracts. They cannot prove:
 
 Those require R1/R1.5/R3/R4/R5/R8/R9 evidence respectively.
 
-## Next production action after this branch is merged
+## Next production actions after this branch is merged
 
-**R1 then R1.5 only:** keep Render suspended, run the read-only forensics audit,
-then create and verify the read-only account evidence bundle and two independent
-copies. Do not perform containment mutation or deletion until those results are
-reviewed and R3 raw backup/restore proof is complete.
+Do not idle all recovery work behind one R1 chat.
+
+1. Keep Render suspended and run R1 in the protected operator context.
+2. **In parallel now**, run R3 with `npm run db:backup:preflight -- --no-ledger` plus disposable `db:restore:test`.
+3. **In parallel now**, run R7 local production certification and deployment/build validators.
+4. As soon as R1 passes, launch R1.5 evidence preservation and R2 containment assessment as separate sub-parts.
+5. Converge only when R1.5, R3, and R2 are proven; then advance R4.
+
+See `docs/DB_RECOVERY_SUBPART_WAVE.md` for ownership, collision boundaries, exact
+sub-part commands, and convergence gates.
