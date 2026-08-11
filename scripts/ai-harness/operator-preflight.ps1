@@ -22,9 +22,22 @@ function Test-CanonicalOrigin([string]$Origin) {
 }
 
 function Invoke-GitCapture([string]$Path, [string[]]$Args) {
-  $output = & git -C $Path @Args 2>$null
-  $status = $LASTEXITCODE
-  [pscustomobject]@{ Status = $status; Output = @($output) }
+  # Probing an arbitrary candidate is expected to produce Git exit 128 for
+  # non-repositories. PowerShell 7 may promote native nonzero exits to
+  # terminating errors when PSNativeCommandUseErrorActionPreference is enabled,
+  # so disable that behavior only inside this bounded probe and classify via
+  # LASTEXITCODE ourselves.
+  $hadNativePreference = $null -ne (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue)
+  if ($hadNativePreference) { $savedNativePreference = $PSNativeCommandUseErrorActionPreference }
+  try {
+    if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $false }
+    $output = & git -C $Path @Args 2>$null
+    $status = $LASTEXITCODE
+    [pscustomobject]@{ Status = $status; Output = @($output) }
+  }
+  finally {
+    if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $savedNativePreference }
+  }
 }
 
 function Probe-Checkout([string]$Candidate) {
