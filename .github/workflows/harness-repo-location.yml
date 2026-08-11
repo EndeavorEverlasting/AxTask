@@ -42,9 +42,9 @@ jobs:
       - name: Prove repository-location recovery
         run: node scripts/ai-harness/validate-repo-location-recovery.mjs
 
-      - name: Execute Windows operator preflight from non-repository AxTask folder
+      - name: Execute Windows PowerShell 5.1 operator preflight from non-repository AxTask folder
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $Scratch=Join-Path $env:RUNNER_TEMP 'operator-preflight-not-a-repo\AxTask'
@@ -53,7 +53,6 @@ jobs:
           try {
             $SearchRoot=Split-Path -Parent $env:GITHUB_WORKSPACE
             $Raw=& "$env:GITHUB_WORKSPACE\scripts\ai-harness\operator-preflight.ps1" -SearchRoot $SearchRoot -Json
-            if($LASTEXITCODE){ exit $LASTEXITCODE }
             $Result=($Raw -join "`n") | ConvertFrom-Json
             if(-not $Result.ok){ throw 'operator preflight did not report ok=true' }
             if($Result.repository -ne 'EndeavorEverlasting/AxTask'){ throw "unexpected repository: $($Result.repository)" }
