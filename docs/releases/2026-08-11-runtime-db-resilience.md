@@ -16,6 +16,8 @@ This release hardens the runtime seam between AxTask, PostgreSQL, and the browse
 - maps classified runtime DB failures to actionable HTTP 503 responses;
 - adds bounded automatic retry for safe read queries only;
 - keeps all mutation retries disabled;
+- routes registration DB/session failures into the classified 503 path instead of mislabeling them as HTTP 400;
+- makes the append-only registration audit event best-effort so `security_events` is not a signup dependency;
 - prevents DB-caused API errors from recursively appending to `security_events`;
 - prevents DB-incident alerting from querying the failing database for recipient discovery;
 - documents the low-cost incident workflow.
@@ -23,6 +25,8 @@ This release hardens the runtime seam between AxTask, PostgreSQL, and the browse
 ## User impact
 
 Short retryable DB interruptions can now be absorbed by up to two read retries (250 ms then 500 ms) instead of immediately turning every read into a user-visible failure. If the interruption persists, callers receive a stable 503 response with `errorClass`, `retryable`, and request correlation rather than an opaque 500.
+
+Registration keeps genuine Zod/input validation failures at HTTP 400, while PostgreSQL/network/session failures are forwarded to the central runtime classifier. This prevents a backend outage from being presented to a prospective user as though their registration request were invalid.
 
 Writes are deliberately not retried. An ambiguous write may already have committed before the connection failed, so automatic mutation retry could duplicate user actions.
 
@@ -37,6 +41,8 @@ The DB layer emits three low-cardinality structured events:
 Each event uses failure class, code, and pool counts. No SQL, bind parameters, connection strings, or request bodies are logged.
 
 Database incidents bypass the DB-backed `security_events` append path, avoiding recursive pressure and append-only storage growth during an outage. Admin alert dedupe remains in place, and DB incidents use configured email/webhook destinations without attempting a DB recipient lookup.
+
+Registration no longer waits on its non-essential `auth_register_success` audit append before starting the session/login path. Audit append failures are logged, while the created account can continue through normal login handling. Session/login failures themselves are forwarded to the central error path instead of becoming an opaque registration-specific 500.
 
 ## Safety boundary
 
@@ -56,6 +62,8 @@ This release does **not**:
 - `server/db-runtime.ts`
 - `server/db.ts`
 - `server/index.ts`
+- `server/routes/auth.ts`
+- `server/routes/auth-registration-resilience.contract.test.ts`
 - `server/monitoring/admin-alerts.ts`
 - `client/src/lib/queryClient.ts`
 - `tests/deploy/06-health/health-contract.test.ts`
@@ -71,7 +79,7 @@ Focused:
 
 ```bash
 npm run test:deploy:health
-npx vitest run client/src/lib/queryClient.db-resilience.test.ts server/monitoring/admin-alerts.test.ts
+npx vitest run client/src/lib/queryClient.db-resilience.test.ts server/monitoring/admin-alerts.test.ts server/routes/auth-registration-resilience.contract.test.ts
 ```
 
 Repository gates:
@@ -87,4 +95,4 @@ CI on the exact PR head remains the remote proof source when local checkout/runt
 
 ## Proof ceiling
 
-Repository code/tests/docs and CI can prove classification, retry boundaries, privacy contracts, and build compatibility. They cannot prove live provider behavior or production recovery. Production deployment/re-entry and R1-R7 recovery actions remain separately gated by the deployment recovery control plane.
+Repository code/tests/docs and CI can prove classification, retry boundaries, registration error routing, privacy contracts, and build compatibility. They cannot prove live provider behavior or production recovery. Production deployment/re-entry and R1-R7 recovery actions remain separately gated by the deployment recovery control plane.
