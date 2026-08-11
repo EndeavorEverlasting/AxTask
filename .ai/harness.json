@@ -43,6 +43,7 @@
     {"id":"agent-workspace-skill","type":"skill","path":".ai/skills/agent-workspace-lifecycle.md"},
     {"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},
     {"id":"repo-location-resolver","type":"repository-locator","path":"scripts/ai-harness/resolve-checkout.mjs"},
+    {"id":"operator-preflight-bootstrap","type":"repository-bootstrap","path":"scripts/ai-harness/operator-preflight.ps1"},
     {"id":"repo-location-validator","type":"validator","path":"scripts/ai-harness/validate-repo-location-recovery.mjs"},
     {"id":"work-queue-validator","type":"validator","path":"scripts/ai-harness/validate-work-queue.mjs"},
     {"id":"stateful-architecture-validator","type":"validator","path":"scripts/ai-harness/validate-stateful-architecture.mjs"},
