@@ -189,11 +189,11 @@ jobs:
               SELECT source_task_id, target_task_id, relation
               FROM GRAPH_TABLE (
                 public.axtask_task_dependencies
-                MATCH (source IS task)-[dependency IS depends_on]->(target IS task)
+                MATCH (s IS task)-[d IS depends_on]->(t IS task)
                 COLUMNS (
-                  source.id AS source_task_id,
-                  target.id AS target_task_id,
-                  dependency.relation AS relation
+                  s.id AS source_task_id,
+                  t.id AS target_task_id,
+                  d.relation AS relation
                 )
               )
               WHERE source_task_id = 'graph-ci-source'
