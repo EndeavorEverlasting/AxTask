@@ -52,6 +52,16 @@ export function migrationSafetyConfig(env = process.env) {
   });
 }
 
+export function migrationPgOptions(config, existing = "") {
+  const inherited = typeof existing === "string" ? existing.trim() : "";
+  return [
+    inherited,
+    `-c lock_timeout=${config.lockTimeoutMs}ms`,
+    `-c statement_timeout=${config.statementTimeoutMs}ms`,
+    `-c idle_in_transaction_session_timeout=${config.idleInTransactionTimeoutMs}ms`,
+  ].filter(Boolean).join(" ");
+}
+
 export async function configureMigrationSession(client, config) {
   const settings = [
     ["lock_timeout", config.lockTimeoutMs],

@@ -7,10 +7,14 @@ import { describe, expect, it } from "vitest";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const read = (relativePath: string) => fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+const stripSqlComments = (sql: string) => sql
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/--.*$/gm, "");
 
 describe("[04-migrations] migration concurrency safety", () => {
   const runner = read("scripts/apply-migrations.mjs");
   const safety = read("scripts/migration-safety.mjs");
+  const drizzlePush = read("scripts/drizzle-push.mjs");
   const contentionVerifier = read("scripts/verify-migration-contention.mjs");
 
   it("bounds connection, lock, statement, idle-transaction, and coordinator waits", () => {
@@ -24,25 +28,35 @@ describe("[04-migrations] migration concurrency safety", () => {
     expect(safety).toContain('"lock_timeout"');
     expect(safety).toContain('"statement_timeout"');
     expect(safety).toContain('"idle_in_transaction_session_timeout"');
+    expect(drizzlePush).toContain("PGOPTIONS: migrationPgOptions");
+    expect(drizzlePush).toContain("PGCONNECT_TIMEOUT");
   });
 
-  it("serializes migration runners with bounded nonblocking advisory-lock retries", () => {
+  it("serializes numbered migrations and Drizzle pushes with the same bounded coordinator", () => {
     expect(safety).toContain("pg_try_advisory_lock");
     expect(safety).toContain("pg_advisory_unlock");
     expect(safety).not.toMatch(/\bpg_advisory_lock\s*\(/);
     expect(runner).toContain("acquireMigrationCoordinator");
     expect(runner).toContain("releaseMigrationCoordinator");
+    expect(drizzlePush).toContain("acquireMigrationCoordinator");
+    expect(drizzlePush).toContain("releaseMigrationCoordinator");
     expect(contentionVerifier).toContain("MIGRATION_COORDINATION_TIMEOUT_MS: \"750\"");
+    expect(contentionVerifier).toContain('"scripts/drizzle-push.mjs"');
     expect(contentionVerifier).toContain("refusing migration contention proof against non-loopback database host");
   });
 
-  it("acquires the coordinator before migration metadata and migration files", () => {
-    const lockIdx = runner.indexOf("const coordination = await acquireMigrationCoordinator");
+  it("acquires coordinators before numbered migration metadata and Drizzle schema push", () => {
+    const migrationLockIdx = runner.indexOf("const coordination = await acquireMigrationCoordinator");
     const trackingIdx = runner.indexOf('CREATE TABLE IF NOT EXISTS "applied_sql_migrations"');
     const fileQueryIdx = runner.indexOf("await client.query(sql)");
-    expect(lockIdx).toBeGreaterThan(-1);
-    expect(trackingIdx).toBeGreaterThan(lockIdx);
+    expect(migrationLockIdx).toBeGreaterThan(-1);
+    expect(trackingIdx).toBeGreaterThan(migrationLockIdx);
     expect(fileQueryIdx).toBeGreaterThan(trackingIdx);
+
+    const pushLockIdx = drizzlePush.indexOf("const coordination = await acquireMigrationCoordinator");
+    const pushIdx = drizzlePush.indexOf("code = runDrizzlePush");
+    expect(pushLockIdx).toBeGreaterThan(-1);
+    expect(pushIdx).toBeGreaterThan(pushLockIdx);
   });
 
   it("does not add a global transaction wrapper around migrations", () => {
@@ -53,6 +67,7 @@ describe("[04-migrations] migration concurrency safety", () => {
     for (const relativePath of [
       "scripts/migration-safety.mjs",
       "scripts/apply-migrations.mjs",
+      "scripts/drizzle-push.mjs",
       "scripts/verify-migration-contention.mjs",
       "scripts/ensure-task-property-graph.mjs",
     ]) {
@@ -76,7 +91,7 @@ describe("[04-migrations] task graph projection and PostgreSQL 19 native graph g
     expect(migration).toContain("CREATE OR REPLACE VIEW public.task_graph_vertices");
     expect(migration).toContain("CREATE OR REPLACE VIEW public.task_graph_edges");
     expect(migration).toContain("jsonb_array_elements_text");
-    expect(migration).not.toContain("CREATE PROPERTY GRAPH");
+    expect(stripSqlComments(migration)).not.toMatch(/\bCREATE\s+PROPERTY\s+GRAPH\b/i);
     expect(workflow).toContain("Verify PostgreSQL 19 graph gate skips on PG16 baseline");
   });
 
@@ -98,15 +113,19 @@ describe("[04-migrations] task graph projection and PostgreSQL 19 native graph g
     expect(installer).toMatch(/PROPERTIES \(\s*id,/);
   });
 
-  it("reuses the migration airlock before native graph DDL", () => {
+  it("reuses the migration airlock and validates projection relation kinds before native graph DDL", () => {
     const airlockIdx = installer.indexOf("enforceNativeGraphAirlock();");
     const coordinatorIdx = installer.indexOf("const coordination = await acquireMigrationCoordinator");
+    const relationCheckIdx = installer.indexOf("FROM pg_catalog.pg_class AS c");
     const ddlIdx = installer.indexOf("await client.query(CREATE_PROPERTY_GRAPH_SQL)");
     expect(installer).toContain("migration-airlock.mjs");
     expect(installer).toContain("--skip-airlock");
+    expect(installer).toContain("pg_catalog.pg_namespace");
+    expect(installer).toContain('relkind !== "v"');
     expect(airlockIdx).toBeGreaterThan(-1);
     expect(coordinatorIdx).toBeGreaterThan(airlockIdx);
-    expect(ddlIdx).toBeGreaterThan(coordinatorIdx);
+    expect(relationCheckIdx).toBeGreaterThan(coordinatorIdx);
+    expect(ddlIdx).toBeGreaterThan(relationCheckIdx);
   });
 
   it("makes native graph installation idempotent and coordinates it with migrations", () => {

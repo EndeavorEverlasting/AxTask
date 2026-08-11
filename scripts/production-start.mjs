@@ -105,27 +105,17 @@ if (shouldSkipDbPush) {
   console.warn(`[production-start] ${reason} — skipping drizzle-kit push.`);
   console.warn("[production-start] Set AXTASK_ALLOW_DB_PUSH_ON_START=true to force startup schema push.");
 } else {
-  const drizzleBin = join(root, "node_modules", "drizzle-kit", "bin.cjs");
-  if (!existsSync(drizzleBin)) {
-    console.error(
-      "[production-start] drizzle-kit not found. Ensure drizzle-kit is installed (production dependency).",
-    );
+  const drizzlePushScript = join(root, "scripts/drizzle-push.mjs");
+  if (!existsSync(drizzlePushScript)) {
+    console.error("[production-start] scripts/drizzle-push.mjs not found.");
     process.exit(1);
   }
-  console.log("[production-start] Drizzle schema sync (drizzle-kit push --force)…");
-  const p = spawnSync(process.execPath, [drizzleBin, "push", "--force"], {
+  console.log("[production-start] Coordinated Drizzle schema sync (drizzle-push.mjs --force)…");
+  const p = spawnSync(process.execPath, [drizzlePushScript, "--force"], {
     cwd: root,
-    stdio: ["ignore", "inherit", "pipe"],
-    env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
+    stdio: "inherit",
+    env: process.env,
   });
-  if (p.stderr) {
-    const stderrStr = p.stderr.toString("utf8");
-    const filtered = stderrStr
-      .split("\n")
-      .filter((line) => !line.includes("Interactive prompts require a TTY terminal"))
-      .join("\n");
-    if (filtered) process.stderr.write(filtered);
-  }
   if (p.status !== 0) process.exit(p.status ?? 1);
 }
 

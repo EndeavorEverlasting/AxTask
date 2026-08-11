@@ -27,6 +27,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIN_PROPERTY_GRAPH_VERSION = 190000;
 const GRAPH_SCHEMA = "public";
 const GRAPH_NAME = "axtask_task_dependencies";
+const GRAPH_SOURCE_VIEWS = ["task_graph_vertices", "task_graph_edges"];
 
 const CREATE_PROPERTY_GRAPH_SQL = `
 CREATE PROPERTY GRAPH public.axtask_task_dependencies
@@ -129,12 +130,20 @@ async function main() {
     );
 
     const { rows: sourceRows } = await client.query(
-      `SELECT
-         to_regclass('public.task_graph_vertices') AS vertices,
-         to_regclass('public.task_graph_edges') AS edges`,
+      `SELECT c.relname, c.relkind
+         FROM pg_catalog.pg_class AS c
+         JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1
+          AND c.relname = ANY($2::text[])`,
+      [GRAPH_SCHEMA, GRAPH_SOURCE_VIEWS],
     );
-    if (!sourceRows[0]?.vertices || !sourceRows[0]?.edges) {
-      throw new Error("task graph projection views are missing; run scripts/apply-migrations.mjs first");
+    const sourceKinds = new Map(sourceRows.map((row) => [row.relname, row.relkind]));
+    for (const sourceName of GRAPH_SOURCE_VIEWS) {
+      const relkind = sourceKinds.get(sourceName);
+      if (relkind !== "v") {
+        const found = relkind ? `relkind=${relkind}` : "missing";
+        throw new Error(`invalid graph projection source public.${sourceName}: expected view, found ${found}`);
+      }
     }
 
     const { rows: existing } = await client.query(

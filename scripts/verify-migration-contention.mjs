@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Disposable-database proof that the AxTask migration coordinator fails fast
- * under contention and succeeds immediately after the competing runner exits.
+ * Disposable-database proof that AxTask schema-changing commands fail fast
+ * under coordinator contention and recover after the competing runner exits.
  *
- * This verifier refuses non-loopback targets. It deliberately uses the
- * migration runner's --skip-airlock flag only because the target is disposable.
+ * This verifier refuses non-loopback targets. It deliberately uses each
+ * command's --skip-airlock flag only because the target is disposable.
  */
 import pgModule from "pg";
 const pg = pgModule.default || pgModule;
@@ -28,13 +28,30 @@ const pool = new pg.Pool({ connectionString: url, max: 1, connectionTimeoutMilli
 const locker = await pool.connect();
 let lockHeld = false;
 
-function runMigration(extraEnv) {
-  return spawnSync(process.execPath, [path.join(repoRoot, "scripts", "apply-migrations.mjs"), "--skip-airlock"], {
+function runScript(relativePath, args, extraEnv) {
+  return spawnSync(process.execPath, [path.join(repoRoot, relativePath), ...args], {
     cwd: repoRoot,
     env: { ...process.env, DATABASE_URL: url, ...extraEnv },
     encoding: "utf8",
     timeout: 10_000,
   });
+}
+
+function assertBlocked(result, label, elapsedMs) {
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (result.error) throw result.error;
+  if (result.status === 0) throw new Error(`${label} unexpectedly succeeded while coordinator lock was held`);
+  if (!output.includes("timed out after 750ms waiting for the AxTask migration coordinator lock")) {
+    throw new Error(`${label} did not fail for the expected bounded coordinator timeout:\n${output}`);
+  }
+  if (elapsedMs > 5_000) throw new Error(`${label} exceeded fail-fast budget: ${elapsedMs}ms`);
+}
+
+function assertSucceeded(result, label) {
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`${label} did not recover after contention cleared:\n${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+  }
 }
 
 try {
@@ -45,24 +62,20 @@ try {
   if (rows[0]?.acquired !== true) throw new Error("could not acquire verifier advisory lock");
   lockHeld = true;
 
-  const blockedStartedAt = Date.now();
-  const blocked = runMigration({
+  const contentionEnv = {
     MIGRATION_COORDINATION_TIMEOUT_MS: "750",
     MIGRATION_COORDINATION_RETRY_MS: "50",
-  });
-  const blockedElapsedMs = Date.now() - blockedStartedAt;
-  const blockedOutput = `${blocked.stdout ?? ""}\n${blocked.stderr ?? ""}`;
+  };
 
-  if (blocked.error) throw blocked.error;
-  if (blocked.status === 0) {
-    throw new Error("contended migration unexpectedly succeeded while coordinator lock was held");
-  }
-  if (!blockedOutput.includes("timed out after 750ms waiting for the AxTask migration coordinator lock")) {
-    throw new Error(`contended migration did not fail for the expected bounded coordinator timeout:\n${blockedOutput}`);
-  }
-  if (blockedElapsedMs > 5_000) {
-    throw new Error(`contended migration exceeded fail-fast budget: ${blockedElapsedMs}ms`);
-  }
+  const migrationStartedAt = Date.now();
+  const blockedMigration = runScript("scripts/apply-migrations.mjs", ["--skip-airlock"], contentionEnv);
+  const migrationElapsedMs = Date.now() - migrationStartedAt;
+  assertBlocked(blockedMigration, "numbered migration runner", migrationElapsedMs);
+
+  const pushStartedAt = Date.now();
+  const blockedPush = runScript("scripts/drizzle-push.mjs", ["--skip-airlock", "--force"], contentionEnv);
+  const pushElapsedMs = Date.now() - pushStartedAt;
+  assertBlocked(blockedPush, "Drizzle schema push", pushElapsedMs);
 
   const { rows: unlockRows } = await locker.query(
     "SELECT pg_advisory_unlock($1::integer, $2::integer) AS released",
@@ -71,17 +84,18 @@ try {
   if (unlockRows[0]?.released !== true) throw new Error("verifier advisory lock did not release");
   lockHeld = false;
 
-  const unblocked = runMigration({
+  const recoveryEnv = {
     MIGRATION_COORDINATION_TIMEOUT_MS: "3000",
     MIGRATION_COORDINATION_RETRY_MS: "50",
-  });
-  if (unblocked.error) throw unblocked.error;
-  if (unblocked.status !== 0) {
-    throw new Error(`migration did not recover after contention cleared:\n${unblocked.stdout ?? ""}\n${unblocked.stderr ?? ""}`);
-  }
+  };
+  const unblockedMigration = runScript("scripts/apply-migrations.mjs", ["--skip-airlock"], recoveryEnv);
+  assertSucceeded(unblockedMigration, "numbered migration runner");
+
+  const unblockedPush = runScript("scripts/drizzle-push.mjs", ["--skip-airlock", "--force"], recoveryEnv);
+  assertSucceeded(unblockedPush, "Drizzle schema push");
 
   console.log(
-    `[migration-contention] PASS blocked-exit=${blocked.status} blocked-elapsed=${blockedElapsedMs}ms recovery-exit=${unblocked.status}`,
+    `[migration-contention] PASS migration-blocked=${migrationElapsedMs}ms push-blocked=${pushElapsedMs}ms recovery=ok`,
   );
 } finally {
   if (lockHeld) {

@@ -126,16 +126,16 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     expect(capIdx).toBeLessThan(applyIdx);
   });
 
-  it("runs apply-migrations.mjs before drizzle-kit push", () => {
+  it("runs apply-migrations.mjs before the coordinated Drizzle push wrapper", () => {
     const applyIdx = codeOnly.indexOf("apply-migrations.mjs");
-    const drizzleIdx = codeOnly.indexOf("drizzle-kit");
+    const drizzleIdx = codeOnly.indexOf("drizzle-push.mjs");
     expect(applyIdx).toBeGreaterThan(-1);
     expect(drizzleIdx).toBeGreaterThan(-1);
     expect(applyIdx).toBeLessThan(drizzleIdx);
   });
 
   it("spawns the server only after migration and Drizzle policy", () => {
-    const drizzleIdx = codeOnly.indexOf("drizzle-kit");
+    const drizzleIdx = codeOnly.indexOf("drizzle-push.mjs");
     const spawnIdx = codeOnly.search(
       /\bspawn\s*\(\s*process\.execPath\s*,\s*\[distIndex\]/,
     );
