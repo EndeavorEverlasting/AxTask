@@ -38,6 +38,7 @@
     {"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},
     {"id":"runtime-proof-skill","type":"skill","path":".ai/skills/runtime-proof.md"},
     {"id":"repo-location-skill","type":"skill","path":".ai/skills/repository-location-recovery.md"},
+    {"id":"operator-preflight-skill","type":"skill","path":".ai/skills/operator-preflight-bootstrap.md"},
     {"id":"stateful-architecture-skill","type":"skill","path":".ai/skills/stateful-architecture-migration.md"},
     {"id":"log-retention-skill","type":"skill","path":".ai/skills/log-retention-capacity-defense.md"},
     {"id":"agent-workspace-skill","type":"skill","path":".ai/skills/agent-workspace-lifecycle.md"},
@@ -56,6 +57,7 @@
     {"id":"operator-report","type":"operator-report","path":".ai/reports/operator-report-template.md"},
     {"id":"failure-report","type":"operator-report","path":".ai/reports/failure-report-template.md"},
     {"id":"repo-location-report","type":"operator-report","path":".ai/reports/repository-location-report-template.md"},
+    {"id":"operator-preflight-report","type":"operator-report","path":".ai/reports/operator-preflight-report-template.md"},
     {"id":"stateful-architecture-report","type":"operator-report","path":".ai/reports/stateful-architecture-report-template.md"},
     {"id":"log-retention-report","type":"operator-report","path":".ai/reports/log-retention-report-template.md"},
     {"id":"agent-workspace-report","type":"operator-report","path":".ai/reports/agent-workspace-report-template.md"},
@@ -82,6 +84,7 @@
     "axtask.skill.harness-maintenance.v1",
     "axtask.skill.runtime-proof.v1",
     "axtask.skill.repository-location-recovery.v1",
+    "axtask.skill.operator-preflight-bootstrap.v1",
     "axtask.skill.stateful-architecture-migration.v1",
     "axtask.skill.log-retention-capacity-defense.v1",
     "axtask.skill.agent-workspace-lifecycle.v1"
