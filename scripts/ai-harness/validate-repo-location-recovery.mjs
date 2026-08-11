@@ -108,8 +108,8 @@ for (const marker of [
   if (!bootstrap.includes(marker)) fail(`operator preflight bootstrap missing ${marker}`);
 }
 if (bootstrap.includes("??")) fail("operator preflight bootstrap must remain parseable by Windows PowerShell 5.1");
-for (const forbiddenExit of ["exit 0", "exit 1", "exit 2", "exit $LASTEXITCODE"]) {
-  if (bootstrap.includes(forbiddenExit)) fail(`operator preflight bootstrap must not terminate the interactive host with ${forbiddenExit}`);
+if (/^\s*exit(?:\s+(?:0|1|2|\$LASTEXITCODE))?\s*(?:#.*)?$/im.test(bootstrap)) {
+  fail("operator preflight bootstrap must not terminate the interactive host with an exit command");
 }
 for (const dangerousCommand of ["& git init", "& git reset", "& git clean", "git -C $primary.root init", "git -C $primary.root reset", "git -C $primary.root clean"]) {
   if (bootstrap.includes(dangerousCommand)) fail(`operator preflight bootstrap contains destructive executable pattern: ${dangerousCommand}`);
