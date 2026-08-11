@@ -21,7 +21,7 @@ function Test-CanonicalOrigin([string]$Origin) {
   )
 }
 
-function Invoke-GitCapture([string]$Path, [string[]]$Args) {
+function Invoke-GitCapture([string]$Path, [string[]]$GitArgs) {
   # Candidate probing expects Git exit 128 for ordinary non-repository paths.
   # Suppress PowerShell's optional native nonzero promotion only for the probe;
   # callers classify the result from LASTEXITCODE.
@@ -29,7 +29,7 @@ function Invoke-GitCapture([string]$Path, [string[]]$Args) {
   $savedNativePreference = if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference } else { $null }
   try {
     if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference = $false }
-    $output = & git -C $Path @Args 2>$null
+    $output = & git -C $Path @GitArgs 2>$null
     $status = $LASTEXITCODE
     return [pscustomobject]@{ Status = $status; Output = @($output) }
   }
