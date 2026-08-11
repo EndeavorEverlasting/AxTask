@@ -10,6 +10,7 @@ import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
 import { classifyDbRuntimeError, getDbPoolSnapshot, probeDatabase } from "./db-runtime";
+import { installDb5xxFallback } from "./db-http-resilience";
 import { installProbeSink } from "./probe-sink";
 import { setupCollaborationWs } from "./collaboration";
 import { setupShoppingListWs } from "./shopping-list-ws";
@@ -231,6 +232,17 @@ app.use("/api", (req, res, next) => {
     return res.status(403).json({ message: "Invalid CSRF token" });
   }
   next();
+});
+
+// Legacy route handlers still exist that catch an error and directly emit a
+// generic 5xx. Confirm DB unavailability at the response boundary before
+// reclassifying those responses, so core reads can participate in the same
+// structured 503/retry path without turning unrelated application errors into
+// database incidents.
+installDb5xxFallback(app, {
+  probe: () => probeDatabase(pool),
+  getAppPoolSnapshot: () => getDbPoolSnapshot(pool),
+  log: (payload) => log(JSON.stringify(payload), "db"),
 });
 
 app.get("/health", (_req, res) => {
@@ -503,6 +515,10 @@ function warnIfInviteConfigBroken(): void {
 
     console.error(`[error] ${status} — ${err.message || err}`);
 
+    // Mark every centralized 5xx before sending it so registerRoutes' finish
+    // hook cannot emit a second DB-backed api_error event for the same failure.
+    if (status >= 500) (req as any).__axtaskApiErrorEmitted = true;
+
     // Database incidents are logged out-of-band and must not recursively write
     // another security_events row into the same unavailable/overloaded DB.
     if (dbFailure) {
@@ -517,7 +533,6 @@ function warnIfInviteConfigBroken(): void {
         pool: getDbPoolSnapshot(pool),
       }), "db");
     } else {
-      (req as any).__axtaskApiErrorEmitted = true;
       void appendSecurityEvent({
         eventType: "api_error",
         actorUserId: (req.user as any)?.id,
@@ -541,14 +556,16 @@ function warnIfInviteConfigBroken(): void {
       });
     }
 
-    void notifyAdminsOfApiError({
-      requestId: ctx?.requestId,
-      route: req.path,
-      method: req.method,
-      statusCode: status,
-      errorName,
-      errorMessage,
-    }).catch(() => {});
+    if (status >= 500) {
+      void notifyAdminsOfApiError({
+        requestId: ctx?.requestId,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        errorName,
+        errorMessage,
+      }).catch(() => {});
+    }
 
     if (!res.headersSent) {
       if (dbFailure?.retryable) res.setHeader("Retry-After", "2");

@@ -38,7 +38,10 @@ function parseErrorPayload(text: string): Record<string, unknown> | null {
   }
 }
 
-export async function throwIfResNotOk(res: Response): Promise<void> {
+export async function throwIfResNotOk(
+  res: Response,
+  options?: { allowDbReadRetry?: boolean },
+): Promise<void> {
   if (res.ok) return;
 
   const text = (await res.text()) || res.statusText;
@@ -47,15 +50,14 @@ export async function throwIfResNotOk(res: Response): Promise<void> {
     payload && typeof payload.message === "string"
       ? payload.message
       : text || res.statusText || "Request failed";
-  const explicitRetryable =
-    payload && typeof payload.retryable === "boolean"
-      ? payload.retryable
-      : undefined;
-  const retryable = explicitRetryable ?? res.status === 503;
   const errorClass =
     payload && typeof payload.errorClass === "string"
       ? payload.errorClass
       : undefined;
+  const serverRetryable =
+    payload && payload.retryable === true &&
+    typeof errorClass === "string" && errorClass.startsWith("DB_");
+  const retryable = options?.allowDbReadRetry === true && serverRetryable;
   const requestIdFromBody =
     payload && typeof payload.requestId === "string"
       ? payload.requestId
@@ -117,6 +119,9 @@ export async function apiRequest(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const res = await apiFetch(method, url, data, extraHeaders);
+  // apiRequest may be used from queryFn with POST (for example classifier
+  // suggestions). Keep it non-retryable by default; only the built-in GET
+  // query function below opts into DB-read retries.
   await throwIfResNotOk(res);
   return res;
 }
@@ -138,7 +143,7 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
-    await throwIfResNotOk(res);
+    await throwIfResNotOk(res, { allowDbReadRetry: true });
     return await res.json();
   };
 
@@ -162,9 +167,9 @@ export const DEFAULT_QUERY_STALE_TIME_MS = 5 * 60 * 1000;
  * deliberate interval, scoped to their `enabled: adminApiEnabled` gate so
  * the polling only fires while an admin is looking at the panel.
  *
- * Transient 503s get at most two short retries for read queries. Mutations
- * remain non-retried so AxTask never duplicates a write after an ambiguous
- * database failure.
+ * Only the built-in GET query function opts into transient DB 503 retries.
+ * Custom query functions (including POST-backed reads) and all mutations stay
+ * non-retried so AxTask cannot replay side-effecting work after ambiguity.
  */
 export const queryClient = new QueryClient({
   defaultOptions: {

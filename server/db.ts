@@ -26,7 +26,7 @@ export const pool = new Pool({
 });
 
 pool.on("error", (err) => {
-  const classified = classifyDbRuntimeError(err) ?? {
+  const classified = classifyDbRuntimeError(err, { assumeDatabase: true }) ?? {
     errorClass: "DB_UNKNOWN" as const,
     retryable: false,
     ...(typeof (err as NodeJS.ErrnoException)?.code === "string"
