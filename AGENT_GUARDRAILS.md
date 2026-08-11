@@ -117,3 +117,4 @@ Agents must preserve unrelated work, reuse repository patterns, add enforcement 
 5. Run targeted contracts before broader checks.
 6. Include rollout, rollback, and proof ceiling in the PR.
 7. Do not infer live success from repository or CI evidence alone.
+8. **Fail-closed operator blocks.** When later commands depend on prerequisite proof such as repository identity/version, credential presence, target separation, storage, capacity, or provider state, validate all prerequisites first. On failure, end that operator action. Do not place dependent commands after a fallible gate in the same interactive paste unless the whole block is structurally unable to continue after failure.

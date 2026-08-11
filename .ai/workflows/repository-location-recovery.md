@@ -18,19 +18,20 @@ Use this workflow when the shell prompt, editor, shortcut, or copied command cla
 
 1. Do not run `git init`, reset, clean, delete, rename, or overwrite the suspicious directory.
 2. **Operator preflight invariant:** never begin a pasted operator sequence by assuming `(git rev-parse --show-toplevel).Trim()` will succeed. When checkout identity is not already proven, route through `scripts/ai-harness/operator-preflight.ps1` or the raw bootstrap form below before any repository-relative command.
-3. From any canonical AxTask checkout, run `node scripts/ai-harness/resolve-checkout.mjs --json` for the full tracked checkout/worktree inventory.
-4. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling, run it with `-Fetch -Json`, validate its result, and use its `primary` checkout. The temporary file may not own sprint state:
+3. **Repository identity is not artifact availability.** A canonical checkout may be stale. Before invoking a tracked script, validator, workflow, or artifact, prove that the required path exists at the selected checkout HEAD. `git fetch` updates remote-tracking refs; it does not update the working tree. If the required artifact exists only on the intended remote SHA, use an isolated worktree at that exact SHA rather than invoking the missing artifact from the stale checkout.
+4. From a canonical checkout whose selected HEAD contains `scripts/ai-harness/resolve-checkout.mjs`, run `node scripts/ai-harness/resolve-checkout.mjs --json` for the full tracked checkout/worktree inventory.
+5. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling, run it with `-Fetch -Json`, validate its result, and use its `primary` checkout. The temporary file may not own sprint state:
 
 ```powershell
 $u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'; $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'; Invoke-WebRequest -UseBasicParsing $u -OutFile $t; $raw=& $t -Fetch -Json; $r=($raw -join "`n")|ConvertFrom-Json; if(-not $r.ok){throw $r.error}; Set-Location -LiteralPath $r.primary
 ```
 
-5. Accept a candidate only when Git resolves a top-level directory and its `origin` matches `EndeavorEverlasting/AxTask`. A directory name such as `AxTask` is not proof.
-6. Inspect the resolver's `primary`, optional `main`, `current`, and `worktrees` fields. Do not require branch `main` to be checked out merely to fetch or inspect `origin/main`.
-7. If a canonical checkout exists, run repository commands with `git -C <resolved-path> ...` or change directory to that proven path. For mutation requiring isolation, return to `axtask.agent-workspace-lifecycle.v1` and use `workspaces.mjs create`.
-8. If no canonical checkout exists, inspect the occupied expected path for unique operator files before cloning. Never convert an arbitrary occupied directory into a repository just to make the error disappear.
-9. Capture a sanitized repository-location report when the recovery is operationally significant. Absolute personal paths are runtime evidence and remain untracked.
-10. After recovery, run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`, then resume the owning workflow.
+6. Accept a candidate only when Git resolves a top-level directory and its `origin` matches `EndeavorEverlasting/AxTask`. A directory name such as `AxTask` is not proof.
+7. Inspect the resolver's `primary`, optional `main`, `current`, and `worktrees` fields. Do not require branch `main` to be checked out merely to fetch or inspect `origin/main`.
+8. If a canonical checkout exists, run repository commands with `git -C <resolved-path> ...` or change directory to that proven path. For mutation requiring isolation, return to `axtask.agent-workspace-lifecycle.v1` and use `workspaces.mjs create`.
+9. If no canonical checkout exists, inspect the occupied expected path for unique operator files before cloning. Never convert an arbitrary occupied directory into a repository just to make the error disappear.
+10. Capture a sanitized repository-location report when the recovery is operationally significant. Absolute personal paths are runtime evidence and remain untracked.
+11. After recovery, run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`, then resume the owning workflow.
 
 ## Known traps
 

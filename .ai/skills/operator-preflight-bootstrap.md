@@ -21,7 +21,7 @@ Use when a Windows operator is about to run repository-relative commands but the
 3. Accept only candidates whose Git top level resolves and whose `origin` is the canonical AxTask repository.
 4. Use `-Fetch` only for a no-force `origin main` fetch; the bootstrap does not merge or change the working tree.
 5. Preserve any reported dirty work and route unrelated mutation through the managed workspace lifecycle.
-6. Once a checkout is proven, run the tracked Node resolver for full worktree inventory and continue the owning workflow.
+6. Once a checkout is proven, verify that its HEAD contains the required tracked resolver/workflow before invoking it. If the checkout is stale, follow the repository-location recovery workflow and use an exact-target isolated worktree rather than assuming fetched files exist locally.
 
 ## Expected outputs
 
