@@ -19,10 +19,10 @@ Use this workflow when the shell prompt, editor, shortcut, or copied command cla
 1. Do not run `git init`, reset, clean, delete, rename, or overwrite the suspicious directory.
 2. **Operator preflight invariant:** never begin a pasted operator sequence by assuming `(git rev-parse --show-toplevel).Trim()` will succeed. When checkout identity is not already proven, route through `scripts/ai-harness/operator-preflight.ps1` or the raw bootstrap form below before any repository-relative command.
 3. From any canonical AxTask checkout, run `node scripts/ai-harness/resolve-checkout.mjs --json` for the full tracked checkout/worktree inventory.
-4. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling, run it with `-Fetch`, and use its `primary` result. The temporary file may not own sprint state:
+4. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling, run it with `-Fetch -Json`, validate its result, and use its `primary` checkout. The temporary file may not own sprint state:
 
 ```powershell
-$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'; $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'; Invoke-WebRequest -UseBasicParsing $u -OutFile $t; & $t -Fetch; if($LASTEXITCODE){exit $LASTEXITCODE}
+$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'; $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'; Invoke-WebRequest -UseBasicParsing $u -OutFile $t; $raw=& $t -Fetch -Json; $r=($raw -join "`n")|ConvertFrom-Json; if(-not $r.ok){throw $r.error}; Set-Location -LiteralPath $r.primary
 ```
 
 5. Accept a candidate only when Git resolves a top-level directory and its `origin` matches `EndeavorEverlasting/AxTask`. A directory name such as `AxTask` is not proof.
@@ -41,6 +41,7 @@ $u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai
 - No checked-out `main` worktree is not itself an error. `origin/main` can be fetched from another canonical checkout, and mutation should use managed isolation when appropriate.
 - Temporary downloaded bootstrap/resolver code may help locate a durable checkout, but `%TEMP%`, AppData, `/tmp`, and `/var/tmp` must never become the owner of unique sprint state.
 - The operator bootstrap may perform a no-force `fetch origin main` when `-Fetch` is supplied; it never merges, resets, cleans, initializes, or deletes repository state.
+- The bootstrap returns structured `ok: false` evidence when no checkout is found instead of using `exit` to terminate an interactive PowerShell host.
 
 ## Outputs
 
