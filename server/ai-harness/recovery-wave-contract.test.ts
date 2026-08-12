@@ -112,6 +112,13 @@ describe("post-R1 recovery wave contract", () => {
       expect(markerIndex, `${marker} must exist`).toBeGreaterThan(0);
       expect(markerIndex, `${marker} must execute before backup spawn`).toBeLessThan(backupStart);
     }
+    expect(src).toContain('args.includes("--validate-only")');
+
+    const backup = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "backup.mjs"), "utf8");
+    const directRecoveryGate = backup.indexOf('["scripts/db/preflight-backup.mjs", "--no-ledger", "--validate-only"]');
+    const directPgDump = backup.indexOf('runPgTool("pg_dump"');
+    expect(directRecoveryGate).toBeGreaterThan(0);
+    expect(directPgDump).toBeGreaterThan(directRecoveryGate);
 
     const restore = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "restore-test.mjs"), "utf8");
     expect(restore).toContain("!manifest.databaseFingerprint || manifest.databaseFingerprint !== sourceFingerprint");

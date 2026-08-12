@@ -36,6 +36,18 @@ function assertRecoveryStorage(cwd = process.cwd()) {
   }
 }
 
+function runRecoveryPrerequisiteGate(cwd = process.cwd()) {
+  if (!recoveryMode) return;
+  const gate = spawnSync(
+    process.execPath,
+    ["scripts/db/preflight-backup.mjs", "--no-ledger", "--validate-only"],
+    { cwd, stdio: "inherit", env: process.env },
+  );
+  if (gate.error || gate.status !== 0) {
+    throw new Error(`recovery prerequisite gate failed with exit code ${gate.status ?? 1}`);
+  }
+}
+
 function maskDb(url) {
   const parsed = new URL(url);
   const host = parsed.hostname;
@@ -97,6 +109,7 @@ async function writeLedger(manifest) {
 
 async function main() {
   const databaseUrl = requireDatabaseUrl();
+  runRecoveryPrerequisiteGate();
   assertRecoveryStorage();
   const { day, stamp } = nowParts();
   const storageRoot = resolveBackupStorageRoot();

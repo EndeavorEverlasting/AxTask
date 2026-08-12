@@ -159,6 +159,11 @@ export async function runPreflight({ env = process.env, argv = null, cwd = proce
   const args = argv === null ? process.argv.slice(2) : argv;
   const noLedger = argv === null ? process.argv.includes("--no-ledger") : args.includes("--no-ledger");
   const recoveryMode = noLedger;
+  const validateOnly = args.includes("--validate-only");
+  if (validateOnly && !recoveryMode) {
+    throw new Error("--validate-only is reserved for --no-ledger recovery prerequisite validation");
+  }
+
   const url = env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
   try {
@@ -192,6 +197,11 @@ export async function runPreflight({ env = process.env, argv = null, cwd = proce
     await verifyRestoreTargetConnectivity(restoreUrl);
     freeBytes = storageFreeBytes(storageRoot);
     assertStorageCapacity({ sourceBytes, freeBytes });
+  }
+
+  if (validateOnly) {
+    console.log("[db:backup:preflight] recovery prerequisites passed");
+    return { manifestPath: null, sourceBytes, freeBytes, recoveryMode };
   }
 
   const manifestResultPath = recoveryMode
