@@ -36,7 +36,7 @@ The temporary preflight script is disposable tooling, not a worktree and not a p
 5. Run `node scripts/ai-harness/workspaces.mjs doctor --strict-current`. If isolation is needed, create it through `workspaces.mjs create`; do not invent an AppData/Local/Temp worktree path or a second clone.
 6. Run `node scripts/ai-harness/validate-working-diff.mjs` for live working-tree whitespace hygiene. Do not use a raw working-tree `git diff --check` as the operator gate on Windows when Git reports proven CRLF/LF checkout noise; keep raw `git diff --check <base>...HEAD` strict for committed branch/PR ranges.
 7. If the task changes a stateful/runtime boundary — serverless/stateless work, server removal, persistence/session changes, background jobs, functions/queues/KV/object storage, or provider/runtime factoring — read and validate `.ai/stateful-surface-ledger.json` before choosing a workflow or editing application code.
-8. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; workspace isolation/lifecycle routes to `axtask.agent-workspace-lifecycle.v1`; uncertain checkout identity routes to `axtask.repository-location-recovery.v1`.
+8. Choose a workflow from `.ai/workflow-registry.json`. Stateful/runtime changes route to `axtask.stateful-architecture-migration.v1`; workspace isolation/lifecycle routes to `axtask.agent-workspace-lifecycle.v1`; uncertain checkout identity routes to `axtask.repository-location-recovery.v1`; disposable production-mode launcher certification routes to `axtask.local-deployment-certification.v1`.
 9. Create a run context matching `.ai/run-context.schema.json`.
 10. Select validators from changed paths and workflow; do not confuse selection with execution.
 11. Run the selected commands and record exact pass, fail, and skip results.
@@ -96,6 +96,23 @@ Validate this contract with:
 node scripts/ai-harness/validate-stateful-architecture.mjs
 ```
 
+## Local deployment certification and runtime proof
+
+Use `axtask.local-deployment-certification.v1` when the exact candidate must exercise the real production launcher against disposable loopback PostgreSQL before any live Render/Neon action. The workflow creates ignored, sanitized evidence under `.ai/runs/<run-id>/`:
+
+- `runtime-proof.json` — machine-readable proof level, assertions, observed endpoints, failures, and proof ceiling;
+- `local-cert-report.md` — English-language operator summary generated beside the proof.
+
+Run:
+
+```bash
+AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs
+node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json
+node scripts/ai-harness/validate-local-cert-harness.mjs
+```
+
+A local-cert artifact can establish only its declared proof level. Validate `runtime-proof.json` before making runtime/deployment claims, and never promote `local-runtime` proof to live Render deployment or operator acceptance.
+
 ## Canonical reference
 
 ```yaml
@@ -123,9 +140,12 @@ node scripts/ai-harness/select-validators.mjs --context .ai/runs/<run-id>/contex
 node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
 node scripts/ai-harness/validate-harness-infrastructure.mjs
+node scripts/ai-harness/validate-local-cert-harness.mjs
 node scripts/ai-harness/validate-work-queue.mjs
 node scripts/ai-harness/validate-stateful-architecture.mjs
-npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/work-queue-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/agent-workspace-contract.test.ts
+AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs
+node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json
+npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts server/ai-harness/work-queue-contract.test.ts server/ai-harness/stateful-architecture-contract.test.ts server/ai-harness/agent-workspace-contract.test.ts
 ```
 
 The selector may also read repeated `--changed <path>` arguments, a newline-delimited `--changed-file`, or the current working-tree changes. It emits an English plan by default and never executes validator commands.
@@ -143,6 +163,6 @@ node scripts/ai-harness/install-hooks.mjs
 ```
 
 - `pre-commit` runs repository security guards plus authority, harness, work-queue, stateful-architecture, agent-workspace contract, strict-current workspace doctor, staged EOL-aware diff hygiene, and artifact-hygiene validators.
-- `pre-push` runs repository security guards, authority, harness completeness, repository-location recovery, work-queue, stateful-architecture, retention, agent-workspace contract, strict-current workspace doctor, and focused harness contract tests with `npx --no-install`.
+- `pre-push` runs repository security guards, authority, harness completeness, local-cert harness wiring, repository-location recovery, work-queue, stateful-architecture, retention, agent-workspace contract, strict-current workspace doctor, and focused harness contract tests with `npx --no-install`.
 
 The installer does not silently replace a different local hook path.
