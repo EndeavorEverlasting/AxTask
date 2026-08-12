@@ -6,6 +6,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+  $PSNativeCommandUseErrorActionPreference = $false
+}
 
 function Invoke-Checked {
   param(
@@ -17,6 +20,23 @@ function Invoke-Checked {
   if ($LASTEXITCODE -ne 0) {
     throw "$Label failed with exit code $LASTEXITCODE"
   }
+}
+
+function Get-GitScalar {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $output = @(& git @Arguments 2>$null)
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) {
+    throw "$Label failed with exit code $exitCode"
+  }
+  $value = ($output -join "`n").Trim()
+  if ([string]::IsNullOrWhiteSpace($value)) {
+    throw "$Label returned no value"
+  }
+  return $value
 }
 
 function Save-EnvironmentValue {
@@ -40,26 +60,20 @@ foreach ($required in @('git', 'node', 'npm', 'docker')) {
   }
 }
 
-$repoRoot = (& git rev-parse --show-toplevel 2>$null).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
-  throw 'R7 session-safe runner must start from an AxTask Git worktree.'
-}
+$repoRoot = Get-GitScalar -Arguments @('rev-parse', '--show-toplevel') -Label 'Resolve Git top-level'
 Set-Location -LiteralPath $repoRoot
-
-$head = (& git rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) {
-  throw 'Unable to resolve candidate HEAD.'
-}
+$head = Get-GitScalar -Arguments @('rev-parse', 'HEAD') -Label 'Resolve candidate HEAD'
 if (-not [string]::IsNullOrWhiteSpace($CandidateSha) -and $head -ne $CandidateSha) {
   throw "Candidate SHA mismatch. Expected $CandidateSha; found $head."
 }
 
-$trackedDirty = @(& git status --porcelain --untracked-files=no)
-if ($LASTEXITCODE -ne 0) {
-  throw 'Unable to inspect candidate worktree state.'
+$dirtyOutput = @(& git status --porcelain)
+$dirtyExit = $LASTEXITCODE
+if ($dirtyExit -ne 0) {
+  throw "Unable to inspect candidate worktree state; git status exited $dirtyExit"
 }
-if ($trackedDirty.Count -gt 0) {
-  throw 'R7 requires a clean tracked candidate worktree. Preserve unrelated work in another worktree first.'
+if ($dirtyOutput.Count -gt 0) {
+  throw 'R7 requires a clean candidate worktree. Preserve unrelated work in another worktree first.'
 }
 
 & docker info *> $null
@@ -80,14 +94,22 @@ $proofDisplay = $null
 $reportDisplay = $null
 
 try {
-  $containerId = (& docker run --rm -d --name $containerName `
-    -e "POSTGRES_USER=$dbUser" `
-    -e "POSTGRES_PASSWORD=$dbPassword" `
-    -e "POSTGRES_DB=$dbName" `
-    -p '127.0.0.1::5432' `
-    $PostgresImage).Trim()
-  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
-    throw 'Failed to start disposable PostgreSQL container.'
+  $dockerRunArgs = @(
+    'run', '--rm', '-d', '--name', $containerName,
+    '-e', "POSTGRES_USER=$dbUser",
+    '-e', "POSTGRES_PASSWORD=$dbPassword",
+    '-e', "POSTGRES_DB=$dbName",
+    '-p', '127.0.0.1::5432',
+    $PostgresImage
+  )
+  $containerOutput = @(& docker @dockerRunArgs)
+  $containerExit = $LASTEXITCODE
+  if ($containerExit -ne 0) {
+    throw "Failed to start disposable PostgreSQL container; docker exited $containerExit"
+  }
+  $containerId = ($containerOutput -join "`n").Trim()
+  if ([string]::IsNullOrWhiteSpace($containerId)) {
+    throw 'Disposable PostgreSQL container started without returning a container id.'
   }
   $containerStarted = $true
 
@@ -104,11 +126,16 @@ try {
     throw 'Disposable PostgreSQL did not become ready within 60 seconds.'
   }
 
-  $mapping = @(& docker port $containerName '5432/tcp') | Select-Object -First 1
-  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$mapping)) {
-    throw 'Unable to resolve disposable PostgreSQL host port.'
+  $mappingOutput = @(& docker port $containerName '5432/tcp')
+  $mappingExit = $LASTEXITCODE
+  if ($mappingExit -ne 0) {
+    throw "Unable to resolve disposable PostgreSQL host port; docker exited $mappingExit"
   }
-  if ([string]$mapping -notmatch '127\.0\.0\.1:(\d+)$') {
+  $mapping = [string]($mappingOutput | Select-Object -First 1)
+  if ([string]::IsNullOrWhiteSpace($mapping)) {
+    throw 'Disposable PostgreSQL host port mapping was empty.'
+  }
+  if ($mapping -notmatch '127\.0\.0\.1:(\d+)$') {
     throw "Unexpected disposable PostgreSQL port mapping: $mapping"
   }
   $hostPort = $Matches[1]

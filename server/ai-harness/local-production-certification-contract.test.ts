@@ -1,6 +1,7 @@
 // @vitest-environment node
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-ignore Executable repository harness is implemented as ESM .mjs.
 import {
@@ -8,7 +9,7 @@ import {
   validateLocalDatabaseUrl,
 } from "../../scripts/deploy/run-local-cert.mjs";
 
-const repoRoot = path.resolve(import.meta.dirname, "../..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 describe("local production certification safety", () => {
   it("accepts only clearly disposable loopback PostgreSQL targets", () => {
@@ -83,5 +84,7 @@ describe("local production certification safety", () => {
     expect(runner.indexOf("docker rm -f")).toBeLessThan(runner.indexOf("=== R7 PASS ==="));
     expect(runner).toContain("if ($cleanupError)");
     expect(runner).toContain("throw $cleanupError");
+    expect(runner).toContain("git status --porcelain");
+    expect(runner).not.toMatch(/rev-parse[^\n]+\)\.Trim\(\)/);
   });
 });
