@@ -8,6 +8,7 @@ import pgModule from "pg";
 import {
   backupDbRoot,
   databaseTargetFingerprint,
+  ensureRecoveryBackupDirectory,
   resolveBackupStorageRoot,
   resolveRecoveryBackupStorageRoot,
   runPgTool,
@@ -112,8 +113,8 @@ async function main() {
   const recoveryStorageRoot = assertRecoveryStorage();
   const { day, stamp } = nowParts();
   const storageRoot = recoveryStorageRoot ?? resolveBackupStorageRoot();
-  const base = recoveryMode ? path.join(storageRoot, "db", day) : path.join(backupDbRoot(), day);
-  mkdirSync(base, { recursive: true });
+  const base = recoveryMode ? ensureRecoveryBackupDirectory(storageRoot, day) : path.join(backupDbRoot(), day);
+  if (!recoveryMode) mkdirSync(base, { recursive: true });
   const fileBase = `axtask-db-${stamp}`;
   const dumpFile = path.join(base, `${fileBase}.dump`);
   const manifestFile = path.join(base, `${fileBase}.manifest.json`);

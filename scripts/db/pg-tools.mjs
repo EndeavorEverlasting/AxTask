@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 const ROUTING_OVERRIDE_KEYS = new Set(["host", "hostaddr", "port", "dbname", "database", "service", "servicefile"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 /** Normalize URL.hostname across bracketed and unbracketed IP literals. */
 export function normalizePgHostname(hostname) {
@@ -22,8 +23,12 @@ export function assertNoDatabaseTargetOverrides(databaseUrl) {
 
 export function isLoopbackDatabaseUrl(databaseUrl) {
   const parsed = new URL(databaseUrl);
-  const host = normalizePgHostname(parsed.hostname);
-  return ["localhost", "127.0.0.1", "::1"].includes(host);
+  return LOOPBACK_HOSTS.has(normalizePgHostname(parsed.hostname));
+}
+
+function canonicalTargetHost(hostname) {
+  const normalized = normalizePgHostname(hostname);
+  return LOOPBACK_HOSTS.has(normalized) ? "loopback" : normalized;
 }
 
 /** Return a stable, non-secret fingerprint for a PostgreSQL target. */
@@ -31,7 +36,7 @@ export function databaseTargetFingerprint(databaseUrl) {
   const parsed = assertNoDatabaseTargetOverrides(databaseUrl);
   const port = parsed.port || "5432";
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
-  const identity = `${normalizePgHostname(parsed.hostname)}:${port}/${databaseName}`;
+  const identity = `${canonicalTargetHost(parsed.hostname)}:${port}/${databaseName}`;
   return createHash("sha256").update(identity, "utf8").digest("hex");
 }
 
@@ -39,6 +44,11 @@ export function databaseTargetFingerprint(databaseUrl) {
 export function resolveBackupStorageRoot({ cwd = process.cwd(), env = process.env } = {}) {
   const configured = String(env.BACKUP_LOCAL_DIR ?? "").trim();
   return configured ? path.resolve(cwd, configured) : path.resolve(cwd, ".backups");
+}
+
+function isPhysicalDescendant(parentReal, childReal) {
+  const relative = path.relative(parentReal, childReal);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 /** Resolve recovery storage physically, rejecting symlinks/junctions that land inside the checkout. */
@@ -54,6 +64,25 @@ export function resolveRecoveryBackupStorageRoot({ cwd = process.cwd(), env = pr
     throw new Error("recovery BACKUP_LOCAL_DIR resolves inside the repository checkout");
   }
   return storageReal;
+}
+
+/** Create/resolve the recovery db/day directory without following a descendant link outside protected storage. */
+export function ensureRecoveryBackupDirectory(storageRoot, day) {
+  const rootReal = realpathSync(storageRoot);
+  const dbPath = path.join(rootReal, "db");
+  if (!existsSync(dbPath)) mkdirSync(dbPath);
+  const dbReal = realpathSync(dbPath);
+  if (!isPhysicalDescendant(rootReal, dbReal)) {
+    throw new Error("recovery backup db directory resolves outside protected storage");
+  }
+
+  const dayPath = path.join(dbReal, day);
+  if (!existsSync(dayPath)) mkdirSync(dayPath);
+  const dayReal = realpathSync(dayPath);
+  if (!isPhysicalDescendant(rootReal, dayReal)) {
+    throw new Error("recovery backup day directory resolves outside protected storage");
+  }
+  return dayReal;
 }
 
 export function backupDbRoot(options = {}) {

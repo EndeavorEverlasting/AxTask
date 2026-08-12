@@ -50,6 +50,11 @@ export function assertDisposableRestoreTarget(restoreUrl) {
   }
 }
 
+export function validateRecoveryTargets(sourceUrl, restoreUrl) {
+  assertDistinctDatabaseTargets(sourceUrl, restoreUrl);
+  assertDisposableRestoreTarget(restoreUrl);
+}
+
 export function validateBackupStorageConfig({
   env = process.env,
   cwd = process.cwd(),
@@ -183,8 +188,7 @@ export async function runPreflight({ env = process.env, argv = null, cwd = proce
       throw new Error("RESTORE_DATABASE_URL is invalid");
     }
 
-    assertDistinctDatabaseTargets(url, restoreUrl);
-    assertDisposableRestoreTarget(restoreUrl);
+    validateRecoveryTargets(url, restoreUrl);
     probePgTool("pg_restore");
     assertStorageWritable(storageRoot);
     sourceBytes = await queryDatabaseSize(url);

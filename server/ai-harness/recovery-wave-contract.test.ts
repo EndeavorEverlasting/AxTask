@@ -31,6 +31,7 @@ describe("post-R1 recovery wave contract", () => {
       const source = "postgresql://source:secret@db.example.invalid:5432/axtask?sslmode=require";
       const sameTargetDifferentCredentials = "postgresql://other:secret@db.example.invalid:5432/axtask";
       const loopbackSource = "postgresql://postgres:postgres@127.0.0.1:5432/axtask";
+      const localhostSource = "postgresql://postgres:postgres@localhost:5432/axtask";
       const ipv6LoopbackSource = "postgresql://postgres:postgres@[::1]:5432/axtask";
       const disposable = "postgresql://postgres:postgres@127.0.0.1:5432/axtask_restore";
       const ipv6Disposable = "postgresql://postgres:postgres@[::1]:5432/axtask_restore";
@@ -72,10 +73,21 @@ describe("post-R1 recovery wave contract", () => {
         }),
       ).toThrow(/resolves inside the repository checkout/);
 
+      const protectedDescendant = path.join(scratch, "protected-descendant");
+      const escapedDb = path.join(repo, "escaped-db");
+      fs.mkdirSync(protectedDescendant);
+      fs.mkdirSync(escapedDb);
+      fs.symlinkSync(escapedDb, path.join(protectedDescendant, "db"), process.platform === "win32" ? "junction" : "dir");
+      expect(() => tools.ensureRecoveryBackupDirectory(protectedDescendant, "2026-08-12")).toThrow(
+        /db directory resolves outside protected storage/,
+      );
+
       expect(() => preflight.assertDistinctDatabaseTargets(source, sameTargetDifferentCredentials)).toThrow(
         /different database/,
       );
       expect(() => preflight.assertDistinctDatabaseTargets(source, overriddenRestore)).toThrow(/connection-target override/);
+      expect(() => preflight.assertDistinctDatabaseTargets(localhostSource, loopbackSource)).toThrow(/different database/);
+      expect(tools.databaseTargetFingerprint(localhostSource)).toBe(tools.databaseTargetFingerprint(ipv6LoopbackSource));
       expect(() => preflight.assertDisposableRestoreTarget("postgresql://postgres:postgres@restore.example.invalid:5432/axtask_restore")).toThrow(
         /loopback\/disposable/,
       );
@@ -85,18 +97,12 @@ describe("post-R1 recovery wave contract", () => {
 
       expect(preflight.isProdLike(loopbackSource, {})).toBe(false);
       expect(preflight.isProdLike(ipv6LoopbackSource, {})).toBe(false);
-      await expect(
-        preflight.runPreflight({
-          env: {
-            DATABASE_URL: loopbackSource,
-            RESTORE_DATABASE_URL: "postgresql://postgres:postgres@restore.example.invalid:5432/axtask_restore",
-            BACKUP_STORAGE_TARGET: "local",
-            BACKUP_LOCAL_DIR: protectedDir,
-          },
-          argv: ["--no-ledger"],
-          cwd: repo,
-        }),
-      ).rejects.toThrow(/loopback\/disposable/);
+      expect(() =>
+        preflight.validateRecoveryTargets(
+          loopbackSource,
+          "postgresql://postgres:postgres@restore.example.invalid:5432/axtask_restore",
+        ),
+      ).toThrow(/loopback\/disposable/);
 
       const tenGiB = 10 * 1024 ** 3;
       const required = preflight.requiredBackupCapacityBytes(tenGiB);
@@ -137,7 +143,7 @@ describe("post-R1 recovery wave contract", () => {
     const directPgDump = backup.indexOf('runPgTool("pg_dump"');
     expect(directRecoveryGate).toBeGreaterThan(0);
     expect(directPgDump).toBeGreaterThan(directRecoveryGate);
-    expect(backup).toContain("resolveRecoveryBackupStorageRoot");
+    expect(backup).toContain("ensureRecoveryBackupDirectory");
 
     const restore = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "restore-test.mjs"), "utf8");
     expect(restore).toContain("!manifest.databaseFingerprint || manifest.databaseFingerprint !== sourceFingerprint");
