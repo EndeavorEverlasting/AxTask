@@ -1,3 +1,5 @@
+authorityRef: axtask.agent-authority.v1
+
 # Runtime failure report
 
 ## SUMMARY
