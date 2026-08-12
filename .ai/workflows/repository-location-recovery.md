@@ -20,37 +20,18 @@ Use this workflow when the shell prompt, editor, shortcut, or copied command cla
 2. **Operator preflight invariant:** never begin a pasted operator sequence by assuming `(git rev-parse --show-toplevel).Trim()` will succeed. When checkout identity is not already proven, route through `scripts/ai-harness/operator-preflight.ps1` or the raw bootstrap form below before any repository-relative command.
 3. **Repository identity is not artifact availability.** A canonical checkout may be stale. Before invoking a tracked script, validator, workflow, or artifact, prove that the required path exists at the selected checkout HEAD. `git fetch` updates remote-tracking refs; it does not update the working tree. If the required artifact exists only on the intended remote SHA, use an isolated worktree at that exact SHA rather than invoking the missing artifact from the stale checkout.
 4. From a canonical checkout whose selected HEAD contains `scripts/ai-harness/resolve-checkout.mjs`, run `node scripts/ai-harness/resolve-checkout.mjs --json` for the full tracked checkout/worktree inventory.
-5. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling, run it with `-Fetch -Json`, validate its result, and select a checkout that contains the resolver at its selected HEAD. If the discovered primary checkout is stale but fetched `originMain` contains the resolver, create a durable sibling worktree at that exact SHA before changing location. The temporary bootstrap file may not own sprint state:
+5. If no checkout path is currently known on Windows but GitHub access is available, download only the tracked operator bootstrap into temporary tooling and let it perform the stale-checkout artifact gate. `-EnsureArtifactWorktree` requires `-Fetch`; it reuses an already-discovered exact-`origin/main` checkout when possible and otherwise creates a durable sibling detached worktree at that exact SHA. The temporary bootstrap file may not own sprint state:
 
 ```powershell
 $u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'
 $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'
 Invoke-WebRequest -UseBasicParsing $u -OutFile $t
-$raw=& $t -Fetch -Json
+$raw=& $t -Fetch -EnsureArtifactWorktree -Json
 $r=($raw -join "`n") | ConvertFrom-Json
 if(-not $r.ok){ throw $r.error }
-
-$artifact='scripts/ai-harness/resolve-checkout.mjs'
-$target=$r.primary
-$present=(& git -C $target ls-tree -r --name-only HEAD -- $artifact) -join ''
-if($LASTEXITCODE -ne 0){ throw 'Unable to inspect the selected checkout HEAD.' }
-
-if([string]::IsNullOrWhiteSpace($present)){
-    if([string]::IsNullOrWhiteSpace([string]$r.originMain)){
-        throw 'The canonical checkout is stale and no fetched origin/main SHA is available.'
-    }
-    $remotePresent=(& git -C $target ls-tree -r --name-only $r.originMain -- $artifact) -join ''
-    if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($remotePresent)){
-        throw 'The required resolver is absent from both the selected HEAD and fetched origin/main.'
-    }
-    $parent=Split-Path -Parent $target
-    $wt=Join-Path $parent ("AxTask-harness-"+$r.originMain.Substring(0,8)+'-'+[guid]::NewGuid().ToString('N').Substring(0,8))
-    & git -C $target worktree add --detach $wt $r.originMain
-    if($LASTEXITCODE -ne 0){ throw "Exact-SHA worktree creation failed: $LASTEXITCODE" }
-    $target=$wt
-}
-
-Set-Location -LiteralPath $target
+if(-not $r.requiredArtifactAvailable){ throw "Required artifact is not available at selected HEAD: $($r.requiredArtifact)" }
+if([string]::IsNullOrWhiteSpace([string]$r.selected)){ throw 'No artifact-capable checkout was selected.' }
+Set-Location -LiteralPath $r.selected
 ```
 
 6. Accept a candidate only when Git resolves a top-level directory and its `origin` matches `EndeavorEverlasting/AxTask`. A directory name such as `AxTask` is not proof.
@@ -68,14 +49,15 @@ Set-Location -LiteralPath $target
 - `git worktree list` cannot bootstrap from a non-repository directory. First locate one canonical checkout, then ask Git for its registered worktrees.
 - No checked-out `main` worktree is not itself an error. `origin/main` can be fetched from another canonical checkout, and mutation should use managed isolation when appropriate.
 - Temporary downloaded bootstrap/resolver code may help locate a durable checkout, but `%TEMP%`, AppData, `/tmp`, and `/var/tmp` must never become the owner of unique sprint state.
-- The operator bootstrap may perform a no-force `fetch origin main` when `-Fetch` is supplied; it never merges, resets, cleans, initializes, or deletes repository state.
+- The operator bootstrap may perform a no-force `fetch origin main` when `-Fetch` is supplied. With the explicit `-EnsureArtifactWorktree` switch it may create one detached durable sibling worktree at fetched `origin/main` only when the selected checkout lacks the required tracked artifact. It never merges, resets, cleans, initializes, deletes, or overwrites repository state.
 - The bootstrap returns structured `ok: false` evidence when no checkout is found instead of using `exit` to terminate an interactive PowerShell host.
-- Bootstrap `nextAction` is provisional until the selected HEAD is proven to contain the required tracked artifact; the recovery workflow may replace it with an exact-SHA worktree target.
+- Without `-EnsureArtifactWorktree`, bootstrap `nextAction` refuses to enter a stale selected checkout and directs the operator to rerun the artifact-capable bootstrap.
 
 ## Outputs
 
 - canonical repository identity proof or an exact no-checkout blocker
-- primary checkout path, optional checked-out `main` path, current checkout identity, and Git worktree inventory
+- primary checkout path plus artifact-capable `selected` checkout, optional fetched `origin/main`, and discovered checkout inventory
+- required-artifact availability proof for the selected HEAD
 - sanitized `.ai/runs/<run-id>/repository-location-report.md` when needed
 - one exact next repository command that uses a proven path and a HEAD containing its required tracked artifact
 

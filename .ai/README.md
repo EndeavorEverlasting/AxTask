@@ -6,19 +6,26 @@ This directory is the machine-readable operating layer for repository agents. Pr
 
 A folder name, editor title, or stale prompt is not repository identity. Do not continue chaining `git -C` commands from a null/empty path and do not run `git init` inside an occupied directory just to make the error disappear.
 
-From any proven AxTask checkout, run:
+From any proven AxTask checkout whose HEAD contains the resolver, run:
 
 ```bash
 node scripts/ai-harness/resolve-checkout.mjs --json
 ```
 
-If no checkout path is known on Windows but GitHub access is available, bootstrap the **tracked resolver only** into temporary tooling and let it search durable development roots:
+If no checkout path is known on Windows but GitHub access is available, bootstrap the tracked operator preflight into temporary tooling. The bootstrap proves canonical repository identity **and** required-artifact availability; if the first checkout is stale, the explicit artifact switch selects or creates a detached durable sibling worktree at fetched `origin/main` before returning an executable location:
 
 ```powershell
-$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/resolve-checkout.mjs'; $t=Join-Path $env:TEMP 'axtask-resolve-checkout.mjs'; Invoke-WebRequest -UseBasicParsing $u -OutFile $t; node $t --json; if($LASTEXITCODE){exit $LASTEXITCODE}
+$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'
+$t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'
+Invoke-WebRequest -UseBasicParsing $u -OutFile $t
+$raw=& $t -Fetch -EnsureArtifactWorktree -Json
+$r=($raw -join "`n") | ConvertFrom-Json
+if(-not $r.ok){ throw $r.error }
+if(-not $r.requiredArtifactAvailable){ throw "Required artifact unavailable: $($r.requiredArtifact)" }
+Set-Location -LiteralPath $r.selected
 ```
 
-The temporary resolver is disposable tooling, not a worktree and not a place for sprint state. When it returns a canonical checkout, resume repository work from that proven path and run the workspace doctor. If it finds nothing, inspect the occupied expected path before deciding whether a fresh durable clone is safe. Full procedure: `.ai/workflows/repository-location-recovery.md`.
+The temporary preflight script is disposable tooling, not a worktree and not a place for sprint state. `primary` is only the first canonical checkout discovered; use `selected` for tracked-artifact execution. If no canonical checkout exists, inspect the occupied expected path before deciding whether a fresh durable clone is safe. Full procedure: `.ai/workflows/repository-location-recovery.md`.
 
 ## Start here
 

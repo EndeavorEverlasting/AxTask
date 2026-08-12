@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,81 @@ describe("post-R1 recovery wave contract", () => {
 
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);
     expect(run.stdout).toContain("[recovery-wave] PASS");
+  });
+
+  it("executes R3 prerequisite validation behavior before the dump can start", async () => {
+    const preflight = await import("../../scripts/db/preflight-backup.mjs");
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "axtask-r3-preflight-contract-"));
+    const repo = path.join(scratch, "repo");
+    const protectedDir = path.join(scratch, "protected");
+    fs.mkdirSync(repo);
+    fs.mkdirSync(protectedDir);
+
+    try {
+      const source = "postgresql://source:secret@db.example.invalid:5432/axtask?sslmode=require";
+      const sameTargetDifferentCredentials = "postgresql://other:secret@db.example.invalid:5432/axtask";
+      const disposable = "postgresql://postgres:postgres@127.0.0.1:5432/axtask_restore";
+
+      expect(() =>
+        preflight.validateBackupStorageConfig({
+          env: { BACKUP_STORAGE_TARGET: "s3", BACKUP_LOCAL_DIR: protectedDir },
+          cwd: repo,
+          prodLike: true,
+        }),
+      ).toThrow(/supports local only/);
+
+      expect(() =>
+        preflight.validateBackupStorageConfig({
+          env: { BACKUP_STORAGE_TARGET: "local", BACKUP_LOCAL_DIR: "relative-backups" },
+          cwd: repo,
+          prodLike: true,
+        }),
+      ).toThrow(/absolute protected-storage path/);
+
+      expect(
+        preflight.validateBackupStorageConfig({
+          env: { BACKUP_STORAGE_TARGET: "local", BACKUP_LOCAL_DIR: protectedDir },
+          cwd: repo,
+          prodLike: true,
+        }),
+      ).toBe(protectedDir);
+
+      expect(() => preflight.assertDistinctDatabaseTargets(source, sameTargetDifferentCredentials)).toThrow(
+        /different database/,
+      );
+      expect(() => preflight.assertDisposableRestoreTarget("postgresql://postgres:postgres@restore.example.invalid:5432/axtask_restore")).toThrow(
+        /loopback\/disposable/,
+      );
+      expect(() => preflight.assertDistinctDatabaseTargets(source, disposable)).not.toThrow();
+      expect(() => preflight.assertDisposableRestoreTarget(disposable)).not.toThrow();
+
+      const tenGiB = 10 * 1024 ** 3;
+      const required = preflight.requiredBackupCapacityBytes(tenGiB);
+      expect(required).toBe(Math.ceil(tenGiB * 1.15));
+      expect(() => preflight.assertStorageCapacity({ sourceBytes: tenGiB, freeBytes: required - 1 })).toThrow(
+        /capacity is insufficient/,
+      );
+      expect(preflight.assertStorageCapacity({ sourceBytes: tenGiB, freeBytes: required })).toBe(required);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+
+    const src = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "preflight-backup.mjs"), "utf8");
+    const backupStart = src.indexOf('const backupArgs = ["scripts/db/backup.mjs"');
+    expect(backupStart).toBeGreaterThan(0);
+    for (const marker of [
+      'probePgTool("pg_dump")',
+      'probePgTool("pg_restore")',
+      "assertStorageWritable(storageRoot)",
+      "queryDatabaseSize(url)",
+      "verifyRestoreTargetConnectivity(restoreUrl)",
+      "storageFreeBytes(storageRoot)",
+      "assertStorageCapacity({ sourceBytes, freeBytes })",
+    ]) {
+      const markerIndex = src.indexOf(marker);
+      expect(markerIndex, `${marker} must exist`).toBeGreaterThan(0);
+      expect(markerIndex, `${marker} must execute before backup spawn`).toBeLessThan(backupStart);
+    }
   });
 
   it("records the fail-closed operator rule alongside R3's declared prerequisites", () => {

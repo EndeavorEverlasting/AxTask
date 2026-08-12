@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { latestDbManifest, runPgTool } from "./pg-tools.mjs";
+import { databaseTargetFingerprint, latestDbManifest, runPgTool } from "./pg-tools.mjs";
+
+function isLoopbackDatabase(url) {
+  const host = new URL(url).hostname.toLowerCase();
+  return ["localhost", "127.0.0.1", "::1"].includes(host);
+}
 
 const argFile = process.argv.find((a) => a.startsWith("--file="))?.slice(7);
 const manifestPath = argFile || latestDbManifest();
@@ -10,20 +16,59 @@ if (!manifestPath || !existsSync(manifestPath)) {
   console.error("[db:restore:test] no manifest found");
   process.exit(1);
 }
+
+const sourceUrl = process.env.DATABASE_URL;
+if (!sourceUrl) {
+  console.error("[db:restore:test] DATABASE_URL is required so source/restore separation can be proven");
+  process.exit(1);
+}
 const restoreUrl = process.env.RESTORE_DATABASE_URL;
 if (!restoreUrl) {
   console.error("[db:restore:test] RESTORE_DATABASE_URL is required");
   process.exit(1);
 }
-if (restoreUrl === process.env.DATABASE_URL) {
-  console.error("[db:restore:test] restore target must not equal DATABASE_URL");
+
+let sourceFingerprint;
+let restoreFingerprint;
+try {
+  sourceFingerprint = databaseTargetFingerprint(sourceUrl);
+  restoreFingerprint = databaseTargetFingerprint(restoreUrl);
+} catch {
+  console.error("[db:restore:test] database URL is invalid");
   process.exit(1);
 }
+if (sourceFingerprint === restoreFingerprint) {
+  console.error("[db:restore:test] restore target must be a different database from DATABASE_URL");
+  process.exit(1);
+}
+if (!isLoopbackDatabase(restoreUrl)) {
+  console.error("[db:restore:test] recovery restore target must be loopback/disposable");
+  process.exit(1);
+}
+
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 if (!manifest.dumpFile || !existsSync(manifest.dumpFile)) {
   console.error("[db:restore:test] dump file missing");
   process.exit(1);
 }
+if (manifest.databaseFingerprint && manifest.databaseFingerprint !== sourceFingerprint) {
+  console.error("[db:restore:test] manifest database fingerprint does not match DATABASE_URL");
+  process.exit(1);
+}
+const hash = createHash("sha256").update(readFileSync(manifest.dumpFile)).digest("hex");
+if (!manifest.sha256 || hash !== manifest.sha256) {
+  console.error("[db:restore:test] dump sha256 mismatch");
+  process.exit(1);
+}
+
+const sourceHost = new URL(sourceUrl).hostname.toLowerCase();
+const sourceIsRemote = !["localhost", "127.0.0.1", "::1"].includes(sourceHost);
+const prodLike = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || process.env.AXTASK_PRODUCTION === "true" || sourceIsRemote;
+if (prodLike && manifest.sourceLedgerMode !== "skipped") {
+  console.error("[db:restore:test] production recovery manifest must prove sourceLedgerMode=skipped");
+  process.exit(1);
+}
+
 const restore = runPgTool("pg_restore", ["--clean", "--if-exists", "-d", restoreUrl, manifest.dumpFile]);
 if (restore.status !== 0) process.exit(restore.status ?? 1);
 const verify = spawnSync(process.execPath, ["scripts/migration/verify-schema.mjs"], {

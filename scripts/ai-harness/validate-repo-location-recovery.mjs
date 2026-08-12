@@ -10,6 +10,7 @@ import { isCanonicalOrigin, resolveAxTaskCheckout } from "./resolve-checkout.mjs
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const REQUIRED_FILES = [
+  ".ai/README.md",
   ".ai/harness.json",
   ".ai/artifact-registry.json",
   ".ai/workflows/repository-location-recovery.md",
@@ -79,13 +80,10 @@ for (const marker of [
   "isolated worktree at that exact SHA",
   "scripts/ai-harness/operator-preflight.ps1",
   "Invoke-WebRequest -UseBasicParsing",
-  "& $t -Fetch -Json",
-  "ConvertFrom-Json",
-  "ls-tree -r --name-only",
-  "$r.originMain",
-  "worktree add --detach",
-  "Set-Location -LiteralPath $target",
-  "never merges, resets, cleans, initializes, or deletes",
+  "-Fetch -EnsureArtifactWorktree -Json",
+  "$r.requiredArtifactAvailable",
+  "$r.selected",
+  "never merges, resets, cleans, initializes, deletes, or overwrites",
 ]) {
   if (!workflow.includes(marker)) fail(`recovery workflow missing operator-bootstrap contract: ${marker}`);
 }
@@ -93,6 +91,23 @@ const rawBootstrap = workflow.match(/```powershell\n([\s\S]*?)```/)?.[1] ?? "";
 if (!rawBootstrap) fail("recovery workflow missing raw PowerShell bootstrap block");
 if (rawBootstrap.includes("Set-Location -LiteralPath $r.primary")) {
   fail("raw bootstrap must not enter the discovered primary checkout before artifact-availability gating");
+}
+if (!rawBootstrap.includes("Set-Location -LiteralPath $r.selected")) {
+  fail("raw bootstrap must enter only the artifact-capable selected checkout");
+}
+
+const readme = read(".ai/README.md");
+for (const marker of [
+  "operator-preflight.ps1",
+  "-Fetch -EnsureArtifactWorktree -Json",
+  "requiredArtifactAvailable",
+  "Set-Location -LiteralPath $r.selected",
+  "`primary` is only the first canonical checkout discovered; use `selected` for tracked-artifact execution",
+]) {
+  if (!readme.includes(marker)) fail(`harness README missing fresh-agent recovery marker: ${marker}`);
+}
+if (readme.includes("axtask-resolve-checkout.mjs'; Invoke-WebRequest")) {
+  fail("harness README must not bootstrap the resolver directly from an unproven checkout flow");
 }
 
 const skill = read(".ai/skills/repository-location-recovery.md");
@@ -107,9 +122,9 @@ for (const marker of [
   "## Trigger conditions",
   "## Required inputs",
   "## Procedure",
-  "verify that its HEAD contains the required tracked resolver/workflow",
-  "exact-target isolated worktree",
-  "nextAction` as provisional",
+  "-Fetch -EnsureArtifactWorktree",
+  "requiredArtifactAvailable",
+  "Use `selected`, not `primary`",
   "## Expected outputs",
   "## Safety",
 ]) {
@@ -129,14 +144,20 @@ for (const heading of ["## REPOSITORY", "## OBSERVED START", "## WORKING", "## B
 const bootstrap = read("scripts/ai-harness/operator-preflight.ps1");
 for (const marker of [
   "$ExpectedRepository = 'EndeavorEverlasting/AxTask'",
+  "[switch]$EnsureArtifactWorktree",
+  "$RequiredArtifact = 'scripts/ai-harness/resolve-checkout.mjs'",
   "Test-CanonicalOrigin",
+  "Test-ArtifactAtRef",
   "rev-parse','--show-toplevel",
   "remote','get-url','origin",
   "fetch --no-force origin main",
+  "worktree add --detach",
+  "requiredArtifactAvailable",
+  "selected = $selected.root",
+  "Re-run this bootstrap with -Fetch -EnsureArtifactWorktree -Json",
   "No canonical AxTask checkout was found",
   "Do not git init, reset, clean, delete, or overwrite it",
   "[void]$List.Add($full)",
-  "scripts\\ai-harness\\resolve-checkout.mjs",
 ]) {
   if (!bootstrap.includes(marker)) fail(`operator preflight bootstrap missing ${marker}`);
 }
@@ -232,4 +253,4 @@ try {
   fs.rmSync(staleScratch, { recursive: true, force: true });
 }
 
-if (!process.exitCode) console.log("[repo-location-recovery] PASS non-repository cwd recovery plus stale-checkout artifact gating with registered operator bootstrap skill/report contract");
+if (!process.exitCode) console.log("[repo-location-recovery] PASS non-repository cwd recovery plus stale-checkout artifact gating with artifact-capable operator bootstrap contract");

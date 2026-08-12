@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import pgModule from "pg";
-import { databaseTargetFingerprint, runPgTool } from "./pg-tools.mjs";
+import { backupDbRoot, databaseTargetFingerprint, resolveBackupStorageRoot, runPgTool } from "./pg-tools.mjs";
 
 const pg = pgModule.default || pgModule;
 const noLedger = process.argv.includes("--no-ledger");
@@ -78,7 +78,8 @@ async function writeLedger(manifest) {
 async function main() {
   const databaseUrl = requireDatabaseUrl();
   const { day, stamp } = nowParts();
-  const base = path.resolve(process.cwd(), ".backups", "db", day);
+  const storageRoot = resolveBackupStorageRoot();
+  const base = path.join(backupDbRoot(), day);
   mkdirSync(base, { recursive: true });
   const fileBase = `axtask-db-${stamp}`;
   const dumpFile = path.join(base, `${fileBase}.dump`);
@@ -101,6 +102,8 @@ async function main() {
     ...masked,
     databaseFingerprint: databaseTargetFingerprint(databaseUrl),
     gitCommit,
+    storageTarget: String(process.env.BACKUP_STORAGE_TARGET || "local").trim().toLowerCase() || "local",
+    storageRoot,
     dumpFile,
     sha256,
     byteSize: statSync(dumpFile).size,

@@ -17,6 +17,19 @@ export function databaseTargetFingerprint(databaseUrl) {
 }
 
 /**
+ * Resolve the local backup root. BACKUP_STORAGE_TARGET selects the backend;
+ * BACKUP_LOCAL_DIR is the actual filesystem location for the local backend.
+ */
+export function resolveBackupStorageRoot({ cwd = process.cwd(), env = process.env } = {}) {
+  const configured = String(env.BACKUP_LOCAL_DIR ?? "").trim();
+  return configured ? path.resolve(cwd, configured) : path.resolve(cwd, ".backups");
+}
+
+export function backupDbRoot(options = {}) {
+  return path.join(resolveBackupStorageRoot(options), "db");
+}
+
+/**
  * Run pg_dump / pg_restore. On Windows, shell is required so PATH .cmd shims resolve.
  */
 export function runPgTool(tool, args, opts = {}) {
@@ -35,8 +48,8 @@ export function runPgTool(tool, args, opts = {}) {
   return spawnSync(tool, args, { stdio: "inherit", ...opts });
 }
 
-/** Newest db backup manifest under .backups/db by mtime (no bash dependency). */
-export function latestDbManifest(root = path.resolve(process.cwd(), ".backups", "db")) {
+/** Newest db backup manifest under the configured backup DB root by mtime (no bash dependency). */
+export function latestDbManifest(root = backupDbRoot()) {
   if (!existsSync(root)) return null;
   const manifests = [];
   for (const day of readdirSync(root)) {

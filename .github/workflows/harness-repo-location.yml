@@ -52,13 +52,17 @@ jobs:
           Push-Location $Scratch
           try {
             $SearchRoot=Split-Path -Parent $env:GITHUB_WORKSPACE
-            $Raw=& "$env:GITHUB_WORKSPACE\scripts\ai-harness\operator-preflight.ps1" -SearchRoot $SearchRoot -Json
+            $Raw=& "$env:GITHUB_WORKSPACE\scripts\ai-harness\operator-preflight.ps1" -SearchRoot $SearchRoot -Fetch -EnsureArtifactWorktree -Json
             $Result=($Raw -join "`n") | ConvertFrom-Json
             if(-not $Result.ok){ throw 'operator preflight did not report ok=true' }
             if($Result.repository -ne 'EndeavorEverlasting/AxTask'){ throw "unexpected repository: $($Result.repository)" }
-            if([IO.Path]::GetFullPath($Result.primary) -ne [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
-              throw "operator preflight resolved unexpected checkout: $($Result.primary)"
+            if(-not $Result.requiredArtifactAvailable){ throw 'operator preflight did not prove required artifact availability' }
+            if([string]::IsNullOrWhiteSpace([string]$Result.selected)){ throw 'operator preflight did not return a selected checkout' }
+            if([IO.Path]::GetFullPath($Result.selected) -ne [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
+              throw "operator preflight resolved unexpected selected checkout: $($Result.selected)"
             }
+            $Artifact=Join-Path $Result.selected 'scripts\ai-harness\resolve-checkout.mjs'
+            if(-not (Test-Path -LiteralPath $Artifact -PathType Leaf)){ throw 'selected checkout does not contain tracked resolver' }
           }
           finally {
             Pop-Location
