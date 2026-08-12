@@ -80,5 +80,8 @@ describe("local production certification safety", () => {
       expect(runner).toContain(marker);
     }
     expect(runner).not.toMatch(/Write-(?:Host|Output).*DATABASE_URL/i);
+    expect(runner.indexOf("docker rm -f")).toBeLessThan(runner.indexOf("=== R7 PASS ==="));
+    expect(runner).toContain("if ($cleanupError)");
+    expect(runner).toContain("throw $cleanupError");
   });
 });

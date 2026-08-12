@@ -74,6 +74,10 @@ $dbPassword = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $containerStarted = $false
 $envNames = @('DATABASE_URL', 'AXTASK_LOCAL_CERT', 'AXTASK_CANDIDATE_SHA', 'RENDER', 'AXTASK_PRODUCTION')
 $envSnapshot = @($envNames | ForEach-Object { Save-EnvironmentValue $_ })
+$runError = $null
+$cleanupError = $null
+$proofDisplay = $null
+$reportDisplay = $null
 
 try {
   $containerId = (& docker run --rm -d --name $containerName `
@@ -147,19 +151,30 @@ try {
 
   $proofDisplay = [IO.Path]::GetRelativePath($repoRoot, $proofPath).Replace('\', '/')
   $reportDisplay = [IO.Path]::GetRelativePath($repoRoot, $reportPath).Replace('\', '/')
-
-  Write-Host ''
-  Write-Host '=== R7 PASS ==='
-  Write-Host "R7_CANDIDATE_SHA=$head"
-  Write-Host "R7_RUNTIME_PROOF=$proofDisplay"
-  Write-Host "R7_LOCAL_CERT_REPORT=$reportDisplay"
-  Write-Host 'R7_PROOF_CEILING=local-runtime'
+} catch {
+  $runError = $_
 } finally {
   foreach ($snapshot in $envSnapshot) { Restore-EnvironmentValue $snapshot }
   if ($containerStarted) {
     & docker rm -f $containerName *> $null
     if ($LASTEXITCODE -ne 0) {
-      Write-Warning "Disposable PostgreSQL cleanup failed for container $containerName. Remove it manually before handoff."
+      $cleanupError = "Disposable PostgreSQL cleanup failed for container $containerName. Remove it manually before handoff."
     }
   }
 }
+
+if ($runError) {
+  $message = $runError.Exception.Message
+  if ($cleanupError) { $message = "$message Cleanup also failed: $cleanupError" }
+  throw $message
+}
+if ($cleanupError) {
+  throw $cleanupError
+}
+
+Write-Host ''
+Write-Host '=== R7 PASS ==='
+Write-Host "R7_CANDIDATE_SHA=$head"
+Write-Host "R7_RUNTIME_PROOF=$proofDisplay"
+Write-Host "R7_LOCAL_CERT_REPORT=$reportDisplay"
+Write-Host 'R7_PROOF_CEILING=local-runtime'
