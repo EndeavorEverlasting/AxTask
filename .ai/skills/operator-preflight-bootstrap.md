@@ -17,7 +17,7 @@ Use when a Windows operator is about to run repository-relative commands but the
 
 ## Procedure
 
-1. Run `scripts/ai-harness/operator-preflight.ps1` from a tracked checkout, or download that tracked file only from the immutable reviewed revision `698375dedc438167a11b4b38cc9730a07fb53c26` when no checkout path is known. Do not execute a mutable `main` download as bootstrap authority.
+1. Run `scripts/ai-harness/operator-preflight.ps1` from a tracked checkout, or download that tracked file only from the immutable reviewed revision `a50fa0c1353ed2e0a9f45c3da112a0bd4d03493b` when no checkout path is known. That revision contains the materialized-artifact and JSON-safe exact-worktree repairs. Do not execute a mutable `main` download as bootstrap authority.
 2. Let the bootstrap search the current directory, its parent, and bounded durable development roots.
 3. Accept only candidates whose Git top level resolves and whose `origin` is the canonical AxTask repository.
 4. Use `-Fetch` only for a no-force `origin main` fetch; it does not merge, reset, clean, initialize, or overwrite the selected checkout.

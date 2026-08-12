@@ -12,10 +12,10 @@ From any proven AxTask checkout whose worktree contains the resolver, run:
 node scripts/ai-harness/resolve-checkout.mjs --json
 ```
 
-If no checkout path is known on Windows but GitHub access is available, bootstrap the reviewed operator preflight from immutable revision `698375dedc438167a11b4b38cc9730a07fb53c26`. The bootstrap proves canonical repository identity **and** required-artifact availability in the materialized worktree; if the first checkout is stale, sparse, or locally missing the artifact, the explicit artifact switch selects or creates a detached durable sibling worktree at fetched `origin/main` before returning an executable location:
+If no checkout path is known on Windows but GitHub access is available, bootstrap the reviewed operator preflight from immutable revision `a50fa0c1353ed2e0a9f45c3da112a0bd4d03493b`. This pin contains the JSON-safe exact-worktree repair. The bootstrap proves canonical repository identity **and** required-artifact availability in the materialized worktree; if the first checkout is stale, sparse, or locally missing the artifact, the explicit artifact switch selects or creates a detached durable sibling worktree at fetched `origin/main` before returning an executable location:
 
 ```powershell
-$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/698375dedc438167a11b4b38cc9730a07fb53c26/scripts/ai-harness/operator-preflight.ps1'
+$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/a50fa0c1353ed2e0a9f45c3da112a0bd4d03493b/scripts/ai-harness/operator-preflight.ps1'
 $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'
 Invoke-WebRequest -UseBasicParsing $u -OutFile $t
 $raw=& $t -Fetch -EnsureArtifactWorktree -Json
