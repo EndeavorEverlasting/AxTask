@@ -126,7 +126,7 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   }
 
   const runnerText = readText(rootDir, sessionSafeRunnerPath, errors);
-  for (const marker of ["postgres:16-alpine", "docker run", "POSTGRES_DB", "AXTASK_LOCAL_CERT", "DATABASE_URL", "run-local-cert.mjs", "validate-runtime-proof.mjs", "test:deploy", "npm", "docker rm -f", "R7_RUNTIME_PROOF", "R7_PROOF_CEILING=local-runtime"]) {
+  for (const marker of ["postgres:16-alpine", "$dockerRunArgs", "& docker @dockerRunArgs", "POSTGRES_DB", "AXTASK_LOCAL_CERT", "DATABASE_URL", "run-local-cert.mjs", "validate-runtime-proof.mjs", "test:deploy", "npm", "docker rm -f", "R7_RUNTIME_PROOF", "R7_PROOF_CEILING=local-runtime"]) {
     if (!runnerText.includes(marker)) errors.push(`${sessionSafeRunnerPath}: missing session-safe runner marker ${marker}`);
   }
   if (/Write-(Host|Output).*DATABASE_URL/i.test(runnerText)) {

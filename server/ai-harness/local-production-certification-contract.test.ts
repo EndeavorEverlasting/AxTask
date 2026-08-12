@@ -65,7 +65,8 @@ describe("local production certification safety", () => {
     const runner = fs.readFileSync(path.join(repoRoot, "scripts/ai-harness/run-r7-local-cert.ps1"), "utf8");
     for (const marker of [
       "postgres:16-alpine",
-      "docker run",
+      "$dockerRunArgs",
+      "& docker @dockerRunArgs",
       "POSTGRES_PASSWORD",
       "127.0.0.1::5432",
       "DATABASE_URL",
