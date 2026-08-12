@@ -149,7 +149,7 @@ function isPathWithin(parent, child) {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-export async function runPreflight({ env = process.env, argv = process.argv.slice(2), cwd = process.cwd() } = {}) {
+export async function runPreflight({ env = process.env, argv = null, cwd = process.cwd() } = {}) {
   const url = env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
   try {
@@ -167,7 +167,7 @@ export async function runPreflight({ env = process.env, argv = process.argv.slic
   }
 
   const prodLike = isProdLike(url, env);
-  const noLedger = argv.includes("--no-ledger");
+  const noLedger = argv === null ? process.argv.includes("--no-ledger") : argv.includes("--no-ledger");
   if (prodLike && !noLedger) {
     throw new Error("production-like recovery backup requires --no-ledger before the preflight can continue");
   }
