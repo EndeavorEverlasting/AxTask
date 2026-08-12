@@ -25,7 +25,7 @@ describe("AI harness infrastructure completeness", () => {
   it("validates the local-cert runtime-proof harness slice", () => {
     expect(validateLocalCertHarness(REPO_ROOT)).toEqual({
       errors: [],
-      componentsChecked: 6,
+      componentsChecked: 8,
     });
   });
 
@@ -38,10 +38,11 @@ describe("AI harness infrastructure completeness", () => {
   it("maps repository commands, configurations, and known traps", () => {
     const map = readJson(".ai/codebase-map.json");
     const commandIds = new Set(map.commands.map((command: { id: string }) => command.id));
-    for (const id of ["install", "development", "typecheck", "test", "build", "deploy-contract", "production-start", "local-certification", "runtime-proof-validate", "local-cert-harness-validate"]) expect(commandIds.has(id)).toBe(true);
+    for (const id of ["install", "development", "typecheck", "test", "build", "deploy-contract", "production-start", "local-certification", "r7-session-safe", "runtime-proof-validate", "local-cert-harness-validate"]) expect(commandIds.has(id)).toBe(true);
     expect(map.configurations.length).toBeGreaterThanOrEqual(8);
     expect(map.knownTraps.length).toBeGreaterThanOrEqual(5);
     expect(map.knownTraps).toContain("A local-cert report is not live deployment proof: validate its sibling runtime-proof.json and honor proofCeiling before making deployment claims.");
+    expect(map.knownTraps.some((item: string) => item.includes("process-isolated") && item.includes("environment variables"))).toBe(true);
     expect(map.deploymentModel.directDeployCommandRegistered).toBe(false);
   });
 
@@ -72,9 +73,12 @@ describe("AI harness infrastructure completeness", () => {
     const harness = readJson(".ai/harness.json");
     const validators = readJson(".ai/validator-registry.json");
     const workflows = readJson(".ai/workflow-registry.json");
+    expect(harness.components).toContainEqual(expect.objectContaining({id: "local-certification-skill", path: ".ai/skills/local-deployment-certification.md"}));
+    expect(harness.components).toContainEqual(expect.objectContaining({id: "r7-session-safe-runner", path: "scripts/ai-harness/run-r7-local-cert.ps1"}));
     expect(harness.components).toContainEqual(expect.objectContaining({id: "local-cert-harness-validator", path: "scripts/ai-harness/validate-local-cert-harness.mjs"}));
     expect(harness.components).toContainEqual(expect.objectContaining({id: "runtime-proof-validator", path: "scripts/ai-harness/validate-runtime-proof.mjs"}));
     expect(harness.components).toContainEqual(expect.objectContaining({id: "local-cert-contract-test", path: "server/ai-harness/local-production-certification-contract.test.ts"}));
+    expect(harness.skills).toContain("axtask.skill.local-deployment-certification.v1");
     expect(validators.validators).toContainEqual(expect.objectContaining({id: "local-cert-harness", command: "node scripts/ai-harness/validate-local-cert-harness.mjs"}));
     expect(validators.validators).toContainEqual(expect.objectContaining({id: "runtime-proof"}));
     expect(validators.validators).toContainEqual(expect.objectContaining({id: "local-production-certification"}));
