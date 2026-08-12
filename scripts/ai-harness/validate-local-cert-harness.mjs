@@ -43,22 +43,36 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   const skillPath = ".ai/skills/runtime-proof.md";
   const schemaPath = ".ai/runtime-proof.schema.json";
   const proofValidatorPath = "scripts/ai-harness/validate-runtime-proof.mjs";
+  const harnessValidatorPath = "scripts/ai-harness/validate-local-cert-harness.mjs";
   const contractTestPath = "server/ai-harness/local-production-certification-contract.test.ts";
 
-  for (const requiredPath of [workflowPath, skillPath, schemaPath, proofValidatorPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
+  for (const requiredPath of [workflowPath, skillPath, schemaPath, proofValidatorPath, harnessValidatorPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
     if (!fs.existsSync(path.join(rootDir, requiredPath))) errors.push(`local-cert harness missing tracked dependency: ${requiredPath}`);
   }
 
+  const requiredHarnessComponents = {
+    "local-cert": workflowPath,
+    "runtime-proof": schemaPath,
+    "runtime-proof-skill": skillPath,
+    "runtime-proof-validator": proofValidatorPath,
+    "local-cert-harness-validator": harnessValidatorPath,
+    "local-cert-contract-test": contractTestPath,
+  };
+
   if (harness) {
-    const componentIds = new Set((harness.components ?? []).map((item) => item?.id));
-    for (const id of ["local-cert", "runtime-proof", "runtime-proof-skill", "runtime-proof-validator", "local-cert-contract-test"]) {
-      if (!componentIds.has(id)) errors.push(`.ai/harness.json: missing local-cert component ${id}`);
+    for (const [id, expectedPath] of Object.entries(requiredHarnessComponents)) {
+      const component = (harness.components ?? []).find((item) => item?.id === id);
+      if (!component) {
+        errors.push(`.ai/harness.json: missing local-cert component ${id}`);
+      } else if (component.path !== expectedPath) {
+        errors.push(`.ai/harness.json: component ${id} must point to ${expectedPath}`);
+      }
     }
   }
 
   if (map) {
     const commandIds = new Set((map.commands ?? []).map((item) => item?.id));
-    for (const id of ["local-certification", "runtime-proof-validate"]) {
+    for (const id of ["local-certification", "runtime-proof-validate", "local-cert-harness-validate"]) {
       if (!commandIds.has(id)) errors.push(`.ai/codebase-map.json: missing local-cert command ${id}`);
     }
   }
@@ -112,7 +126,7 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
     if (!readme.includes(marker)) errors.push(`.ai/README.md: missing local-cert entry marker ${marker}`);
   }
 
-  return { errors, componentsChecked: 6 };
+  return { errors, componentsChecked: Object.keys(requiredHarnessComponents).length };
 }
 
 function main() {
