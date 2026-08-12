@@ -20,6 +20,7 @@ import pgModule from "pg";
 import {
   backupDbRoot,
   databaseTargetFingerprint,
+  isLoopbackDatabaseUrl,
   latestDbManifest,
   resolveBackupStorageRoot,
   runPgTool,
@@ -31,9 +32,7 @@ const GIB = 1024 ** 3;
 export function isProdLike(url, env = process.env) {
   const hard = env.NODE_ENV === "production" || env.RENDER === "true" || env.AXTASK_PRODUCTION === "true";
   if (!url) return hard;
-  const host = new URL(url).hostname.toLowerCase();
-  const remote = host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
-  return hard || remote;
+  return hard || !isLoopbackDatabaseUrl(url);
 }
 
 export function assertDistinctDatabaseTargets(sourceUrl, restoreUrl) {
@@ -44,8 +43,8 @@ export function assertDistinctDatabaseTargets(sourceUrl, restoreUrl) {
 }
 
 export function assertDisposableRestoreTarget(restoreUrl) {
-  const host = new URL(restoreUrl).hostname.toLowerCase();
-  if (!["localhost", "127.0.0.1", "::1"].includes(host)) {
+  databaseTargetFingerprint(restoreUrl);
+  if (!isLoopbackDatabaseUrl(restoreUrl)) {
     throw new Error("RESTORE_DATABASE_URL must be loopback/disposable for the recovery preflight");
   }
 }

@@ -3,12 +3,7 @@ import "dotenv/config";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { databaseTargetFingerprint, resolveRestoreManifest, runPgTool } from "./pg-tools.mjs";
-
-function isLoopbackDatabase(url) {
-  const host = new URL(url).hostname.toLowerCase();
-  return ["localhost", "127.0.0.1", "::1"].includes(host);
-}
+import { databaseTargetFingerprint, isLoopbackDatabaseUrl, resolveRestoreManifest, runPgTool } from "./pg-tools.mjs";
 
 const explicitManifest = process.argv.find((a) => a.startsWith("--file="))?.slice(7) || null;
 const recoveryRequested = process.argv.includes("--recovery");
@@ -40,8 +35,8 @@ let restoreFingerprint;
 try {
   sourceFingerprint = databaseTargetFingerprint(sourceUrl);
   restoreFingerprint = databaseTargetFingerprint(restoreUrl);
-} catch {
-  console.error("[db:restore:test] database URL is invalid");
+} catch (err) {
+  console.error(`[db:restore:test] database URL is invalid or unsafe: ${err.message}`);
   process.exit(1);
 }
 if (sourceFingerprint === restoreFingerprint) {
@@ -60,7 +55,7 @@ if (recoveryRequested && manifest.recoveryMode !== true) {
   console.error("[db:restore:test] --recovery requires a manifest created in recovery mode");
   process.exit(1);
 }
-if (enforceRecovery && !isLoopbackDatabase(restoreUrl)) {
+if (enforceRecovery && !isLoopbackDatabaseUrl(restoreUrl)) {
   console.error("[db:restore:test] recovery restore target must be loopback/disposable");
   process.exit(1);
 }

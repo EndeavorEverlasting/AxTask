@@ -31,7 +31,10 @@ describe("post-R1 recovery wave contract", () => {
       const source = "postgresql://source:secret@db.example.invalid:5432/axtask?sslmode=require";
       const sameTargetDifferentCredentials = "postgresql://other:secret@db.example.invalid:5432/axtask";
       const loopbackSource = "postgresql://postgres:postgres@127.0.0.1:5432/axtask";
+      const ipv6LoopbackSource = "postgresql://postgres:postgres@[::1]:5432/axtask";
       const disposable = "postgresql://postgres:postgres@127.0.0.1:5432/axtask_restore";
+      const ipv6Disposable = "postgresql://postgres:postgres@[::1]:5432/axtask_restore";
+      const overriddenRestore = "postgresql://postgres:postgres@localhost:5432/axtask_restore?host=db.example.invalid";
 
       expect(() =>
         preflight.validateBackupStorageConfig({
@@ -60,13 +63,16 @@ describe("post-R1 recovery wave contract", () => {
       expect(() => preflight.assertDistinctDatabaseTargets(source, sameTargetDifferentCredentials)).toThrow(
         /different database/,
       );
+      expect(() => preflight.assertDistinctDatabaseTargets(source, overriddenRestore)).toThrow(/connection-target override/);
       expect(() => preflight.assertDisposableRestoreTarget("postgresql://postgres:postgres@restore.example.invalid:5432/axtask_restore")).toThrow(
         /loopback\/disposable/,
       );
       expect(() => preflight.assertDistinctDatabaseTargets(source, disposable)).not.toThrow();
       expect(() => preflight.assertDisposableRestoreTarget(disposable)).not.toThrow();
+      expect(() => preflight.assertDisposableRestoreTarget(ipv6Disposable)).not.toThrow();
 
       expect(preflight.isProdLike(loopbackSource, {})).toBe(false);
+      expect(preflight.isProdLike(ipv6LoopbackSource, {})).toBe(false);
       await expect(
         preflight.runPreflight({
           env: {

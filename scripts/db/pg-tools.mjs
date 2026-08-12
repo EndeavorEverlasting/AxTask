@@ -3,12 +3,35 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
+const ROUTING_OVERRIDE_KEYS = new Set(["host", "hostaddr", "port", "dbname", "database", "service", "servicefile"]);
+
+/** Normalize URL.hostname across bracketed and unbracketed IP literals. */
+export function normalizePgHostname(hostname) {
+  return String(hostname ?? "").trim().toLowerCase().replace(/^\[(.*)\]$/, "$1");
+}
+
+/** Reject URI query parameters that can redirect a connection away from its authority/path target. */
+export function assertNoDatabaseTargetOverrides(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  const overrides = [...parsed.searchParams.keys()].filter((key) => ROUTING_OVERRIDE_KEYS.has(key.toLowerCase()));
+  if (overrides.length > 0) {
+    throw new Error(`database URL contains forbidden connection-target override(s): ${[...new Set(overrides)].join(", ")}`);
+  }
+  return parsed;
+}
+
+export function isLoopbackDatabaseUrl(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  const host = normalizePgHostname(parsed.hostname);
+  return ["localhost", "127.0.0.1", "::1"].includes(host);
+}
+
 /** Return a stable, non-secret fingerprint for a PostgreSQL target. */
 export function databaseTargetFingerprint(databaseUrl) {
-  const parsed = new URL(databaseUrl);
+  const parsed = assertNoDatabaseTargetOverrides(databaseUrl);
   const port = parsed.port || "5432";
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
-  const identity = `${parsed.hostname.toLowerCase()}:${port}/${databaseName}`;
+  const identity = `${normalizePgHostname(parsed.hostname)}:${port}/${databaseName}`;
   return createHash("sha256").update(identity, "utf8").digest("hex");
 }
 
