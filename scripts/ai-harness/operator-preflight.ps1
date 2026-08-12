@@ -184,8 +184,8 @@ if ($EnsureArtifactWorktree -and -not $artifactAvailable) {
     $parent = Split-Path -Parent $primary.root
     $suffix = [guid]::NewGuid().ToString('N').Substring(0,8)
     $worktree = Join-Path $parent ("AxTask-harness-{0}-{1}" -f $originMain.Substring(0,8),$suffix)
-    & git -C $primary.root worktree add --detach $worktree $originMain
-    if ($LASTEXITCODE -ne 0) { throw "Exact-SHA worktree creation failed with exit code $LASTEXITCODE" }
+    $worktreeAdd = Invoke-GitCapture $primary.root @('worktree','add','--detach',$worktree,$originMain)
+    if ($worktreeAdd.Status -ne 0) { throw "Exact-SHA worktree creation failed with exit code $($worktreeAdd.Status)" }
     $selected = Probe-Checkout $worktree
     if ($null -eq $selected) { throw 'Exact-SHA worktree was created but could not be re-probed as canonical AxTask.' }
     $found += $selected
