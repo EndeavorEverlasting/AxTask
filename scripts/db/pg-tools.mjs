@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 const ROUTING_OVERRIDE_KEYS = new Set(["host", "hostaddr", "port", "dbname", "database", "service", "servicefile"]);
@@ -39,6 +39,21 @@ export function databaseTargetFingerprint(databaseUrl) {
 export function resolveBackupStorageRoot({ cwd = process.cwd(), env = process.env } = {}) {
   const configured = String(env.BACKUP_LOCAL_DIR ?? "").trim();
   return configured ? path.resolve(cwd, configured) : path.resolve(cwd, ".backups");
+}
+
+/** Resolve recovery storage physically, rejecting symlinks/junctions that land inside the checkout. */
+export function resolveRecoveryBackupStorageRoot({ cwd = process.cwd(), env = process.env } = {}) {
+  const lexicalRoot = resolveBackupStorageRoot({ cwd, env });
+  if (!existsSync(lexicalRoot) || !statSync(lexicalRoot).isDirectory()) {
+    throw new Error("recovery BACKUP_LOCAL_DIR must already exist as a protected-storage directory");
+  }
+  const checkoutReal = realpathSync(cwd);
+  const storageReal = realpathSync(lexicalRoot);
+  const relative = path.relative(checkoutReal, storageReal);
+  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+    throw new Error("recovery BACKUP_LOCAL_DIR resolves inside the repository checkout");
+  }
+  return storageReal;
 }
 
 export function backupDbRoot(options = {}) {

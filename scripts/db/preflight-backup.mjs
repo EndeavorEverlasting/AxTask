@@ -23,6 +23,7 @@ import {
   isLoopbackDatabaseUrl,
   latestDbManifest,
   resolveBackupStorageRoot,
+  resolveRecoveryBackupStorageRoot,
   runPgTool,
 } from "./pg-tools.mjs";
 
@@ -71,14 +72,8 @@ export function validateBackupStorageConfig({
     throw new Error("recovery BACKUP_LOCAL_DIR must be an absolute protected-storage path");
   }
 
-  const storageRoot = resolveBackupStorageRoot({ cwd, env });
-  if (recoveryMode) {
-    const relative = path.relative(path.resolve(cwd), storageRoot);
-    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-      throw new Error("recovery BACKUP_LOCAL_DIR must be outside the repository checkout");
-    }
-  }
-  return storageRoot;
+  if (recoveryMode) return resolveRecoveryBackupStorageRoot({ cwd, env });
+  return resolveBackupStorageRoot({ cwd, env });
 }
 
 export function requiredBackupCapacityBytes(sourceBytes) {

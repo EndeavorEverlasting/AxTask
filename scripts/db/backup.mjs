@@ -5,7 +5,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import pgModule from "pg";
-import { backupDbRoot, databaseTargetFingerprint, resolveBackupStorageRoot, runPgTool } from "./pg-tools.mjs";
+import {
+  backupDbRoot,
+  databaseTargetFingerprint,
+  resolveBackupStorageRoot,
+  resolveRecoveryBackupStorageRoot,
+  runPgTool,
+} from "./pg-tools.mjs";
 
 const pg = pgModule.default || pgModule;
 const noLedger = process.argv.includes("--no-ledger");
@@ -19,21 +25,14 @@ function requireDatabaseUrl() {
 }
 
 function assertRecoveryStorage(cwd = process.cwd()) {
-  if (!recoveryMode) return;
+  if (!recoveryMode) return null;
   const target = String(process.env.BACKUP_STORAGE_TARGET ?? "").trim().toLowerCase();
   const configured = String(process.env.BACKUP_LOCAL_DIR ?? "").trim();
   if (target !== "local") throw new Error("--no-ledger recovery backup requires BACKUP_STORAGE_TARGET=local");
   if (!configured || !path.isAbsolute(configured)) {
     throw new Error("--no-ledger recovery backup requires an absolute BACKUP_LOCAL_DIR");
   }
-  const root = resolveBackupStorageRoot({ cwd, env: process.env });
-  const relative = path.relative(path.resolve(cwd), root);
-  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-    throw new Error("--no-ledger recovery BACKUP_LOCAL_DIR must be outside the repository checkout");
-  }
-  if (!existsSync(root) || !statSync(root).isDirectory()) {
-    throw new Error("--no-ledger recovery BACKUP_LOCAL_DIR must already exist");
-  }
+  return resolveRecoveryBackupStorageRoot({ cwd, env: process.env });
 }
 
 function runRecoveryPrerequisiteGate(cwd = process.cwd()) {
@@ -110,10 +109,10 @@ async function writeLedger(manifest) {
 async function main() {
   const databaseUrl = requireDatabaseUrl();
   runRecoveryPrerequisiteGate();
-  assertRecoveryStorage();
+  const recoveryStorageRoot = assertRecoveryStorage();
   const { day, stamp } = nowParts();
-  const storageRoot = resolveBackupStorageRoot();
-  const base = path.join(backupDbRoot(), day);
+  const storageRoot = recoveryStorageRoot ?? resolveBackupStorageRoot();
+  const base = recoveryMode ? path.join(storageRoot, "db", day) : path.join(backupDbRoot(), day);
   mkdirSync(base, { recursive: true });
   const fileBase = `axtask-db-${stamp}`;
   const dumpFile = path.join(base, `${fileBase}.dump`);

@@ -58,7 +58,19 @@ describe("post-R1 recovery wave contract", () => {
           cwd: repo,
           recoveryMode: true,
         }),
-      ).toBe(protectedDir);
+      ).toBe(fs.realpathSync(protectedDir));
+
+      const insideRepoStorage = path.join(repo, "inside-protected");
+      const linkedProtected = path.join(scratch, "linked-protected");
+      fs.mkdirSync(insideRepoStorage);
+      fs.symlinkSync(insideRepoStorage, linkedProtected, process.platform === "win32" ? "junction" : "dir");
+      expect(() =>
+        preflight.validateBackupStorageConfig({
+          env: { BACKUP_STORAGE_TARGET: "local", BACKUP_LOCAL_DIR: linkedProtected },
+          cwd: repo,
+          recoveryMode: true,
+        }),
+      ).toThrow(/resolves inside the repository checkout/);
 
       expect(() => preflight.assertDistinctDatabaseTargets(source, sameTargetDifferentCredentials)).toThrow(
         /different database/,
@@ -125,6 +137,7 @@ describe("post-R1 recovery wave contract", () => {
     const directPgDump = backup.indexOf('runPgTool("pg_dump"');
     expect(directRecoveryGate).toBeGreaterThan(0);
     expect(directPgDump).toBeGreaterThan(directRecoveryGate);
+    expect(backup).toContain("resolveRecoveryBackupStorageRoot");
 
     const restore = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "restore-test.mjs"), "utf8");
     expect(restore).toContain("!manifest.databaseFingerprint || manifest.databaseFingerprint !== sourceFingerprint");
