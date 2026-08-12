@@ -66,6 +66,18 @@ describe("AI harness validator selection", () => {
     expect(plan.executionPolicy).toContain("not executed");
   });
 
+  it("selects the owning local-cert validator for the R7 runner and scoped skill", () => {
+    for (const changedPath of [
+      "scripts/ai-harness/run-r7-local-cert.ps1",
+      ".ai/skills/local-deployment-certification.md",
+    ]) {
+      const plan = selectValidators(REGISTRY, { changedPaths: [changedPath] });
+      expect(ids(plan)).toContain("local-cert-harness");
+      expect(ids(plan)).toContain("harness-tests");
+      expect(plan.unmatchedPaths).toEqual([]);
+    }
+  });
+
   it("selects deploy contracts and their broad prerequisites", () => {
     const plan = selectValidators(REGISTRY, { changedPaths: ["render.yaml"] });
 

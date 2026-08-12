@@ -1,10 +1,15 @@
 // @vitest-environment node
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-ignore Executable repository harness is implemented as ESM .mjs.
 import {
   buildLocalCertificationEnv,
   validateLocalDatabaseUrl,
 } from "../../scripts/deploy/run-local-cert.mjs";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 describe("local production certification safety", () => {
   it("accepts only clearly disposable loopback PostgreSQL targets", () => {
@@ -54,5 +59,33 @@ describe("local production certification safety", () => {
       AXTASK_PRODUCTION: "false",
     });
     expect(local.TOTP_ENCRYPTION_KEY).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("provides a session-safe R7 runner that owns disposable PostgreSQL and cleanup", () => {
+    const runner = fs.readFileSync(path.join(repoRoot, "scripts/ai-harness/run-r7-local-cert.ps1"), "utf8");
+    for (const marker of [
+      "postgres:16-alpine",
+      "$dockerRunArgs",
+      "& docker @dockerRunArgs",
+      "POSTGRES_PASSWORD",
+      "127.0.0.1::5432",
+      "DATABASE_URL",
+      "AXTASK_LOCAL_CERT",
+      "scripts/deploy/run-local-cert.mjs",
+      "scripts/ai-harness/validate-runtime-proof.mjs",
+      "test:deploy",
+      "run', 'build",
+      "docker rm -f",
+      "R7_RUNTIME_PROOF",
+      "R7_PROOF_CEILING=local-runtime",
+    ]) {
+      expect(runner).toContain(marker);
+    }
+    expect(runner).not.toMatch(/Write-(?:Host|Output).*DATABASE_URL/i);
+    expect(runner.indexOf("docker rm -f")).toBeLessThan(runner.indexOf("=== R7 PASS ==="));
+    expect(runner).toContain("if ($cleanupError)");
+    expect(runner).toContain("throw $cleanupError");
+    expect(runner).toContain("git status --porcelain");
+    expect(runner).not.toMatch(/rev-parse[^\n]+\)\.Trim\(\)/);
   });
 });
