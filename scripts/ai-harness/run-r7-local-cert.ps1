@@ -165,7 +165,23 @@ try {
   Invoke-Checked -Command 'node' -Arguments @('scripts/ai-harness/validate-runtime-proof.mjs', $proofPath) -Label 'Runtime-proof validation'
 
   if ($certExit -ne 0) {
-    throw "R7 local certification returned NO_GO. Preserve sanitized proof at $proofRelative and route through failure recovery."
+    $summaryOutput = @(& node scripts/ai-harness/summarize-runtime-failure.mjs $proofPath 2>&1)
+    $summaryExit = $LASTEXITCODE
+    foreach ($line in $summaryOutput) { Write-Host ([string]$line) }
+    if ($summaryExit -ne 0) {
+      throw "R7 local certification returned NO_GO and runtime failure triage failed. Preserve sanitized proof at $proofRelative."
+    }
+    $summaryLine = $summaryOutput | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^RUNTIME_FAILURE_SUMMARY=(.+)$' } | Select-Object -Last 1
+    $failureReportLine = $summaryOutput | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^RUNTIME_FAILURE_REPORT=(.+)$' } | Select-Object -Last 1
+    if (-not $summaryLine -or $summaryLine -notmatch '^RUNTIME_FAILURE_SUMMARY=(.+)$') {
+      throw "R7 local certification returned NO_GO; failure summary path was not emitted. Preserve sanitized proof at $proofRelative."
+    }
+    $failureSummaryDisplay = $Matches[1].Trim()
+    if (-not $failureReportLine -or $failureReportLine -notmatch '^RUNTIME_FAILURE_REPORT=(.+)$') {
+      throw "R7 local certification returned NO_GO; failure report path was not emitted. Summary: $failureSummaryDisplay"
+    }
+    $failureReportDisplay = $Matches[1].Trim()
+    throw "R7 local certification returned NO_GO. Failure summary: $failureSummaryDisplay; report: $failureReportDisplay; preserve proof at $proofRelative and route through failure recovery."
   }
 
   Invoke-Checked -Command 'npm' -Arguments @('run', 'test:deploy') -Label 'Deployment validator suite'

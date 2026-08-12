@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "schemaId": "axtask.runtime-failure-summary.v1",
+  "required": [
+    "candidateSha",
+    "sourceProof",
+    "status",
+    "classification",
+    "attainedProofLevel",
+    "proofCeiling",
+    "primaryFailure",
+    "failedAssertions",
+    "failures",
+    "nextWorkflow",
+    "retryPolicy"
+  ],
+  "properties": {
+    "candidateSha": { "type": "string" },
+    "sourceProof": { "type": "string" },
+    "status": { "type": "string", "enum": ["NO_GO", "NO_FAILURES"] },
+    "classification": { "type": "string", "enum": ["environment-tooling", "schema-migration", "build", "runtime", "unknown", "none"] },
+    "attainedProofLevel": { "type": "string" },
+    "proofCeiling": { "type": "string" },
+    "primaryFailure": { "type": ["object", "null"] },
+    "failedAssertions": { "type": "array" },
+    "failures": { "type": "array" },
+    "nextWorkflow": { "type": "string" },
+    "retryPolicy": { "type": "string" }
+  }
+}

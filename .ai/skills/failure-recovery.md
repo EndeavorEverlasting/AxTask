@@ -15,20 +15,23 @@ Use this skill when `validator-or-workflow-failed` fires, a local hook blocks a 
 - exit code and sanitized error excerpt
 - changed paths and owning lane
 - branch, HEAD, base ref, and current proof ceiling
+- schema-valid runtime proof path when the failed workflow emitted one
 
 ## Procedure
 
 1. Preserve the repository floor and unknown work.
 2. Freeze the proof claim at the last passing gate.
-3. Classify the failure before proposing a repair.
-4. Reproduce with the smallest targeted command.
-5. Search current code, tests, scripts, manifests, and recent history for the existing contract.
-6. Repair only owned files and add a regression check when practical.
-7. Rerun the failed validator, its prerequisites, and then broader selected checks.
-8. Write the failure report and update the operator report or handoff when work remains.
+3. If `runtime-proof.json` exists and validates, run `node scripts/ai-harness/summarize-runtime-failure.mjs <runtime-proof.json>` first. Treat `runtime-failure-summary.json` as the machine handoff and `runtime-failure-report.md` as the operator-readable failure view; do not substitute raw logs or assertion evidence.
+4. Classify the failure before proposing a repair.
+5. Reproduce with the smallest targeted command.
+6. Search current code, tests, scripts, manifests, and recent history for the existing contract.
+7. Repair only owned files and add a regression check when practical.
+8. Rerun the failed validator, its prerequisites, and then broader selected checks.
+9. Write the failure report and update the operator report or handoff when work remains.
 
 ## Expected outputs
 
+- `.ai/runs/<run-id>/runtime-failure-summary.json` and `.ai/runs/<run-id>/runtime-failure-report.md` for a failed runtime proof
 - `.ai/runs/<run-id>/failure-report.md`
 - updated run context and validator plan
 - exact pass, fail, and skip results
@@ -38,7 +41,7 @@ Use this skill when `validator-or-workflow-failed` fires, a local hook blocks a 
 ## Guardrails
 
 - no destructive cleanup
-- no secret or raw-log capture
+- no secret, command, assertion-evidence, or raw-log capture in runtime failure summaries
 - no automatic live-system retry
 - no proof escalation
 - no ownership collision
@@ -46,4 +49,4 @@ Use this skill when `validator-or-workflow-failed` fires, a local hook blocks a 
 
 ## Tests
 
-The harness completeness contract verifies that this skill, its workflow, its trigger, and its failure-report artifact stay registered and cross-referenced.
+The harness completeness contract verifies that this skill, its workflow, its trigger, failure artifacts, and runtime-proof triage stay registered and cross-referenced.
