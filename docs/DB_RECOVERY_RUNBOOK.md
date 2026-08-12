@@ -200,37 +200,60 @@ That command installs/verifies only the suppression function and trigger. It:
 R3 is a preservation lane and may proceed in parallel with R1. It does not depend
 on R1.5; instead, R1.5 and R3 are both mandatory prerequisites before R4.
 
-For the recovery path, create exactly one source-read-only backup and verify its
-hash:
+Before the command, establish all R3 prerequisites without printing connection
+values:
+
+- `DATABASE_URL` through the normal production secret path;
+- `BACKUP_STORAGE_TARGET=local`;
+- `BACKUP_LOCAL_DIR` as an existing absolute protected-storage directory outside the repository checkout;
+- `RESTORE_DATABASE_URL` as a separate reachable loopback/disposable PostgreSQL database;
+- `pg_dump` and `pg_restore` available on PATH.
+
+Create exactly one source-read-only backup and verify its hash:
 
 ```bash
 npm run db:backup:preflight -- --no-ledger
 ```
 
-`db:backup:preflight` already invokes the backup tool, writes the dump and manifest,
-and verifies the dump SHA-256. Do **not** run `npm run db:backup` again after this
-command; doing so would create a redundant second dump.
+For R3, `--no-ledger` is the explicit recovery mode regardless of whether the source
+hostname appears remote or is reached through a loopback tunnel. The preflight
+validates every prerequisite above, source/restore separation, source database size,
+protected-storage free-space capacity, and restore connectivity **before** spawning
+`pg_dump`.
 
-The `--no-ledger` recovery mode prevents `scripts/db/backup.mjs` from inserting a
-`backup_records` row into the source production database. The generated manifest
-must record:
+`db:backup:preflight` already invokes the backup tool, writes the dump and manifest
+directly under `BACKUP_LOCAL_DIR`, verifies the dump SHA-256 and source fingerprint,
+and prints one exact handoff line:
+
+```text
+AXTASK_BACKUP_MANIFEST=<exact manifest path>
+```
+
+Preserve that exact path. Do **not** run `npm run db:backup` again after this
+command; doing so would create a redundant second dump. The `--no-ledger` recovery
+mode prevents `scripts/db/backup.mjs` from inserting a `backup_records` row into the
+source database. The generated manifest must record:
 
 ```text
 sourceLedgerMode: "skipped"
 ```
 
-Then restore the resulting backup into a disposable PostgreSQL instance that is
-not the source database:
+Restore only that exact manifest into the disposable PostgreSQL target:
 
 ```bash
-RESTORE_DATABASE_URL='postgres://...disposable...' npm run db:restore:test
+npm run db:restore:test -- --recovery --file="<exact manifest path>"
 ```
 
-The restore verifier rejects a restore target equal to `DATABASE_URL`, runs schema
-verification, and records `restoreTestedAt` in the backup manifest after success.
+Do not substitute “latest manifest.” The recovery restore requires an explicit
+`--file`, rejects a restore target equal to `DATABASE_URL`, requires the target to
+be loopback/disposable, requires a matching source fingerprint and
+`sourceLedgerMode: "skipped"`, verifies the dump SHA-256, runs schema verification,
+and records `restoreTestedAt` in that same manifest after success.
 
-**Gate:** a current protected backup exists, its SHA-256 verifies, the manifest
-proves source-ledger skip, and a disposable restore proof is recorded.
+**Gate:** the exact current protected backup emitted by preflight exists, its
+SHA-256 and source fingerprint verify, the manifest proves local protected storage
+and source-ledger skip, and disposable restore proof is recorded in that exact
+manifest.
 
 The raw database dump and R1.5 account evidence bundle are complementary:
 
@@ -401,7 +424,7 @@ Those require R1/R1.5/R3/R4/R5/R8/R9 evidence respectively.
 Do not idle all recovery work behind one R1 chat.
 
 1. Keep Render suspended and run R1 in the protected operator context.
-2. **In parallel now**, run R3 with `npm run db:backup:preflight -- --no-ledger` plus disposable `db:restore:test`.
+2. **In parallel now**, run R3 with `npm run db:backup:preflight -- --no-ledger`, preserve the emitted `AXTASK_BACKUP_MANIFEST` path, then restore that exact manifest with `npm run db:restore:test -- --recovery --file="<exact manifest path>"`.
 3. **In parallel now**, run R7 local production certification and deployment/build validators.
 4. As soon as R1 passes, launch R1.5 evidence preservation and R2 containment assessment as separate sub-parts.
 5. Converge only when R1.5, R3, and R2 are proven; then advance R4.
