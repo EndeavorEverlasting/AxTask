@@ -20,6 +20,7 @@ describe("post-R1 recovery wave contract", () => {
 
   it("executes R3 prerequisite validation behavior before the dump can start", async () => {
     const preflight = await import("../../scripts/db/preflight-backup.mjs");
+    const tools = await import("../../scripts/db/pg-tools.mjs");
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "axtask-r3-preflight-contract-"));
     const repo = path.join(scratch, "repo");
     const protectedDir = path.join(scratch, "protected");
@@ -29,13 +30,14 @@ describe("post-R1 recovery wave contract", () => {
     try {
       const source = "postgresql://source:secret@db.example.invalid:5432/axtask?sslmode=require";
       const sameTargetDifferentCredentials = "postgresql://other:secret@db.example.invalid:5432/axtask";
+      const loopbackSource = "postgresql://postgres:postgres@127.0.0.1:5432/axtask";
       const disposable = "postgresql://postgres:postgres@127.0.0.1:5432/axtask_restore";
 
       expect(() =>
         preflight.validateBackupStorageConfig({
           env: { BACKUP_STORAGE_TARGET: "s3", BACKUP_LOCAL_DIR: protectedDir },
           cwd: repo,
-          prodLike: true,
+          recoveryMode: true,
         }),
       ).toThrow(/supports local only/);
 
@@ -43,7 +45,7 @@ describe("post-R1 recovery wave contract", () => {
         preflight.validateBackupStorageConfig({
           env: { BACKUP_STORAGE_TARGET: "local", BACKUP_LOCAL_DIR: "relative-backups" },
           cwd: repo,
-          prodLike: true,
+          recoveryMode: true,
         }),
       ).toThrow(/absolute protected-storage path/);
 
@@ -51,7 +53,7 @@ describe("post-R1 recovery wave contract", () => {
         preflight.validateBackupStorageConfig({
           env: { BACKUP_STORAGE_TARGET: "local", BACKUP_LOCAL_DIR: protectedDir },
           cwd: repo,
-          prodLike: true,
+          recoveryMode: true,
         }),
       ).toBe(protectedDir);
 
@@ -64,6 +66,20 @@ describe("post-R1 recovery wave contract", () => {
       expect(() => preflight.assertDistinctDatabaseTargets(source, disposable)).not.toThrow();
       expect(() => preflight.assertDisposableRestoreTarget(disposable)).not.toThrow();
 
+      expect(preflight.isProdLike(loopbackSource, {})).toBe(false);
+      await expect(
+        preflight.runPreflight({
+          env: {
+            DATABASE_URL: loopbackSource,
+            RESTORE_DATABASE_URL: "postgresql://postgres:postgres@restore.example.invalid:5432/axtask_restore",
+            BACKUP_STORAGE_TARGET: "local",
+            BACKUP_LOCAL_DIR: protectedDir,
+          },
+          argv: ["--no-ledger"],
+          cwd: repo,
+        }),
+      ).rejects.toThrow(/loopback\/disposable/);
+
       const tenGiB = 10 * 1024 ** 3;
       const required = preflight.requiredBackupCapacityBytes(tenGiB);
       expect(required).toBe(Math.ceil(tenGiB * 1.15));
@@ -71,12 +87,17 @@ describe("post-R1 recovery wave contract", () => {
         /capacity is insufficient/,
       );
       expect(preflight.assertStorageCapacity({ sourceBytes: tenGiB, freeBytes: required })).toBe(required);
+
+      const exact = path.join(protectedDir, "exact.manifest.json");
+      const competitor = path.join(protectedDir, "newer.manifest.json");
+      expect(tools.resolveRestoreManifest({ explicitPath: exact, recoveryMode: true, latestPath: competitor })).toBe(exact);
+      expect(() => tools.resolveRestoreManifest({ recoveryMode: true, latestPath: competitor })).toThrow(/exact manifest path/);
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true });
     }
 
     const src = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "preflight-backup.mjs"), "utf8");
-    const backupStart = src.indexOf('const backupArgs = ["scripts/db/backup.mjs"');
+    const backupStart = src.indexOf("const backupArgs = [");
     expect(backupStart).toBeGreaterThan(0);
     for (const marker of [
       'probePgTool("pg_dump")',
@@ -91,6 +112,10 @@ describe("post-R1 recovery wave contract", () => {
       expect(markerIndex, `${marker} must exist`).toBeGreaterThan(0);
       expect(markerIndex, `${marker} must execute before backup spawn`).toBeLessThan(backupStart);
     }
+
+    const restore = fs.readFileSync(path.join(REPO_ROOT, "scripts", "db", "restore-test.mjs"), "utf8");
+    expect(restore).toContain("!manifest.databaseFingerprint || manifest.databaseFingerprint !== sourceFingerprint");
+    expect(restore).toContain("recovery restore requires --file=<exact manifest path>");
   });
 
   it("records the fail-closed operator rule alongside R3's declared prerequisites", () => {

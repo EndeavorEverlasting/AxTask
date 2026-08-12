@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import "dotenv/config";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -13,6 +13,7 @@ import {
   writeSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pgModule from "pg";
@@ -36,7 +37,7 @@ export function isProdLike(url, env = process.env) {
 }
 
 export function assertDistinctDatabaseTargets(sourceUrl, restoreUrl) {
-  if (!restoreUrl) throw new Error("RESTORE_DATABASE_URL is required before starting the backup");
+  if (!restoreUrl) throw new Error("RESTORE_DATABASE_URL is required before starting the recovery backup");
   if (databaseTargetFingerprint(sourceUrl) === databaseTargetFingerprint(restoreUrl)) {
     throw new Error("restore target must be a different database from DATABASE_URL");
   }
@@ -49,28 +50,33 @@ export function assertDisposableRestoreTarget(restoreUrl) {
   }
 }
 
-export function validateBackupStorageConfig({ env = process.env, cwd = process.cwd(), prodLike = false } = {}) {
+export function validateBackupStorageConfig({
+  env = process.env,
+  cwd = process.cwd(),
+  prodLike = false,
+  recoveryMode = false,
+} = {}) {
   const storageTarget = String(env.BACKUP_STORAGE_TARGET ?? "").trim().toLowerCase();
-  if (prodLike && !storageTarget) {
-    throw new Error("production-like env requires BACKUP_STORAGE_TARGET=local");
+  if ((prodLike || recoveryMode) && !storageTarget) {
+    throw new Error(`${recoveryMode ? "recovery" : "production-like"} env requires BACKUP_STORAGE_TARGET=local`);
   }
   if (storageTarget && storageTarget !== "local") {
     throw new Error(`unsupported BACKUP_STORAGE_TARGET '${storageTarget}'; raw DB backup currently supports local only`);
   }
 
   const configured = String(env.BACKUP_LOCAL_DIR ?? "").trim();
-  if (prodLike && !configured) {
-    throw new Error("production-like env requires BACKUP_LOCAL_DIR pointing to protected storage");
+  if (recoveryMode && !configured) {
+    throw new Error("recovery backup requires BACKUP_LOCAL_DIR pointing to protected storage");
   }
-  if (prodLike && !path.isAbsolute(configured)) {
-    throw new Error("production-like BACKUP_LOCAL_DIR must be an absolute protected-storage path");
+  if (recoveryMode && !path.isAbsolute(configured)) {
+    throw new Error("recovery BACKUP_LOCAL_DIR must be an absolute protected-storage path");
   }
 
   const storageRoot = resolveBackupStorageRoot({ cwd, env });
-  if (prodLike) {
+  if (recoveryMode) {
     const relative = path.relative(path.resolve(cwd), storageRoot);
     if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-      throw new Error("production-like BACKUP_LOCAL_DIR must be outside the repository checkout");
+      throw new Error("recovery BACKUP_LOCAL_DIR must be outside the repository checkout");
     }
   }
   return storageRoot;
@@ -150,6 +156,9 @@ function isPathWithin(parent, child) {
 }
 
 export async function runPreflight({ env = process.env, argv = null, cwd = process.cwd() } = {}) {
+  const args = argv === null ? process.argv.slice(2) : argv;
+  const noLedger = argv === null ? process.argv.includes("--no-ledger") : args.includes("--no-ledger");
+  const recoveryMode = noLedger;
   const url = env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
   try {
@@ -158,53 +167,81 @@ export async function runPreflight({ env = process.env, argv = null, cwd = proce
     throw new Error("DATABASE_URL is invalid");
   }
 
-  const restoreUrl = env.RESTORE_DATABASE_URL;
-  if (!restoreUrl) throw new Error("RESTORE_DATABASE_URL is required before starting the backup");
-  try {
-    new URL(restoreUrl);
-  } catch {
-    throw new Error("RESTORE_DATABASE_URL is invalid");
-  }
-
   const prodLike = isProdLike(url, env);
-  const noLedger = argv === null ? process.argv.includes("--no-ledger") : argv.includes("--no-ledger");
-  if (prodLike && !noLedger) {
-    throw new Error("production-like recovery backup requires --no-ledger before the preflight can continue");
-  }
-
-  assertDistinctDatabaseTargets(url, restoreUrl);
-  if (prodLike) assertDisposableRestoreTarget(restoreUrl);
-  const storageRoot = validateBackupStorageConfig({ env, cwd, prodLike });
+  const storageRoot = validateBackupStorageConfig({ env, cwd, prodLike, recoveryMode });
+  let restoreUrl = null;
 
   probePgTool("pg_dump");
-  probePgTool("pg_restore");
-  assertStorageWritable(storageRoot);
 
-  const sourceBytes = await queryDatabaseSize(url);
-  await verifyRestoreTargetConnectivity(restoreUrl);
-  const freeBytes = storageFreeBytes(storageRoot);
-  assertStorageCapacity({ sourceBytes, freeBytes });
+  let sourceBytes = null;
+  let freeBytes = null;
+  if (recoveryMode) {
+    restoreUrl = env.RESTORE_DATABASE_URL;
+    if (!restoreUrl) throw new Error("RESTORE_DATABASE_URL is required before starting the recovery backup");
+    try {
+      new URL(restoreUrl);
+    } catch {
+      throw new Error("RESTORE_DATABASE_URL is invalid");
+    }
 
-  const backupArgs = ["scripts/db/backup.mjs", ...(noLedger ? ["--no-ledger"] : [])];
+    assertDistinctDatabaseTargets(url, restoreUrl);
+    assertDisposableRestoreTarget(restoreUrl);
+    probePgTool("pg_restore");
+    assertStorageWritable(storageRoot);
+    sourceBytes = await queryDatabaseSize(url);
+    await verifyRestoreTargetConnectivity(restoreUrl);
+    freeBytes = storageFreeBytes(storageRoot);
+    assertStorageCapacity({ sourceBytes, freeBytes });
+  }
+
+  const manifestResultPath = recoveryMode
+    ? path.join(os.tmpdir(), `axtask-backup-manifest-${process.pid}-${randomUUID()}.txt`)
+    : null;
+  const backupArgs = [
+    "scripts/db/backup.mjs",
+    ...(noLedger ? ["--no-ledger"] : []),
+    ...(manifestResultPath ? [`--manifest-result=${manifestResultPath}`] : []),
+  ];
   const run = spawnSync(process.execPath, backupArgs, { cwd, stdio: "inherit", env });
-  if (run.status !== 0) throw new Error(`backup command failed with exit code ${run.status ?? 1}`);
+  if (run.status !== 0) {
+    if (manifestResultPath && existsSync(manifestResultPath)) unlinkSync(manifestResultPath);
+    throw new Error(`backup command failed with exit code ${run.status ?? 1}`);
+  }
 
-  const manifestPath = latestDbManifest(backupDbRoot({ cwd, env }));
+  let manifestPath = null;
+  if (recoveryMode) {
+    try {
+      if (!manifestResultPath || !existsSync(manifestResultPath)) throw new Error("exact backup manifest result missing");
+      manifestPath = readFileSync(manifestResultPath, "utf8").trim();
+    } finally {
+      if (manifestResultPath && existsSync(manifestResultPath)) unlinkSync(manifestResultPath);
+    }
+  } else {
+    manifestPath = latestDbManifest(backupDbRoot({ cwd, env }));
+  }
+
   if (!manifestPath || !existsSync(manifestPath)) throw new Error("manifest missing");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (!manifest.dumpFile || !existsSync(manifest.dumpFile)) throw new Error("dump missing");
-  if (manifest.storageTarget !== "local") throw new Error("manifest does not prove local protected-storage target");
-  if (!isPathWithin(storageRoot, path.resolve(manifest.dumpFile))) {
-    throw new Error("manifest dump path is outside BACKUP_LOCAL_DIR");
+  if (!manifest.databaseFingerprint || manifest.databaseFingerprint !== databaseTargetFingerprint(url)) {
+    throw new Error("manifest database fingerprint does not match DATABASE_URL");
+  }
+  if (recoveryMode) {
+    if (manifest.recoveryMode !== true) throw new Error("manifest does not prove recovery mode");
+    if (manifest.storageTarget !== "local") throw new Error("manifest does not prove local protected-storage target");
+    if (!isPathWithin(storageRoot, path.resolve(manifest.dumpFile))) {
+      throw new Error("manifest dump path is outside BACKUP_LOCAL_DIR");
+    }
   }
 
   const hash = createHash("sha256").update(readFileSync(manifest.dumpFile)).digest("hex");
   if (hash !== manifest.sha256) throw new Error("sha256 mismatch");
-  if (noLedger && manifest.sourceLedgerMode !== "skipped") {
+  if (recoveryMode && manifest.sourceLedgerMode !== "skipped") {
     throw new Error("--no-ledger requested but manifest does not prove source ledger skip");
   }
+  if (recoveryMode) console.log(`AXTASK_BACKUP_MANIFEST=${manifestPath}`);
   console.log("[db:backup:preflight] passed");
-  return { manifestPath, sourceBytes, freeBytes };
+  return { manifestPath, sourceBytes, freeBytes, recoveryMode };
 }
 
 const isDirect = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));

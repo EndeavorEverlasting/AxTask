@@ -3,15 +3,22 @@ import "dotenv/config";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { databaseTargetFingerprint, latestDbManifest, runPgTool } from "./pg-tools.mjs";
+import { databaseTargetFingerprint, resolveRestoreManifest, runPgTool } from "./pg-tools.mjs";
 
 function isLoopbackDatabase(url) {
   const host = new URL(url).hostname.toLowerCase();
   return ["localhost", "127.0.0.1", "::1"].includes(host);
 }
 
-const argFile = process.argv.find((a) => a.startsWith("--file="))?.slice(7);
-const manifestPath = argFile || latestDbManifest();
+const explicitManifest = process.argv.find((a) => a.startsWith("--file="))?.slice(7) || null;
+const recoveryRequested = process.argv.includes("--recovery");
+let manifestPath;
+try {
+  manifestPath = resolveRestoreManifest({ explicitPath: explicitManifest, recoveryMode: recoveryRequested });
+} catch (err) {
+  console.error(`[db:restore:test] ${err.message}`);
+  process.exit(1);
+}
 if (!manifestPath || !existsSync(manifestPath)) {
   console.error("[db:restore:test] no manifest found");
   process.exit(1);
@@ -41,17 +48,27 @@ if (sourceFingerprint === restoreFingerprint) {
   console.error("[db:restore:test] restore target must be a different database from DATABASE_URL");
   process.exit(1);
 }
-if (!isLoopbackDatabase(restoreUrl)) {
+
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const recoveryManifest = manifest.recoveryMode === true || manifest.sourceLedgerMode === "skipped";
+const enforceRecovery = recoveryRequested || recoveryManifest;
+if (enforceRecovery && !explicitManifest) {
+  console.error("[db:restore:test] recovery restore requires --file=<exact manifest path>");
+  process.exit(1);
+}
+if (recoveryRequested && manifest.recoveryMode !== true) {
+  console.error("[db:restore:test] --recovery requires a manifest created in recovery mode");
+  process.exit(1);
+}
+if (enforceRecovery && !isLoopbackDatabase(restoreUrl)) {
   console.error("[db:restore:test] recovery restore target must be loopback/disposable");
   process.exit(1);
 }
-
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 if (!manifest.dumpFile || !existsSync(manifest.dumpFile)) {
   console.error("[db:restore:test] dump file missing");
   process.exit(1);
 }
-if (manifest.databaseFingerprint && manifest.databaseFingerprint !== sourceFingerprint) {
+if (!manifest.databaseFingerprint || manifest.databaseFingerprint !== sourceFingerprint) {
   console.error("[db:restore:test] manifest database fingerprint does not match DATABASE_URL");
   process.exit(1);
 }
@@ -60,12 +77,8 @@ if (!manifest.sha256 || hash !== manifest.sha256) {
   console.error("[db:restore:test] dump sha256 mismatch");
   process.exit(1);
 }
-
-const sourceHost = new URL(sourceUrl).hostname.toLowerCase();
-const sourceIsRemote = !["localhost", "127.0.0.1", "::1"].includes(sourceHost);
-const prodLike = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || process.env.AXTASK_PRODUCTION === "true" || sourceIsRemote;
-if (prodLike && manifest.sourceLedgerMode !== "skipped") {
-  console.error("[db:restore:test] production recovery manifest must prove sourceLedgerMode=skipped");
+if (enforceRecovery && manifest.sourceLedgerMode !== "skipped") {
+  console.error("[db:restore:test] recovery manifest must prove sourceLedgerMode=skipped");
   process.exit(1);
 }
 

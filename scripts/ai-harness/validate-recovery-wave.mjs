@@ -47,6 +47,7 @@ try {
   const wave = read("docs/DB_RECOVERY_SUBPART_WAVE.md");
   const backup = read("scripts/db/backup.mjs");
   const preflight = read("scripts/db/preflight-backup.mjs");
+  const restore = read("scripts/db/restore-test.mjs");
 
   const r3 = block(queue, "AXQ-003");
   const r4 = block(queue, "AXQ-004");
@@ -80,16 +81,23 @@ try {
   requireText(wave, "Sub-Part Agent B — R7 local certification", "sub-part wave");
   requireText(wave, "Sub-Part Agent C — R1.5 evidence preservation", "sub-part wave");
   requireText(wave, "Sub-Part Agent D — R2 containment", "sub-part wave");
+  requireText(wave, 'AXTASK_BACKUP_MANIFEST=', "sub-part R3 exact-manifest handoff");
+  requireText(wave, 'npm run db:restore:test -- --recovery --file="<exact manifest path>"', "sub-part R3 restore command");
   requireText(wave, "R1.5 preservation complete", "sub-part convergence");
   requireText(wave, "R3 raw backup + disposable restore complete", "sub-part convergence");
   requireText(wave, "R2 containment origin-active", "sub-part convergence");
 
   requireText(backup, 'process.argv.includes("--no-ledger")', "backup tool");
+  requireText(backup, 'recoveryMode = noLedger', "backup recovery mode");
   requireText(backup, 'sourceLedgerMode: noLedger ? "skipped" : "attempted"', "backup manifest");
   requireText(backup, "source ledger skipped (--no-ledger)", "backup tool");
   requireText(preflight, 'process.argv.includes("--no-ledger")', "backup preflight");
   requireText(preflight, '["--no-ledger"]', "backup preflight forwarding");
+  requireText(preflight, 'AXTASK_BACKUP_MANIFEST=', "backup preflight exact-manifest output");
   requireText(preflight, 'manifest.sourceLedgerMode !== "skipped"', "backup preflight proof");
+  requireText(restore, 'process.argv.includes("--recovery")', "restore recovery gate");
+  requireText(restore, 'recovery restore requires --file=<exact manifest path>', "restore exact-manifest gate");
+  requireText(restore, '!manifest.databaseFingerprint || manifest.databaseFingerprint !== sourceFingerprint', "restore source binding");
 } catch (err) {
   errors.push(err.message);
 }

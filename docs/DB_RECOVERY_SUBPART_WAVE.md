@@ -55,14 +55,15 @@ Then run exactly:
 
 ```bash
 npm run db:backup:preflight -- --no-ledger
-npm run db:restore:test
+# Preserve the exact final AXTASK_BACKUP_MANIFEST=<path> value from this run.
+npm run db:restore:test -- --recovery --file="<exact manifest path>"
 ```
 
-`db:backup:preflight` validates source/restore separation, local protected-storage configuration and writability, PostgreSQL client availability, source DB connectivity/size, disposable restore connectivity, and free-space capacity **before** it starts the dump. It already creates one dump, writes its manifest directly under `BACKUP_LOCAL_DIR`, and verifies the dump SHA-256. Do **not** run `npm run db:backup` again after it; that would create an unnecessary second dump.
+`db:backup:preflight` treats `--no-ledger` as the explicit R3 recovery mode regardless of source hostname. It validates source/restore separation, local protected-storage configuration and writability, PostgreSQL client availability, source DB connectivity/size, disposable restore connectivity, and free-space capacity **before** it starts the dump. It creates one dump, writes its manifest directly under `BACKUP_LOCAL_DIR`, verifies the dump SHA-256, and prints `AXTASK_BACKUP_MANIFEST=<exact manifest path>`. Do **not** run `npm run db:backup` again after it; that would create an unnecessary second dump.
 
-`db:restore:test` rechecks source/restore separation, requires a loopback restore target for recovery, verifies the dump hash and source fingerprint, performs the destructive restore only against that disposable target, verifies schema, and records `restoreTestedAt`.
+`db:restore:test -- --recovery` requires that exact manifest path, rechecks source/restore separation, requires a loopback restore target, requires the manifest's source fingerprint and source-ledger skip, verifies the dump hash, performs the destructive restore only against that disposable target, verifies schema, and records `restoreTestedAt`.
 
-**Completion proof:** protected dump + manifest, manifest `storageTarget: "local"`, manifest `sourceLedgerMode: "skipped"`, matching SHA-256, and `restoreTestedAt` populated after successful disposable restore.
+**Completion proof:** the exact protected dump + manifest emitted by preflight, manifest `storageTarget: "local"`, manifest `sourceLedgerMode: "skipped"`, matching source fingerprint/SHA-256, and `restoreTestedAt` populated after successful disposable restore.
 
 ## Sub-Part Agent B — R7 local certification
 

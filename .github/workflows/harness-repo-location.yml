@@ -48,6 +48,9 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $Scratch=Join-Path $env:RUNNER_TEMP 'operator-preflight-not-a-repo\AxTask'
+          $RelativeArtifact='scripts\ai-harness\resolve-checkout.mjs'
+          $WorkspaceArtifact=Join-Path $env:GITHUB_WORKSPACE $RelativeArtifact
+          $RecoveredWorktree=$null
           New-Item -ItemType Directory -Force -Path $Scratch | Out-Null
           Push-Location $Scratch
           try {
@@ -61,11 +64,30 @@ jobs:
             if([IO.Path]::GetFullPath($Result.selected) -ne [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
               throw "operator preflight resolved unexpected selected checkout: $($Result.selected)"
             }
-            $Artifact=Join-Path $Result.selected 'scripts\ai-harness\resolve-checkout.mjs'
-            if(-not (Test-Path -LiteralPath $Artifact -PathType Leaf)){ throw 'selected checkout does not contain tracked resolver' }
+            if(-not (Test-Path -LiteralPath (Join-Path $Result.selected $RelativeArtifact) -PathType Leaf)){
+              throw 'selected checkout does not materialize tracked resolver'
+            }
+
+            Remove-Item -LiteralPath $WorkspaceArtifact -Force
+            $RawDirty=& "$env:GITHUB_WORKSPACE\scripts\ai-harness\operator-preflight.ps1" -SearchRoot $SearchRoot -Fetch -EnsureArtifactWorktree -Json
+            $DirtyResult=($RawDirty -join "`n") | ConvertFrom-Json
+            if(-not $DirtyResult.ok -or -not $DirtyResult.requiredArtifactAvailable){ throw 'dirty-checkout recovery did not produce usable artifact proof' }
+            if([IO.Path]::GetFullPath($DirtyResult.selected) -eq [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
+              throw 'deleted materialized artifact was incorrectly accepted from dirty checkout'
+            }
+            if(-not (Test-Path -LiteralPath (Join-Path $DirtyResult.selected $RelativeArtifact) -PathType Leaf)){
+              throw 'exact-SHA recovery worktree does not materialize resolver'
+            }
+            $RecoveredWorktree=$DirtyResult.selected
           }
           finally {
             Pop-Location
+            & git -C $env:GITHUB_WORKSPACE restore -- $RelativeArtifact
+            if($LASTEXITCODE -ne 0){ throw 'failed to restore CI fixture artifact' }
+            if($RecoveredWorktree -and (Test-Path -LiteralPath $RecoveredWorktree -PathType Container)){
+              & git -C $env:GITHUB_WORKSPACE worktree remove --force $RecoveredWorktree
+              if($LASTEXITCODE -ne 0){ throw 'failed to remove CI exact-SHA fixture worktree' }
+            }
           }
 
       - name: Check diff whitespace

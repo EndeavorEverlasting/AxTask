@@ -3,11 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
-/**
- * Return a stable, non-secret fingerprint for the database target represented
- * by a PostgreSQL URL. Passwords, query parameters, and other credentials are
- * deliberately excluded.
- */
+/** Return a stable, non-secret fingerprint for a PostgreSQL target. */
 export function databaseTargetFingerprint(databaseUrl) {
   const parsed = new URL(databaseUrl);
   const port = parsed.port || "5432";
@@ -16,10 +12,7 @@ export function databaseTargetFingerprint(databaseUrl) {
   return createHash("sha256").update(identity, "utf8").digest("hex");
 }
 
-/**
- * Resolve the local backup root. BACKUP_STORAGE_TARGET selects the backend;
- * BACKUP_LOCAL_DIR is the actual filesystem location for the local backend.
- */
+/** Resolve the configured local-backup root without treating the selector as a path. */
 export function resolveBackupStorageRoot({ cwd = process.cwd(), env = process.env } = {}) {
   const configured = String(env.BACKUP_LOCAL_DIR ?? "").trim();
   return configured ? path.resolve(cwd, configured) : path.resolve(cwd, ".backups");
@@ -29,9 +22,7 @@ export function backupDbRoot(options = {}) {
   return path.join(resolveBackupStorageRoot(options), "db");
 }
 
-/**
- * Run pg_dump / pg_restore. On Windows, shell is required so PATH .cmd shims resolve.
- */
+/** Run pg_dump / pg_restore; Windows PATH shims need shell fallback. */
 export function runPgTool(tool, args, opts = {}) {
   const isWin = process.platform === "win32";
   if (isWin) {
@@ -40,15 +31,13 @@ export function runPgTool(tool, args, opts = {}) {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .find((line) => line.toLowerCase().endsWith(".exe"));
-    if (resolved) {
-      return spawnSync(resolved, args, { stdio: "inherit", ...opts });
-    }
+    if (resolved) return spawnSync(resolved, args, { stdio: "inherit", ...opts });
     return spawnSync(tool, args, { stdio: "inherit", shell: true, ...opts });
   }
   return spawnSync(tool, args, { stdio: "inherit", ...opts });
 }
 
-/** Newest db backup manifest under the configured backup DB root by mtime (no bash dependency). */
+/** Newest db manifest for generic airlock callers; recovery must bind an explicit path. */
 export function latestDbManifest(root = backupDbRoot()) {
   if (!existsSync(root)) return null;
   const manifests = [];
@@ -63,4 +52,11 @@ export function latestDbManifest(root = backupDbRoot()) {
   }
   manifests.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return manifests[0]?.full ?? null;
+}
+
+/** Recovery restores require the exact manifest path produced by their preflight run. */
+export function resolveRestoreManifest({ explicitPath = null, recoveryMode = false, latestPath } = {}) {
+  if (explicitPath) return explicitPath;
+  if (recoveryMode) throw new Error("recovery restore requires --file=<exact manifest path>");
+  return latestPath === undefined ? latestDbManifest() : latestPath;
 }

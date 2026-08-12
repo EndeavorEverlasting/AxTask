@@ -9,11 +9,31 @@ import { backupDbRoot, databaseTargetFingerprint, resolveBackupStorageRoot, runP
 
 const pg = pgModule.default || pgModule;
 const noLedger = process.argv.includes("--no-ledger");
+const recoveryMode = noLedger;
+const manifestResultPath = process.argv.find((arg) => arg.startsWith("--manifest-result="))?.slice("--manifest-result=".length) || null;
 
 function requireDatabaseUrl() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
   return url;
+}
+
+function assertRecoveryStorage(cwd = process.cwd()) {
+  if (!recoveryMode) return;
+  const target = String(process.env.BACKUP_STORAGE_TARGET ?? "").trim().toLowerCase();
+  const configured = String(process.env.BACKUP_LOCAL_DIR ?? "").trim();
+  if (target !== "local") throw new Error("--no-ledger recovery backup requires BACKUP_STORAGE_TARGET=local");
+  if (!configured || !path.isAbsolute(configured)) {
+    throw new Error("--no-ledger recovery backup requires an absolute BACKUP_LOCAL_DIR");
+  }
+  const root = resolveBackupStorageRoot({ cwd, env: process.env });
+  const relative = path.relative(path.resolve(cwd), root);
+  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+    throw new Error("--no-ledger recovery BACKUP_LOCAL_DIR must be outside the repository checkout");
+  }
+  if (!existsSync(root) || !statSync(root).isDirectory()) {
+    throw new Error("--no-ledger recovery BACKUP_LOCAL_DIR must already exist");
+  }
 }
 
 function maskDb(url) {
@@ -77,6 +97,7 @@ async function writeLedger(manifest) {
 
 async function main() {
   const databaseUrl = requireDatabaseUrl();
+  assertRecoveryStorage();
   const { day, stamp } = nowParts();
   const storageRoot = resolveBackupStorageRoot();
   const base = path.join(backupDbRoot(), day);
@@ -102,6 +123,7 @@ async function main() {
     ...masked,
     databaseFingerprint: databaseTargetFingerprint(databaseUrl),
     gitCommit,
+    recoveryMode,
     storageTarget: String(process.env.BACKUP_STORAGE_TARGET || "local").trim().toLowerCase() || "local",
     storageRoot,
     dumpFile,
@@ -113,6 +135,11 @@ async function main() {
   };
   writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   if (!existsSync(manifestFile)) throw new Error("manifest missing");
+
+  if (manifestResultPath) {
+    const pointer = path.resolve(manifestResultPath);
+    writeFileSync(pointer, `${manifestFile}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  }
 
   if (noLedger) {
     console.log("[db:backup] source ledger skipped (--no-ledger)");

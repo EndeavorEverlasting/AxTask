@@ -69,6 +69,23 @@ function Test-ArtifactAtRef([string]$Checkout, [string]$Ref, [string]$Artifact) 
   return ($probe.Status -eq 0)
 }
 
+function Test-MaterializedArtifact([string]$Checkout, [string]$Artifact) {
+  if ([string]::IsNullOrWhiteSpace($Checkout) -or [string]::IsNullOrWhiteSpace($Artifact)) { return $false }
+  try {
+    $root = [IO.Path]::GetFullPath($Checkout)
+    $candidate = [IO.Path]::GetFullPath((Join-Path $root $Artifact))
+    $prefix = $root.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $candidate.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { return $false }
+    return (Test-Path -LiteralPath $candidate -PathType Leaf)
+  } catch {
+    return $false
+  }
+}
+
+function Test-UsableArtifact([string]$Checkout, [string]$Ref, [string]$Artifact) {
+  return (Test-ArtifactAtRef $Checkout $Ref $Artifact) -and (Test-MaterializedArtifact $Checkout $Artifact)
+}
+
 function Add-Candidate([System.Collections.Generic.List[string]]$List, [System.Collections.Generic.HashSet[string]]$Seen, [string]$Path) {
   if ([string]::IsNullOrWhiteSpace($Path)) { return }
   try { $full = [IO.Path]::GetFullPath($Path) } catch { return }
@@ -149,18 +166,18 @@ if ($Fetch) {
 }
 
 $selected = $primary
-$artifactAvailable = Test-ArtifactAtRef $selected.root 'HEAD' $RequiredArtifact
+$artifactAvailable = Test-UsableArtifact $selected.root 'HEAD' $RequiredArtifact
 $exactShaWorktreeCreated = $false
 
 if ($EnsureArtifactWorktree -and -not $artifactAvailable) {
   if ([string]::IsNullOrWhiteSpace($originMain)) {
-    throw 'The selected checkout is stale and no fetched origin/main SHA is available.'
+    throw 'The selected checkout is stale or does not materialize the required artifact, and no fetched origin/main SHA is available.'
   }
   if (-not (Test-ArtifactAtRef $primary.root $originMain $RequiredArtifact)) {
     throw "Required artifact '$RequiredArtifact' is absent from both selected HEAD and fetched origin/main."
   }
 
-  $existingExact = @($found | Where-Object { $_.head -eq $originMain -and (Test-ArtifactAtRef $_.root 'HEAD' $RequiredArtifact) })
+  $existingExact = @($found | Where-Object { $_.head -eq $originMain -and (Test-UsableArtifact $_.root 'HEAD' $RequiredArtifact) })
   if ($existingExact.Count -gt 0) {
     $selected = $existingExact[0]
   } else {
@@ -174,8 +191,8 @@ if ($EnsureArtifactWorktree -and -not $artifactAvailable) {
     $found += $selected
     $exactShaWorktreeCreated = $true
   }
-  $artifactAvailable = Test-ArtifactAtRef $selected.root 'HEAD' $RequiredArtifact
-  if (-not $artifactAvailable) { throw 'Exact-SHA worktree does not contain the required tracked artifact.' }
+  $artifactAvailable = Test-UsableArtifact $selected.root 'HEAD' $RequiredArtifact
+  if (-not $artifactAvailable) { throw 'Exact-SHA worktree does not materialize the required tracked artifact.' }
 }
 
 $trackedResolver = Join-Path $selected.root 'scripts\ai-harness\resolve-checkout.mjs'
