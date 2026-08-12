@@ -1,6 +1,8 @@
 param(
   [string[]]$SearchRoot = @(),
   [switch]$Fetch,
+  [switch]$EnsureArtifactWorktree,
+  [string]$RequiredArtifact = 'scripts/ai-harness/resolve-checkout.mjs',
   [switch]$Json
 )
 
@@ -22,10 +24,6 @@ function Test-CanonicalOrigin([string]$Origin) {
 }
 
 function Invoke-GitCapture([string]$Path, [string[]]$GitArgs) {
-  # Candidate probing expects Git exit 128 for ordinary non-repository paths.
-  # Windows PowerShell 5.1 can promote native stderr to a terminating error when
-  # ErrorActionPreference is Stop. Temporarily relax only this bounded probe and
-  # classify the result from LASTEXITCODE; restore caller preferences immediately.
   $savedErrorPreference = $ErrorActionPreference
   $nativeVar = Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
   $savedNativePreference = if ($null -ne $nativeVar) { $PSNativeCommandUseErrorActionPreference } else { $null }
@@ -65,6 +63,29 @@ function Probe-Checkout([string]$Candidate) {
   }
 }
 
+function Test-ArtifactAtRef([string]$Checkout, [string]$Ref, [string]$Artifact) {
+  if ([string]::IsNullOrWhiteSpace($Checkout) -or [string]::IsNullOrWhiteSpace($Ref) -or [string]::IsNullOrWhiteSpace($Artifact)) { return $false }
+  $probe = Invoke-GitCapture $Checkout @('cat-file','-e',("{0}:{1}" -f $Ref,$Artifact))
+  return ($probe.Status -eq 0)
+}
+
+function Test-MaterializedArtifact([string]$Checkout, [string]$Artifact) {
+  if ([string]::IsNullOrWhiteSpace($Checkout) -or [string]::IsNullOrWhiteSpace($Artifact)) { return $false }
+  try {
+    $root = [IO.Path]::GetFullPath($Checkout)
+    $candidate = [IO.Path]::GetFullPath((Join-Path $root $Artifact))
+    $prefix = $root.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not $candidate.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { return $false }
+    return (Test-Path -LiteralPath $candidate -PathType Leaf)
+  } catch {
+    return $false
+  }
+}
+
+function Test-UsableArtifact([string]$Checkout, [string]$Ref, [string]$Artifact) {
+  return (Test-ArtifactAtRef $Checkout $Ref $Artifact) -and (Test-MaterializedArtifact $Checkout $Artifact)
+}
+
 function Add-Candidate([System.Collections.Generic.List[string]]$List, [System.Collections.Generic.HashSet[string]]$Seen, [string]$Path) {
   if ([string]::IsNullOrWhiteSpace($Path)) { return }
   try { $full = [IO.Path]::GetFullPath($Path) } catch { return }
@@ -73,6 +94,9 @@ function Add-Candidate([System.Collections.Generic.List[string]]$List, [System.C
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
   throw 'Git is required to resolve the AxTask checkout.'
+}
+if ($EnsureArtifactWorktree -and -not $Fetch) {
+  throw '-EnsureArtifactWorktree requires -Fetch so the intended origin/main SHA is explicit.'
 }
 
 $homeDir = [Environment]::GetFolderPath('UserProfile')
@@ -141,22 +165,63 @@ if ($Fetch) {
   $originMain = [string]$remote.Output[0]
 }
 
-$trackedResolver = Join-Path $primary.root 'scripts\ai-harness\resolve-checkout.mjs'
+$selected = $primary
+$artifactAvailable = Test-UsableArtifact $selected.root 'HEAD' $RequiredArtifact
+$exactShaWorktreeCreated = $false
+
+if ($EnsureArtifactWorktree -and -not $artifactAvailable) {
+  if ([string]::IsNullOrWhiteSpace($originMain)) {
+    throw 'The selected checkout is stale or does not materialize the required artifact, and no fetched origin/main SHA is available.'
+  }
+  if (-not (Test-ArtifactAtRef $primary.root $originMain $RequiredArtifact)) {
+    throw "Required artifact '$RequiredArtifact' is absent from both selected HEAD and fetched origin/main."
+  }
+
+  $existingExact = @($found | Where-Object { $_.head -eq $originMain -and (Test-UsableArtifact $_.root 'HEAD' $RequiredArtifact) })
+  if ($existingExact.Count -gt 0) {
+    $selected = $existingExact[0]
+  } else {
+    $parent = Split-Path -Parent $primary.root
+    $suffix = [guid]::NewGuid().ToString('N').Substring(0,8)
+    $worktree = Join-Path $parent ("AxTask-harness-{0}-{1}" -f $originMain.Substring(0,8),$suffix)
+    # Contract marker: git worktree add --detach is executed through the capture helper so -Json stays parseable.
+    $worktreeAdd = Invoke-GitCapture $primary.root @('worktree','add','--detach',$worktree,$originMain)
+    if ($worktreeAdd.Status -ne 0) { throw "Exact-SHA worktree creation failed with exit code $($worktreeAdd.Status)" }
+    $selected = Probe-Checkout $worktree
+    if ($null -eq $selected) { throw 'Exact-SHA worktree was created but could not be re-probed as canonical AxTask.' }
+    $found += $selected
+    $exactShaWorktreeCreated = $true
+  }
+  $artifactAvailable = Test-UsableArtifact $selected.root 'HEAD' $RequiredArtifact
+  if (-not $artifactAvailable) { throw 'Exact-SHA worktree does not materialize the required tracked artifact.' }
+}
+
+$trackedResolver = Join-Path $selected.root 'scripts\ai-harness\resolve-checkout.mjs'
 $trackedResolverAvailable = Test-Path -LiteralPath $trackedResolver -PathType Leaf
+$nextAction = if ($artifactAvailable) {
+  "Set-Location -LiteralPath '$($selected.root)'"
+} else {
+  "Re-run this bootstrap with -Fetch -EnsureArtifactWorktree -Json before invoking '$RequiredArtifact'."
+}
+
 $result = [ordered]@{
   ok = $true
   repository = $ExpectedRepository
   current = (Get-Location).Path
   primary = $primary.root
-  head = $primary.head
-  branch = $primary.branch
-  dirty = ($primary.status.Count -gt 0)
-  status = @($primary.status)
+  selected = $selected.root
+  head = $selected.head
+  branch = $selected.branch
+  dirty = ($selected.status.Count -gt 0)
+  status = @($selected.status)
   fetch = $fetchStatus
   originMain = $originMain
   discoveredCheckouts = @($found | ForEach-Object { $_.root })
+  requiredArtifact = $RequiredArtifact
+  requiredArtifactAvailable = $artifactAvailable
+  exactShaWorktreeCreated = $exactShaWorktreeCreated
   trackedResolver = if ($trackedResolverAvailable) { $trackedResolver } else { $null }
-  nextAction = "Set-Location -LiteralPath '$($primary.root)'"
+  nextAction = $nextAction
 }
 
 if ($Json) {
@@ -164,14 +229,16 @@ if ($Json) {
   return
 }
 
-$trackedResolverDisplay = if ($result.trackedResolver) { $result.trackedResolver } else { '(not present in this checkout)' }
+$trackedResolverDisplay = if ($result.trackedResolver) { $result.trackedResolver } else { '(not present in selected checkout)' }
 Write-Host "[axtask-operator-preflight] PASS repository=$ExpectedRepository"
 Write-Host "current=$($result.current)"
 Write-Host "primary=$($result.primary)"
+Write-Host "selected=$($result.selected)"
 Write-Host "head=$($result.head)"
 Write-Host "branch=$($result.branch)"
 Write-Host "dirty=$($result.dirty)"
 if ($Fetch) { Write-Host "origin/main=$($result.originMain)" }
+Write-Host "requiredArtifactAvailable=$($result.requiredArtifactAvailable)"
 Write-Host "trackedResolver=$trackedResolverDisplay"
 Write-Host "next=$($result.nextAction)"
 

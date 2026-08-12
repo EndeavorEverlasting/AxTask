@@ -5,15 +5,47 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import pgModule from "pg";
-import { databaseTargetFingerprint, runPgTool } from "./pg-tools.mjs";
+import {
+  backupDbRoot,
+  databaseTargetFingerprint,
+  ensureRecoveryBackupDirectory,
+  resolveBackupStorageRoot,
+  resolveRecoveryBackupStorageRoot,
+  runPgTool,
+} from "./pg-tools.mjs";
 
 const pg = pgModule.default || pgModule;
 const noLedger = process.argv.includes("--no-ledger");
+const recoveryMode = noLedger;
+const manifestResultPath = process.argv.find((arg) => arg.startsWith("--manifest-result="))?.slice("--manifest-result=".length) || null;
 
 function requireDatabaseUrl() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required");
   return url;
+}
+
+function assertRecoveryStorage(cwd = process.cwd()) {
+  if (!recoveryMode) return null;
+  const target = String(process.env.BACKUP_STORAGE_TARGET ?? "").trim().toLowerCase();
+  const configured = String(process.env.BACKUP_LOCAL_DIR ?? "").trim();
+  if (target !== "local") throw new Error("--no-ledger recovery backup requires BACKUP_STORAGE_TARGET=local");
+  if (!configured || !path.isAbsolute(configured)) {
+    throw new Error("--no-ledger recovery backup requires an absolute BACKUP_LOCAL_DIR");
+  }
+  return resolveRecoveryBackupStorageRoot({ cwd, env: process.env });
+}
+
+function runRecoveryPrerequisiteGate(cwd = process.cwd()) {
+  if (!recoveryMode) return;
+  const gate = spawnSync(
+    process.execPath,
+    ["scripts/db/preflight-backup.mjs", "--no-ledger", "--validate-only"],
+    { cwd, stdio: "inherit", env: process.env },
+  );
+  if (gate.error || gate.status !== 0) {
+    throw new Error(`recovery prerequisite gate failed with exit code ${gate.status ?? 1}`);
+  }
 }
 
 function maskDb(url) {
@@ -77,9 +109,12 @@ async function writeLedger(manifest) {
 
 async function main() {
   const databaseUrl = requireDatabaseUrl();
+  runRecoveryPrerequisiteGate();
+  const recoveryStorageRoot = assertRecoveryStorage();
   const { day, stamp } = nowParts();
-  const base = path.resolve(process.cwd(), ".backups", "db", day);
-  mkdirSync(base, { recursive: true });
+  const storageRoot = recoveryStorageRoot ?? resolveBackupStorageRoot();
+  const base = recoveryMode ? ensureRecoveryBackupDirectory(storageRoot, day) : path.join(backupDbRoot(), day);
+  if (!recoveryMode) mkdirSync(base, { recursive: true });
   const fileBase = `axtask-db-${stamp}`;
   const dumpFile = path.join(base, `${fileBase}.dump`);
   const manifestFile = path.join(base, `${fileBase}.manifest.json`);
@@ -101,6 +136,9 @@ async function main() {
     ...masked,
     databaseFingerprint: databaseTargetFingerprint(databaseUrl),
     gitCommit,
+    recoveryMode,
+    storageTarget: String(process.env.BACKUP_STORAGE_TARGET || "local").trim().toLowerCase() || "local",
+    storageRoot,
     dumpFile,
     sha256,
     byteSize: statSync(dumpFile).size,
@@ -110,6 +148,11 @@ async function main() {
   };
   writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   if (!existsSync(manifestFile)) throw new Error("manifest missing");
+
+  if (manifestResultPath) {
+    const pointer = path.resolve(manifestResultPath);
+    writeFileSync(pointer, `${manifestFile}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  }
 
   if (noLedger) {
     console.log("[db:backup] source ledger skipped (--no-ledger)");
