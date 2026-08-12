@@ -41,12 +41,14 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
 
   const workflowPath = ".ai/workflows/local-deployment-certification.md";
   const skillPath = ".ai/skills/runtime-proof.md";
+  const localCertSkillPath = ".ai/skills/local-deployment-certification.md";
   const schemaPath = ".ai/runtime-proof.schema.json";
   const proofValidatorPath = "scripts/ai-harness/validate-runtime-proof.mjs";
   const harnessValidatorPath = "scripts/ai-harness/validate-local-cert-harness.mjs";
+  const sessionSafeRunnerPath = "scripts/ai-harness/run-r7-local-cert.ps1";
   const contractTestPath = "server/ai-harness/local-production-certification-contract.test.ts";
 
-  for (const requiredPath of [workflowPath, skillPath, schemaPath, proofValidatorPath, harnessValidatorPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
+  for (const requiredPath of [workflowPath, skillPath, localCertSkillPath, schemaPath, proofValidatorPath, harnessValidatorPath, sessionSafeRunnerPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
     if (!fs.existsSync(path.join(rootDir, requiredPath))) errors.push(`local-cert harness missing tracked dependency: ${requiredPath}`);
   }
 
@@ -54,8 +56,10 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
     "local-cert": workflowPath,
     "runtime-proof": schemaPath,
     "runtime-proof-skill": skillPath,
+    "local-certification-skill": localCertSkillPath,
     "runtime-proof-validator": proofValidatorPath,
     "local-cert-harness-validator": harnessValidatorPath,
+    "r7-session-safe-runner": sessionSafeRunnerPath,
     "local-cert-contract-test": contractTestPath,
   };
 
@@ -68,12 +72,18 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
         errors.push(`.ai/harness.json: component ${id} must point to ${expectedPath}`);
       }
     }
+    if (!(harness.skills ?? []).includes("axtask.skill.local-deployment-certification.v1")) {
+      errors.push(".ai/harness.json: missing axtask.skill.local-deployment-certification.v1");
+    }
   }
 
   if (map) {
     const commandIds = new Set((map.commands ?? []).map((item) => item?.id));
-    for (const id of ["local-certification", "runtime-proof-validate", "local-cert-harness-validate"]) {
+    for (const id of ["local-certification", "r7-session-safe", "runtime-proof-validate", "local-cert-harness-validate"]) {
       if (!commandIds.has(id)) errors.push(`.ai/codebase-map.json: missing local-cert command ${id}`);
+    }
+    if (!(map.knownTraps ?? []).some((item) => typeof item === "string" && item.includes("process-isolated") && item.includes("environment variables"))) {
+      errors.push(".ai/codebase-map.json: knownTraps must cover process-isolated shell environment loss");
     }
   }
 
@@ -98,16 +108,29 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   }
 
   const workflowText = readText(rootDir, workflowPath, errors);
-  for (const heading of ["## Use when", "## Required inputs", "## Command", "## Steps", "## Required assertions", "## Stop conditions", "## Evidence boundary", "## Proof ceiling"]) {
+  for (const heading of ["## Use when", "## Required inputs", "## Command", "## Steps", "## Required assertions", "## Known traps", "## Stop conditions", "## Evidence boundary", "## Proof ceiling"]) {
     if (!workflowText.includes(heading)) errors.push(`${workflowPath}: missing ${heading}`);
   }
-  for (const marker of [".ai/runs/<run-id>/runtime-proof.json", ".ai/runs/<run-id>/local-cert-report.md", "validate-runtime-proof.mjs"]) {
-    if (!workflowText.includes(marker)) errors.push(`${workflowPath}: missing artifact/validator marker ${marker}`);
+  for (const marker of ["run-r7-local-cert.ps1", "same process", ".ai/runs/<run-id>/runtime-proof.json", ".ai/runs/<run-id>/local-cert-report.md", "validate-runtime-proof.mjs", "axtask.skill.local-deployment-certification.v1"]) {
+    if (!workflowText.includes(marker)) errors.push(`${workflowPath}: missing artifact/session-safety marker ${marker}`);
   }
 
   const skillText = readText(rootDir, skillPath, errors);
   for (const marker of ["axtask.skill.runtime-proof.v1", ".ai/runtime-proof.schema.json", "proofCeiling", "deploymentId"]) {
     if (!skillText.includes(marker)) errors.push(`${skillPath}: missing runtime-proof marker ${marker}`);
+  }
+
+  const localCertSkillText = readText(rootDir, localCertSkillPath, errors);
+  for (const marker of ["axtask.skill.local-deployment-certification.v1", "run-r7-local-cert.ps1", "process-isolated", "DATABASE_URL", "AXTASK_LOCAL_CERT", "runtime-proof.json", "local-runtime"]) {
+    if (!localCertSkillText.includes(marker)) errors.push(`${localCertSkillPath}: missing local-cert skill marker ${marker}`);
+  }
+
+  const runnerText = readText(rootDir, sessionSafeRunnerPath, errors);
+  for (const marker of ["postgres:16-alpine", "docker run", "POSTGRES_DB", "AXTASK_LOCAL_CERT", "DATABASE_URL", "run-local-cert.mjs", "validate-runtime-proof.mjs", "test:deploy", "npm", "docker rm -f", "R7_RUNTIME_PROOF", "R7_PROOF_CEILING=local-runtime"]) {
+    if (!runnerText.includes(marker)) errors.push(`${sessionSafeRunnerPath}: missing session-safe runner marker ${marker}`);
+  }
+  if (/Write-(Host|Output).*DATABASE_URL/i.test(runnerText)) {
+    errors.push(`${sessionSafeRunnerPath}: must not print DATABASE_URL`);
   }
 
   const prePush = readText(rootDir, ".githooks/pre-push", errors);

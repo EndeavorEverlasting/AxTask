@@ -1,0 +1,165 @@
+[CmdletBinding()]
+param(
+  [string]$CandidateSha = "",
+  [string]$PostgresImage = "postgres:16-alpine"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Invoke-Checked {
+  param(
+    [Parameter(Mandatory = $true)][string]$Command,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  & $Command @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label failed with exit code $LASTEXITCODE"
+  }
+}
+
+function Save-EnvironmentValue {
+  param([string]$Name)
+  $value = [Environment]::GetEnvironmentVariable($Name, 'Process')
+  [pscustomobject]@{ Name = $Name; HadValue = $null -ne $value; Value = $value }
+}
+
+function Restore-EnvironmentValue {
+  param($Snapshot)
+  if ($Snapshot.HadValue) {
+    [Environment]::SetEnvironmentVariable($Snapshot.Name, $Snapshot.Value, 'Process')
+  } else {
+    [Environment]::SetEnvironmentVariable($Snapshot.Name, $null, 'Process')
+  }
+}
+
+foreach ($required in @('git', 'node', 'npm', 'docker')) {
+  if (-not (Get-Command $required -ErrorAction SilentlyContinue)) {
+    throw "R7 session-safe runner requires '$required' on PATH."
+  }
+}
+
+$repoRoot = (& git rev-parse --show-toplevel 2>$null).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
+  throw 'R7 session-safe runner must start from an AxTask Git worktree.'
+}
+Set-Location -LiteralPath $repoRoot
+
+$head = (& git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) {
+  throw 'Unable to resolve candidate HEAD.'
+}
+if (-not [string]::IsNullOrWhiteSpace($CandidateSha) -and $head -ne $CandidateSha) {
+  throw "Candidate SHA mismatch. Expected $CandidateSha; found $head."
+}
+
+$trackedDirty = @(& git status --porcelain --untracked-files=no)
+if ($LASTEXITCODE -ne 0) {
+  throw 'Unable to inspect candidate worktree state.'
+}
+if ($trackedDirty.Count -gt 0) {
+  throw 'R7 requires a clean tracked candidate worktree. Preserve unrelated work in another worktree first.'
+}
+
+& docker info *> $null
+if ($LASTEXITCODE -ne 0) {
+  throw 'Docker is installed but the Docker daemon is unavailable.'
+}
+
+$containerName = "axtask-r7-disposable-$((Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss'))-$PID"
+$dbUser = 'axtask_r7'
+$dbName = 'axtask_r7_test'
+$dbPassword = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
+$containerStarted = $false
+$envNames = @('DATABASE_URL', 'AXTASK_LOCAL_CERT', 'AXTASK_CANDIDATE_SHA', 'RENDER', 'AXTASK_PRODUCTION')
+$envSnapshot = @($envNames | ForEach-Object { Save-EnvironmentValue $_ })
+
+try {
+  $containerId = (& docker run --rm -d --name $containerName `
+    -e "POSTGRES_USER=$dbUser" `
+    -e "POSTGRES_PASSWORD=$dbPassword" `
+    -e "POSTGRES_DB=$dbName" `
+    -p '127.0.0.1::5432' `
+    $PostgresImage).Trim()
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
+    throw 'Failed to start disposable PostgreSQL container.'
+  }
+  $containerStarted = $true
+
+  $ready = $false
+  for ($attempt = 1; $attempt -le 60; $attempt++) {
+    & docker exec $containerName pg_isready -U $dbUser -d $dbName *> $null
+    if ($LASTEXITCODE -eq 0) {
+      $ready = $true
+      break
+    }
+    Start-Sleep -Seconds 1
+  }
+  if (-not $ready) {
+    throw 'Disposable PostgreSQL did not become ready within 60 seconds.'
+  }
+
+  $mapping = @(& docker port $containerName '5432/tcp') | Select-Object -First 1
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$mapping)) {
+    throw 'Unable to resolve disposable PostgreSQL host port.'
+  }
+  if ([string]$mapping -notmatch '127\.0\.0\.1:(\d+)$') {
+    throw "Unexpected disposable PostgreSQL port mapping: $mapping"
+  }
+  $hostPort = $Matches[1]
+
+  $env:DATABASE_URL = "postgresql://${dbUser}:${dbPassword}@127.0.0.1:${hostPort}/${dbName}"
+  $env:AXTASK_LOCAL_CERT = '1'
+  $env:AXTASK_CANDIDATE_SHA = $head
+  $env:RENDER = 'false'
+  $env:AXTASK_PRODUCTION = 'false'
+
+  Write-Host "PostgreSQL container $containerName ready on 127.0.0.1:$hostPort. Running R7 local certification."
+
+  $certOutput = @(& node scripts/deploy/run-local-cert.mjs 2>&1)
+  $certExit = $LASTEXITCODE
+  foreach ($line in $certOutput) { Write-Host ([string]$line) }
+
+  $proofLine = $certOutput | ForEach-Object { [string]$_ } | Where-Object { $_ -match '^\[local-cert\] proof:\s+(.+)$' } | Select-Object -Last 1
+  if (-not $proofLine -or $proofLine -notmatch '^\[local-cert\] proof:\s+(.+)$') {
+    throw 'Local certification did not emit its canonical runtime-proof path.'
+  }
+  $proofRelative = $Matches[1].Trim().Replace('/', [IO.Path]::DirectorySeparatorChar)
+  $proofPath = Join-Path $repoRoot $proofRelative
+  if (-not (Test-Path -LiteralPath $proofPath -PathType Leaf)) {
+    throw "Local certification emitted a missing runtime-proof artifact: $proofRelative"
+  }
+
+  Invoke-Checked -Command 'node' -Arguments @('scripts/ai-harness/validate-runtime-proof.mjs', $proofPath) -Label 'Runtime-proof validation'
+
+  if ($certExit -ne 0) {
+    throw "R7 local certification returned NO_GO. Preserve sanitized proof at $proofRelative and route through failure recovery."
+  }
+
+  Invoke-Checked -Command 'npm' -Arguments @('run', 'test:deploy') -Label 'Deployment validator suite'
+  Invoke-Checked -Command 'npm' -Arguments @('run', 'build') -Label 'Production build'
+
+  $reportPath = Join-Path (Split-Path -Parent $proofPath) 'local-cert-report.md'
+  if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+    throw 'R7 runtime proof passed but local-cert-report.md is missing.'
+  }
+
+  $proofDisplay = [IO.Path]::GetRelativePath($repoRoot, $proofPath).Replace('\', '/')
+  $reportDisplay = [IO.Path]::GetRelativePath($repoRoot, $reportPath).Replace('\', '/')
+
+  Write-Host ''
+  Write-Host '=== R7 PASS ==='
+  Write-Host "R7_CANDIDATE_SHA=$head"
+  Write-Host "R7_RUNTIME_PROOF=$proofDisplay"
+  Write-Host "R7_LOCAL_CERT_REPORT=$reportDisplay"
+  Write-Host 'R7_PROOF_CEILING=local-runtime'
+} finally {
+  foreach ($snapshot in $envSnapshot) { Restore-EnvironmentValue $snapshot }
+  if ($containerStarted) {
+    & docker rm -f $containerName *> $null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Disposable PostgreSQL cleanup failed for container $containerName. Remove it manually before handoff."
+    }
+  }
+}
