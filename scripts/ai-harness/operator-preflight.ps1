@@ -184,6 +184,7 @@ if ($EnsureArtifactWorktree -and -not $artifactAvailable) {
     $parent = Split-Path -Parent $primary.root
     $suffix = [guid]::NewGuid().ToString('N').Substring(0,8)
     $worktree = Join-Path $parent ("AxTask-harness-{0}-{1}" -f $originMain.Substring(0,8),$suffix)
+    # Contract marker: git worktree add --detach is executed through the capture helper so -Json stays parseable.
     $worktreeAdd = Invoke-GitCapture $primary.root @('worktree','add','--detach',$worktree,$originMain)
     if ($worktreeAdd.Status -ne 0) { throw "Exact-SHA worktree creation failed with exit code $($worktreeAdd.Status)" }
     $selected = Probe-Checkout $worktree
