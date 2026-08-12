@@ -6,26 +6,26 @@ This directory is the machine-readable operating layer for repository agents. Pr
 
 A folder name, editor title, or stale prompt is not repository identity. Do not continue chaining `git -C` commands from a null/empty path and do not run `git init` inside an occupied directory just to make the error disappear.
 
-From any proven AxTask checkout whose HEAD contains the resolver, run:
+From any proven AxTask checkout whose worktree contains the resolver, run:
 
 ```bash
 node scripts/ai-harness/resolve-checkout.mjs --json
 ```
 
-If no checkout path is known on Windows but GitHub access is available, bootstrap the tracked operator preflight into temporary tooling. The bootstrap proves canonical repository identity **and** required-artifact availability; if the first checkout is stale, the explicit artifact switch selects or creates a detached durable sibling worktree at fetched `origin/main` before returning an executable location:
+If no checkout path is known on Windows but GitHub access is available, bootstrap the reviewed operator preflight from immutable revision `698375dedc438167a11b4b38cc9730a07fb53c26`. The bootstrap proves canonical repository identity **and** required-artifact availability in the materialized worktree; if the first checkout is stale, sparse, or locally missing the artifact, the explicit artifact switch selects or creates a detached durable sibling worktree at fetched `origin/main` before returning an executable location:
 
 ```powershell
-$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/main/scripts/ai-harness/operator-preflight.ps1'
+$u='https://raw.githubusercontent.com/EndeavorEverlasting/AxTask/698375dedc438167a11b4b38cc9730a07fb53c26/scripts/ai-harness/operator-preflight.ps1'
 $t=Join-Path $env:TEMP 'axtask-operator-preflight.ps1'
 Invoke-WebRequest -UseBasicParsing $u -OutFile $t
 $raw=& $t -Fetch -EnsureArtifactWorktree -Json
 $r=($raw -join "`n") | ConvertFrom-Json
 if(-not $r.ok){ throw $r.error }
-if(-not $r.requiredArtifactAvailable){ throw "Required artifact unavailable: $($r.requiredArtifact)" }
+if(-not $r.requiredArtifactAvailable){ throw "Required artifact unavailable in selected worktree: $($r.requiredArtifact)" }
 Set-Location -LiteralPath $r.selected
 ```
 
-The temporary preflight script is disposable tooling, not a worktree and not a place for sprint state. `primary` is only the first canonical checkout discovered; use `selected` for tracked-artifact execution. If no canonical checkout exists, inspect the occupied expected path before deciding whether a fresh durable clone is safe. Full procedure: `.ai/workflows/repository-location-recovery.md`.
+The temporary preflight script is disposable tooling, not a worktree and not a place for sprint state. `primary` is only the first canonical checkout discovered; use `selected` for tracked-artifact execution. Mutable `main` is not executable bootstrap authority: the download above is pinned, while the bootstrap may fetch `origin/main` only to inspect/select the intended repository state. If no canonical checkout exists, inspect the occupied expected path before deciding whether a fresh durable clone is safe. Full procedure: `.ai/workflows/repository-location-recovery.md`.
 
 ## Start here
 
