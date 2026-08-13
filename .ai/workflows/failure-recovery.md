@@ -26,20 +26,22 @@ A registered validator, local hook, build, CI job, or workflow step fails or ret
 1. Freeze the attained proof level at the last passing gate. Do not promote proof after a failed step.
 2. Record the exact command, exit code, environment class, candidate SHA when applicable, and a sanitized error excerpt.
 3. When a workflow produced a schema-valid `runtime-proof.json`, run `node scripts/ai-harness/summarize-runtime-failure.mjs <runtime-proof.json>` before interpreting logs or retrying. Use its primary failure, classification, `runtime-failure-summary.json`, and `runtime-failure-report.md` as the bounded runtime failure handoff; the summarizer deliberately excludes commands and assertion evidence.
-4. Classify the failure as one primary type: code defect, test defect, environment/tooling, stale branch or collision, permission/credential boundary, external service, destructive/live boundary, or the runtime-summary classification when one exists.
-5. Reproduce with the smallest targeted command. Do not rerun the entire suite repeatedly before isolating the failure.
-6. Inspect the failing path, current implementation, related tests, recent commits, and open-PR ownership before editing.
-7. If the failure is inside owned scope, apply the smallest coherent repair and add or strengthen a regression check.
-8. If the failure belongs to foreign dirt or another active owner, preserve it and use an isolated worktree or hand it back without overwriting.
-9. Update the run context with the failure class, attempts, changed files, skipped checks, and revised validator plan.
-10. Rerun the failed targeted validator first, then its declared prerequisites, then broader checks in registry order.
-11. Produce `.ai/runs/<run-id>/failure-report.md`. If unresolved, also produce the operator report and compressed handoff with one exact next command.
+4. Treat workspace hygiene diagnostics as evidence, not automatic cleanup or stop authority. If `workspaces.mjs doctor --strict-current` reports only foreign/protected secondary worktrees and the current task does not own or mutate them, preserve those worktrees and continue the failure triage in a separate managed workspace. Stop only when the intended triage workspace itself is unsafe, the target branch is owned elsewhere, or safe isolation cannot be created.
+5. Classify the failure as one primary type: code defect, test defect, environment/tooling, stale branch or collision, permission/credential boundary, external service, destructive/live boundary, or the runtime-summary classification when one exists.
+6. Reproduce with the smallest targeted command. Do not rerun the entire suite repeatedly before isolating the failure.
+7. Inspect the failing path, current implementation, related tests, recent commits, and open-PR ownership before editing.
+8. If the failure is inside owned scope, apply the smallest coherent repair and add or strengthen a regression check.
+9. If the failure belongs to foreign dirt or another active owner, preserve it and use an isolated worktree or hand it back without overwriting.
+10. Update the run context with the failure class, attempts, changed files, skipped checks, and revised validator plan.
+11. Rerun the failed targeted validator first, then its declared prerequisites, then broader checks in registry order.
+12. Produce `.ai/runs/<run-id>/failure-report.md`. If unresolved, also produce the operator report and compressed handoff with one exact next command.
 
 ## Bounded retry policy
 
 - Do not repeat an unchanged failing command more than twice.
 - Every retry must follow a concrete change in code, configuration, environment, or test setup.
 - A schema-valid runtime `NO_GO` must be summarized before an unchanged retry; validation proves the proof shape, not runtime success.
+- A workspace-policy violation outside the owned triage workspace does not authorize moving, deleting, resetting, or reclassifying protected recovery work merely to make `doctor --strict-current` green.
 - When the failure cannot be reproduced, record the differing environment and stop inventing a root cause.
 
 ## Stop conditions
