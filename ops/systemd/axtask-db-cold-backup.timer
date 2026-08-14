@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AxTask immutable cold database backup every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:15:00
+Persistent=true
+RandomizedDelaySec=900
+Unit=axtask-db-cold-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "provider": "neon",
+  "highAvailability": {
+    "mode": "managed-service",
+    "stableWriterEndpointRequired": true,
+    "automaticClientReconnectRequired": true,
+    "providerStorageReplicationRequired": true,
+    "minimumStorageFailureDomains": 3,
+    "readReplicasCountAsFailoverReplicas": false,
+    "failoverRtoSeconds": 30,
+    "drillIntervalDays": 90,
+    "drillMustUseNonProductionTarget": true
+  },
+  "disasterRecovery": {
+    "pointInTimeRecovery": {
+      "required": true,
+      "minimumHistoryHours": 24
+    },
+    "coldBackup": {
+      "intervalHours": 6,
+      "format": "pg_dump-custom",
+      "storage": "s3-object-lock",
+      "versioningRequired": true,
+      "objectLockRequired": true,
+      "objectLockMode": "COMPLIANCE",
+      "minimumRetentionDays": 30,
+      "liveIdentityDeleteAllowed": false,
+      "liveIdentityLifecycleMutationAllowed": false,
+      "restoreIdentitySeparated": true
+    },
+    "restoreDrill": {
+      "intervalDays": 30,
+      "exactManifestRequired": true,
+      "disposableRestoreTargetRequired": true,
+      "destructiveSourceMustBeNonProduction": true
+    }
+  }
+}
