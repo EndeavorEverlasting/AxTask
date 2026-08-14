@@ -1,0 +1,56 @@
+name: Database resilience contracts
+
+on:
+  pull_request:
+    paths:
+      - 'config/database-resilience.json'
+      - 'infra/aws/**'
+      - 'ops/systemd/axtask-db-cold-backup.*'
+      - 'scripts/db/cold-backup-s3.mjs'
+      - 'scripts/db/restore-cold-backup-s3.mjs'
+      - 'scripts/db/rogue-delete-drill.mjs'
+      - 'scripts/db/neon-resilience-audit.mjs'
+      - 'scripts/db/neon-compute-restart-drill.mjs'
+      - 'scripts/db/validate-resilience-config.mjs'
+      - 'scripts/db/database-resilience.test.mjs'
+      - 'docs/DATABASE_RESILIENCE.md'
+      - '.github/workflows/database-resilience.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'config/database-resilience.json'
+      - 'infra/aws/**'
+      - 'ops/systemd/axtask-db-cold-backup.*'
+      - 'scripts/db/cold-backup-s3.mjs'
+      - 'scripts/db/restore-cold-backup-s3.mjs'
+      - 'scripts/db/rogue-delete-drill.mjs'
+      - 'scripts/db/neon-resilience-audit.mjs'
+      - 'scripts/db/neon-compute-restart-drill.mjs'
+      - 'scripts/db/validate-resilience-config.mjs'
+      - 'scripts/db/database-resilience.test.mjs'
+      - 'docs/DATABASE_RESILIENCE.md'
+      - '.github/workflows/database-resilience.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate resilience contract
+        run: node scripts/db/validate-resilience-config.mjs
+      - name: Run focused contract tests
+        run: node --test scripts/db/database-resilience.test.mjs
+      - name: Check executable scripts
+        run: |
+          node --check scripts/db/cold-backup-s3.mjs
+          node --check scripts/db/restore-cold-backup-s3.mjs
+          node --check scripts/db/rogue-delete-drill.mjs
+          node --check scripts/db/neon-resilience-audit.mjs
+          node --check scripts/db/neon-compute-restart-drill.mjs

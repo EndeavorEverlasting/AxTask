@@ -1,0 +1,22 @@
+[Unit]
+Description=AxTask immutable cold database backup
+Documentation=https://github.com/EndeavorEverlasting/AxTask/blob/main/docs/DATABASE_RESILIENCE.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=axtask-backup
+Group=axtask-backup
+WorkingDirectory=/opt/axtask
+EnvironmentFile=/etc/axtask/db-cold-backup.env
+ExecStart=/usr/bin/env node /opt/axtask/scripts/db/cold-backup-s3.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/axtask-cold-backup
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
