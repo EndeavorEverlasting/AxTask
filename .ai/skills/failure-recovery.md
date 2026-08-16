@@ -22,7 +22,7 @@ Use this skill when `validator-or-workflow-failed` fires, a local hook blocks a 
 1. Preserve the repository floor and unknown work.
 2. Freeze the proof claim at the last passing gate.
 3. If `runtime-proof.json` exists and validates, run `node scripts/ai-harness/summarize-runtime-failure.mjs <runtime-proof.json>` first. Treat `runtime-failure-summary.json` as the machine handoff and `runtime-failure-report.md` as the operator-readable failure view; do not substitute raw logs or assertion evidence.
-4. If `workspaces.mjs doctor --strict-current` reports foreign/protected secondary worktrees that this failure-recovery task does not own, record and preserve them; do not clean, move, reset, or reclassify them merely to make workspace diagnostics green. Continue in a separate managed workspace when the intended triage workspace can be created safely and has no ownership collision.
+4. If `workspaces.mjs doctor --strict-current` reports foreign/protected secondary worktrees that this failure-recovery task does not own, record and preserve them; do not clean, move, reset, or reclassify them merely to make workspace diagnostics green. Continue in a separate managed workspace when the intended triage workspace can be created safely and has no ownership collision. For that workspace, run `node scripts/ai-harness/validate-working-diff.mjs <workspace-path> --json` and require `semanticallyClean: true` instead of treating raw `git status` as the safety contract. `lineEndingOnly` is proven CRLF/LF checkout noise; staged, untracked, or `semanticTracked` entries are unique state and block the lane.
 5. Classify the failure before proposing a repair.
 6. Reproduce with the smallest targeted command.
 7. Search current code, tests, scripts, manifests, and recent history for the existing contract.
@@ -51,4 +51,4 @@ Use this skill when `validator-or-workflow-failed` fires, a local hook blocks a 
 
 ## Tests
 
-The harness completeness contract verifies that this skill, its workflow, its trigger, failure artifacts, and runtime-proof triage stay registered and cross-referenced.
+The harness completeness contract verifies that this skill, its workflow, its trigger, failure artifacts, runtime-proof triage, and semantic workspace-cleanliness gate stay registered and cross-referenced.
