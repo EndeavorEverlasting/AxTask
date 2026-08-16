@@ -165,8 +165,8 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   const recoveryWorkflowText = readText(rootDir, ".ai/workflows/failure-recovery.md", errors);
   const recoverySkillText = readText(rootDir, ".ai/skills/failure-recovery.md", errors);
   for (const [label, text] of [["failure workflow", recoveryWorkflowText], ["failure skill", recoverySkillText]]) {
-    for (const marker of ["summarize-runtime-failure.mjs", "runtime-failure-summary.json", "runtime-failure-report.md"]) {
-      if (!text.includes(marker)) errors.push(`${label}: missing runtime failure triage marker ${marker}`);
+    for (const marker of ["summarize-runtime-failure.mjs", "runtime-failure-summary.json", "runtime-failure-report.md", "validate-working-diff.mjs", "semanticallyClean", "lineEndingOnly", "semanticTracked"]) {
+      if (!text.includes(marker)) errors.push(`${label}: missing runtime failure triage/workspace-cleanliness marker ${marker}`);
     }
   }
 
