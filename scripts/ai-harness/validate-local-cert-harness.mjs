@@ -46,9 +46,13 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   const proofValidatorPath = "scripts/ai-harness/validate-runtime-proof.mjs";
   const harnessValidatorPath = "scripts/ai-harness/validate-local-cert-harness.mjs";
   const sessionSafeRunnerPath = "scripts/ai-harness/run-r7-local-cert.ps1";
+  const runtimeFailureSchemaPath = ".ai/schemas/runtime-failure-summary.schema.json";
+  const runtimeFailureScriptPath = "scripts/ai-harness/summarize-runtime-failure.mjs";
+  const runtimeFailureReportPath = ".ai/reports/runtime-failure-report-template.md";
+  const runtimeFailureTestPath = "server/ai-harness/runtime-failure-summary-contract.test.ts";
   const contractTestPath = "server/ai-harness/local-production-certification-contract.test.ts";
 
-  for (const requiredPath of [workflowPath, skillPath, localCertSkillPath, schemaPath, proofValidatorPath, harnessValidatorPath, sessionSafeRunnerPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
+  for (const requiredPath of [workflowPath, skillPath, localCertSkillPath, schemaPath, proofValidatorPath, harnessValidatorPath, sessionSafeRunnerPath, runtimeFailureSchemaPath, runtimeFailureScriptPath, runtimeFailureReportPath, runtimeFailureTestPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
     if (!fs.existsSync(path.join(rootDir, requiredPath))) errors.push(`local-cert harness missing tracked dependency: ${requiredPath}`);
   }
 
@@ -63,8 +67,15 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
     "local-cert-contract-test": contractTestPath,
   };
 
+  const runtimeFailureComponents = {
+    "runtime-failure-summary-schema": runtimeFailureSchemaPath,
+    "runtime-failure-summarizer": runtimeFailureScriptPath,
+    "runtime-failure-report": runtimeFailureReportPath,
+    "runtime-failure-contract-test": runtimeFailureTestPath,
+  };
+
   if (harness) {
-    for (const [id, expectedPath] of Object.entries(requiredHarnessComponents)) {
+    for (const [id, expectedPath] of Object.entries({ ...requiredHarnessComponents, ...runtimeFailureComponents })) {
       const component = (harness.components ?? []).find((item) => item?.id === id);
       if (!component) {
         errors.push(`.ai/harness.json: missing local-cert component ${id}`);
@@ -79,21 +90,28 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
 
   if (map) {
     const commandIds = new Set((map.commands ?? []).map((item) => item?.id));
-    for (const id of ["local-certification", "r7-session-safe", "runtime-proof-validate", "local-cert-harness-validate"]) {
+    for (const id of ["local-certification", "r7-session-safe", "runtime-proof-validate", "runtime-failure-triage", "local-cert-harness-validate"]) {
       if (!commandIds.has(id)) errors.push(`.ai/codebase-map.json: missing local-cert command ${id}`);
     }
     if (!(map.knownTraps ?? []).some((item) => typeof item === "string" && item.includes("process-isolated") && item.includes("environment variables"))) {
       errors.push(".ai/codebase-map.json: knownTraps must cover process-isolated shell environment loss");
     }
+    if (!(map.knownTraps ?? []).some((item) => typeof item === "string" && item.includes("schema-valid runtime-proof.json") && item.includes("NO_GO"))) {
+      errors.push(".ai/codebase-map.json: knownTraps must distinguish schema validation from runtime success");
+    }
   }
 
   if (artifacts) {
-    for (const id of ["runtime-proof", "local-cert-report"]) {
+    for (const id of ["runtime-proof", "local-cert-report", "runtime-failure-summary", "runtime-failure-report"]) {
       if (!hasId(artifacts.artifacts, id)) errors.push(`.ai/artifact-registry.json: missing local-cert artifact ${id}`);
     }
     const proof = (artifacts.artifacts ?? []).find((item) => item?.id === "runtime-proof");
     if (proof?.validator !== "node scripts/ai-harness/validate-runtime-proof.mjs <path>") {
       errors.push(".ai/artifact-registry.json: runtime-proof validator must point to validate-runtime-proof.mjs");
+    }
+    const failureSummary = (artifacts.artifacts ?? []).find((item) => item?.id === "runtime-failure-summary");
+    if (failureSummary?.validator !== "node scripts/ai-harness/summarize-runtime-failure.mjs --check <path>") {
+      errors.push(".ai/artifact-registry.json: runtime-failure-summary validator must point to summarize-runtime-failure.mjs --check");
     }
   }
 
@@ -126,11 +144,30 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   }
 
   const runnerText = readText(rootDir, sessionSafeRunnerPath, errors);
-  for (const marker of ["postgres:16-alpine", "$dockerRunArgs", "& docker @dockerRunArgs", "POSTGRES_DB", "AXTASK_LOCAL_CERT", "DATABASE_URL", "run-local-cert.mjs", "validate-runtime-proof.mjs", "test:deploy", "npm", "docker rm -f", "R7_RUNTIME_PROOF", "R7_PROOF_CEILING=local-runtime"]) {
+  for (const marker of ["postgres:16-alpine", "$dockerRunArgs", "& docker @dockerRunArgs", "POSTGRES_DB", "AXTASK_LOCAL_CERT", "DATABASE_URL", "run-local-cert.mjs", "validate-runtime-proof.mjs", "summarize-runtime-failure.mjs", "RUNTIME_FAILURE_SUMMARY", "test:deploy", "npm", "docker rm -f", "R7_RUNTIME_PROOF", "R7_PROOF_CEILING=local-runtime"]) {
     if (!runnerText.includes(marker)) errors.push(`${sessionSafeRunnerPath}: missing session-safe runner marker ${marker}`);
   }
   if (/Write-(Host|Output).*DATABASE_URL/i.test(runnerText)) {
     errors.push(`${sessionSafeRunnerPath}: must not print DATABASE_URL`);
+  }
+
+  const failureScriptText = readText(rootDir, runtimeFailureScriptPath, errors);
+  for (const marker of ["axtask.runtime-failure-summary.v1", "validateRuntimeProofFile", "runtime-failure-summary.json", "runtime-failure-report.md", "do-not-retry-unchanged", "axtask.failure-recovery.v1", "--check"]) {
+    if (!failureScriptText.includes(marker)) errors.push(`${runtimeFailureScriptPath}: missing runtime failure triage marker ${marker}`);
+  }
+  if (failureScriptText.includes("assertion.evidence")) errors.push(`${runtimeFailureScriptPath}: must not copy assertion evidence into runtime failure summary`);
+
+  const failureReportText = readText(rootDir, runtimeFailureReportPath, errors);
+  for (const heading of ["## SUMMARY", "## PRIMARY FAILURE", "## FAILED ASSERTIONS", "## RECORDED FAILURES", "## RECOVERY"]) {
+    if (!failureReportText.includes(heading)) errors.push(`${runtimeFailureReportPath}: missing ${heading}`);
+  }
+
+  const recoveryWorkflowText = readText(rootDir, ".ai/workflows/failure-recovery.md", errors);
+  const recoverySkillText = readText(rootDir, ".ai/skills/failure-recovery.md", errors);
+  for (const [label, text] of [["failure workflow", recoveryWorkflowText], ["failure skill", recoverySkillText]]) {
+    for (const marker of ["summarize-runtime-failure.mjs", "runtime-failure-summary.json", "runtime-failure-report.md", "validate-working-diff.mjs", "semanticallyClean", "lineEndingOnly", "semanticTracked"]) {
+      if (!text.includes(marker)) errors.push(`${label}: missing runtime failure triage/workspace-cleanliness marker ${marker}`);
+    }
   }
 
   const prePush = readText(rootDir, ".githooks/pre-push", errors);
