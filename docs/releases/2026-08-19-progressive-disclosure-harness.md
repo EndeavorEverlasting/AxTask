@@ -7,7 +7,7 @@ Repository harness/spec information architecture only. Product behavior, product
 ## Three-layer contract
 
 - **50k orientation:** `.ai/README.md` only; app purpose, major domains, canonical entrypoints, first commands, proof boundary, and drill-down routes.
-- **30k domain:** one file under `.ai/domains/`; responsibilities, boundaries, owning contracts, workflows, and conditional drill-down links only.
+- **30k domain:** one file under `.ai/domains/`; responsibilities, boundaries, owning contracts, workflow/validator/artifact IDs, and conditional drill-down links only.
 - **15k workflow:** `show-context.mjs workflow <id>` renders one workflow spec, required skill/contract/schema files, shared failure/handoff contracts, and projected validator/artifact records by ID. Whole registries, unrelated domains, history, and large implementation files remain on demand.
 
 ## Before measurements
@@ -22,10 +22,30 @@ No tokenizer was available, so estimates use UTF-8 bytes / 4.
 
 These simulations reflect the documented pre-factor loading pattern, not repository total size. The path-level baseline inventory (purpose, owner, load trigger, size, overlap, and consumer) is preserved at `.ai/reports/progressive-disclosure-baseline-20260819.json` and is demand-loaded evidence, not an entry-path dependency.
 
-## After measurement and enforcement
+## After measurements
 
-`node scripts/ai-harness/validate-progressive-disclosure.mjs` renders the actual 50k/30k/15k bundles and fails when any route is broken, any registered workflow is unrouted, any validator/artifact ID is unresolved, or a bundle exceeds 1,000 / 2,000 / 4,000 estimated tokens without a recorded exception. The contract test and dedicated CI workflow prevent silent re-bloat.
+The dedicated CI workflow runs the same three queries through `show-context.mjs --measure`.
+
+| Retrieval simulation | Bytes after | Estimated tokens after | Reduction |
+|---|---:|---:|---:|
+| What is this app and how is it organized? | 2,507 | 627 | 96.5% |
+| How does the repository harness domain work? | 3,199 | 800 | 94.4% |
+| How do I run local deployment certification? | 15,112 | 3,778 | 64.1% |
+
+The full route validator reports `orientation=627`, `max-domain=800`, and `max-workflow=3888` estimated tokens, so all 50k / 30k / 15k bundles stay within their 1,000 / 2,000 / 4,000 soft ceilings without exceptions.
+
+## Enforcement
+
+`node scripts/ai-harness/validate-progressive-disclosure.mjs` fails when a route is broken, a registered workflow is unrouted, a domain owner has no load condition, a validator/artifact ID is unresolved, an unrelated domain leaks into a selected domain bundle, authority anchors disappear, or a context bundle exceeds its budget without a recorded safety exception. The validator is registered in `.ai/validator-registry.json`; its contract test, dedicated CI workflow, and pre-push gate prevent silent re-bloat.
+
+Legacy workspace and repository-location validators were also factored so they continue to prove their full workflow/skill/runtime safety contracts while requiring only routing/drill-down markers at 50k. Their procedure text remains demand-loaded at 30k/15k.
 
 ## Authority and proof ceiling
 
 `AGENTS.md` retains universal governance and machine-authority anchors; unique domain rules remain owned by their existing canonical documents and are routed from the relevant 30k map. Repository/CI validation proves information architecture and routing only; it does not prove live Render/Neon state or deployment.
+
+## First exercise
+
+```bash
+node scripts/ai-harness/show-context.mjs orientation
+```
