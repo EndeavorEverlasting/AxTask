@@ -15,14 +15,22 @@ function readText(rootDir, relativePath) {
   return fs.readFileSync(path.join(rootDir, relativePath), "utf8").trimEnd();
 }
 
-function assertRelativePath(rootDir, relativePath) {
+export function assertRepositoryPath(rootDir, relativePath) {
   if (typeof relativePath !== "string" || relativePath.length === 0 || path.isAbsolute(relativePath)) {
     throw new Error(`invalid repository-relative path: ${String(relativePath)}`);
   }
-  const absolute = path.resolve(rootDir, relativePath);
-  const rel = path.relative(rootDir, absolute);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`path escapes repository root: ${relativePath}`);
+  const absoluteRoot = path.resolve(rootDir);
+  const absolute = path.resolve(absoluteRoot, relativePath);
+  const lexicalRel = path.relative(absoluteRoot, absolute);
+  if (lexicalRel.startsWith("..") || path.isAbsolute(lexicalRel)) throw new Error(`path escapes repository root: ${relativePath}`);
   if (!fs.existsSync(absolute)) throw new Error(`missing routed path: ${relativePath}`);
+
+  const realRoot = fs.realpathSync(absoluteRoot);
+  const realTarget = fs.realpathSync(absolute);
+  const realRel = path.relative(realRoot, realTarget);
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
+    throw new Error(`routed path resolves outside repository root: ${relativePath}`);
+  }
   return relativePath;
 }
 
@@ -77,7 +85,7 @@ function section(title, body) {
 }
 
 function fileSection(rootDir, relativePath) {
-  assertRelativePath(rootDir, relativePath);
+  assertRepositoryPath(rootDir, relativePath);
   return section(relativePath, readText(rootDir, relativePath));
 }
 
@@ -86,13 +94,13 @@ export function renderOrientation(state) {
   if (paths.length !== 1 || paths[0] !== ".ai/README.md") {
     throw new Error("orientation must load exactly .ai/README.md by default");
   }
-  assertRelativePath(state.rootDir, paths[0]);
+  assertRepositoryPath(state.rootDir, paths[0]);
   return readText(state.rootDir, paths[0]) + "\n";
 }
 
 export function renderDomain(state, domainId) {
   const domain = findUnique(state.routing?.domains ?? [], domainId, "domain");
-  assertRelativePath(state.rootDir, domain.path);
+  assertRepositoryPath(state.rootDir, domain.path);
   const routeSlice = {
     id: domain.id,
     loadWhen: domain.loadWhen,
@@ -114,7 +122,7 @@ export function renderWorkflow(state, workflowId) {
   findUnique(state.routing?.domains ?? [], route.domainId, "domain");
 
   const workflow = findUnique(state.workflowRegistry?.workflows ?? [], workflowId, "workflow");
-  assertRelativePath(state.rootDir, workflow.path);
+  assertRepositoryPath(state.rootDir, workflow.path);
 
   const validatorRecords = (route.validatorIds ?? []).map((id) =>
     validatorProjection(findUnique(state.validatorRegistry?.validators ?? [], id, "validator")),
