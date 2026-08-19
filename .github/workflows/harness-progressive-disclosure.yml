@@ -32,4 +32,9 @@ jobs:
       - run: npm ci
       - run: node scripts/ai-harness/validate-authority.mjs
       - run: node scripts/ai-harness/validate-progressive-disclosure.mjs
+      - name: Measure representative retrieval paths
+        run: |
+          node scripts/ai-harness/show-context.mjs orientation --measure
+          node scripts/ai-harness/show-context.mjs domain repository-harness --measure
+          node scripts/ai-harness/show-context.mjs workflow axtask.local-deployment-certification.v1 --measure
       - run: npx --no-install vitest run server/ai-harness/progressive-disclosure-contract.test.ts
