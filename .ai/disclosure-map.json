@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "routingId": "axtask.progressive-disclosure.v1",
+  "estimator": {
+    "kind": "utf8-bytes-divided-by-four",
+    "bytesPerEstimatedToken": 4,
+    "tokenizerAvailable": false
+  },
+  "budgets": {
+    "orientation": {"label": "50k", "maxEstimatedTokens": 1000},
+    "domain": {"label": "30k", "maxAdditionalEstimatedTokens": 2000},
+    "workflow": {"label": "15k", "maxAdditionalEstimatedTokens": 4000}
+  },
+  "orientation": {
+    "defaultLoadPaths": [".ai/README.md"],
+    "governanceBeforeMutation": ["AGENTS.md", "AGENT_GUARDRAILS.md"],
+    "coordinationLoadWhen": "Selecting, claiming, or updating shared unfinished work.",
+    "coordinationPath": ".ai/WORK_QUEUE.md"
+  },
+  "domains": [
+    {
+      "id": "application-experience",
+      "path": ".ai/domains/application-experience.md",
+      "loadWhen": "User-visible product behavior, UX, performance, or module boundaries.",
+      "ownerRefs": [
+        {"loadWhen":"task-list sorting/filtering","path":"docs/TASK_LIST_INTERACTION_CONTRACT.md"},
+        {"loadWhen":"calm/scroll/glass/Gantt visual changes","path":"docs/SCROLL_REFRESH_VISUAL_STABILITY.md"},
+        {"loadWhen":"AxCoin/subscription/Pretext model","path":"docs/FREEMIUM_PREMIUM_AND_PRETEXT.md"},
+        {"loadWhen":"calendar public holidays","path":"docs/CALENDAR_HOLIDAYS.md"},
+        {"loadWhen":"rewards/classification/feedback/coins/p-score push","path":"docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md"},
+        {"loadWhen":"bundle/API performance budget","path":"docs/PERF_PERFORMANCE_BUDGETS.md"},
+        {"loadWhen":"module extraction","path":"docs/MODULE_LAYOUT.md"}
+      ],
+      "workflowIds": [],
+      "validatorIds": ["typecheck","tests","build"],
+      "artifactIds": ["operator-report","final-handoff"]
+    },
+    {
+      "id": "security-identity",
+      "path": ".ai/domains/security-identity.md",
+      "loadWhen": "Auth, sessions, admin, privacy, user-content security, or privileged grants.",
+      "ownerRefs": [
+        {"loadWhen":"public DTOs/client-visible data","path":"docs/CLIENT_VISIBLE_PRIVACY.md"},
+        {"loadWhen":"admin role/MFA step-up","path":"docs/ADMIN_ACCESS_MODEL.md"},
+        {"loadWhen":"pasted images/GIFs/composer bodies","path":"docs/PASTE_COMPOSER_SECURITY.md"},
+        {"loadWhen":"owner AxCoin grants","path":"docs/OPERATOR_COIN_GRANTS.md"},
+        {"loadWhen":"archetype analytics/privacy","path":"docs/ARCHETYPE_EMPATHY_ANALYTICS.md"},
+        {"loadWhen":"environment/secret catalog","path":"docs/ENVIRONMENT_VARIABLES.md"}
+      ],
+      "workflowIds": [],
+      "validatorIds": ["typecheck","tests","build"],
+      "artifactIds": ["operator-report","final-handoff"]
+    },
+    {
+      "id": "data-state",
+      "path": ".ai/domains/data-state.md",
+      "loadWhen": "Schema, migrations, recovery, retention, persistence, or stateful architecture.",
+      "ownerRefs": [
+        {"loadWhen":"local DB/schema command order","path":"docs/DEV_DATABASE_AND_SCHEMA.md"},
+        {"loadWhen":"production schema evolution","path":"docs/SCHEMA_EVOLUTION_PIPELINE.md"},
+        {"loadWhen":"recovery gates","path":"docs/DB_RECOVERY_RUNBOOK.md"},
+        {"loadWhen":"append-only retention","path":"docs/DB_RETENTION_POLICY.md"},
+        {"loadWhen":"scheduled DB/resource work","path":"docs/SCHEDULED_RESOURCE_CONTROLS.md"},
+        {"loadWhen":"stateful/runtime factoring","path":"docs/architecture/STATEFUL_SURFACE_LEDGER.md"}
+      ],
+      "workflowIds": ["axtask.account-backup-roundtrip-certification.v1","axtask.stateful-architecture-migration.v1","axtask.log-retention-capacity-defense.v1"],
+      "validatorIds": ["typecheck","tests","stateful-architecture","log-retention","account-backup-roundtrip"],
+      "artifactIds": ["stateful-surface-ledger","stateful-architecture-report","log-retention-proof","log-retention-report","account-backup-certification-report","operator-report","final-handoff"]
+    },
+    {
+      "id": "deployment-runtime",
+      "path": ".ai/domains/deployment-runtime.md",
+      "loadWhen": "Render/runtime startup, readiness, environment, certification, or predeploy gates.",
+      "ownerRefs": [
+        {"loadWhen":"branch/deploy promotion","path":"docs/GIT_BRANCHING_AND_DEPLOYMENT.md"},
+        {"loadWhen":"CI polling","path":"docs/CI_POLLING_FOR_AGENTS.md"},
+        {"loadWhen":"env/runtime variables","path":"docs/ENVIRONMENT_VARIABLES.md"},
+        {"loadWhen":"production startup","path":"scripts/production-start.mjs"},
+        {"loadWhen":"deploy executable contracts","path":"tests/deploy"}
+      ],
+      "workflowIds": ["axtask.local-deployment-certification.v1","axtask.predeploy-cost-readiness.v1"],
+      "validatorIds": ["predeploy-readiness","local-cert-harness","runtime-proof","local-production-certification","typecheck","tests","build","release"],
+      "artifactIds": ["predeploy-readiness","runtime-proof","local-cert-report","release-evidence","operator-report","final-handoff"]
+    },
+    {
+      "id": "repository-harness",
+      "path": ".ai/domains/repository-harness.md",
+      "loadWhen": "Harness routing, queue, workspaces, validators, recovery, or PR coordination.",
+      "ownerRefs": [
+        {"loadWhen":"universal operating law","path":"AGENTS.md"},
+        {"loadWhen":"distinct safety boundaries","path":"AGENT_GUARDRAILS.md"},
+        {"loadWhen":"50k orientation","path":".ai/README.md"},
+        {"loadWhen":"progressive-disclosure routing","path":".ai/disclosure-map.json"},
+        {"loadWhen":"deep code/command discovery","path":".ai/codebase-map.json"},
+        {"loadWhen":"shared unfinished work coordination","path":".ai/WORK_QUEUE.md"}
+      ],
+      "workflowIds": ["axtask.repository-intake.v1","axtask.pr-closeout.v1","axtask.failure-recovery.v1","axtask.repository-location-recovery.v1","axtask.parallel-sprint-intake.v1","axtask.prompt-leap-routing.v1","axtask.agent-workspace-lifecycle.v1"],
+      "validatorIds": ["authority","harness","harness-infrastructure","progressive-disclosure","repo-location-recovery","run-context","collision-inspection","agent-workspaces","release"],
+      "artifactIds": ["run-context","repo-snapshot","validator-plan","collision-ledger","repository-location-report","agent-workspace-report","operator-report","final-handoff"]
+    }
+  ],
+  "workflowRoutes": [
+    {"workflowId":"axtask.repository-intake.v1","domainId":"repository-harness","skillPaths":[".ai/skills/repository-intake.md"],"schemaPaths":[".ai/run-context.schema.json"],"contractPaths":[],"validatorIds":["authority","harness","run-context"],"artifactIds":["run-context","repo-snapshot","validator-plan","operator-report","final-handoff"]},
+    {"workflowId":"axtask.pr-closeout.v1","domainId":"repository-harness","skillPaths":[".ai/skills/pr-closeout.md"],"schemaPaths":[],"contractPaths":[],"validatorIds":["authority","harness","release"],"artifactIds":["operator-report","release-evidence","final-handoff"],"conditionalLoads":[{"when":"The PR changes deploy, schema, startup, Docker, Render, auth, or environment files; load before closeout decisions.","paths":["docs/GIT_BRANCHING_AND_DEPLOYMENT.md"]},{"when":"Polling or watching CI during PR closeout.","paths":["docs/CI_POLLING_FOR_AGENTS.md"]}]},
+    {"workflowId":"axtask.failure-recovery.v1","domainId":"repository-harness","skillPaths":[".ai/skills/failure-recovery.md"],"schemaPaths":[],"contractPaths":[],"validatorIds":["authority","harness"],"artifactIds":["failure-report","operator-report","final-handoff"]},
+    {"workflowId":"axtask.repository-location-recovery.v1","domainId":"repository-harness","skillPaths":[".ai/skills/repository-location-recovery.md"],"schemaPaths":[],"contractPaths":[],"validatorIds":["authority","harness","repo-location-recovery"],"artifactIds":["repository-location-report","operator-preflight-report","operator-report","final-handoff"],"conditionalLoads":[{"when":"No canonical checkout path is known on Windows and operator bootstrap is required.","paths":[".ai/skills/operator-preflight-bootstrap.md"]}]},
+    {"workflowId":"axtask.local-deployment-certification.v1","domainId":"deployment-runtime","skillPaths":[".ai/skills/local-deployment-certification.md"],"schemaPaths":[".ai/runtime-proof.schema.json"],"contractPaths":[],"validatorIds":["local-cert-harness","runtime-proof","local-production-certification","typecheck","tests","build"],"artifactIds":["runtime-proof","local-cert-report","operator-report","final-handoff"]},
+    {"workflowId":"axtask.parallel-sprint-intake.v1","domainId":"repository-harness","skillPaths":[".ai/skills/repository-intake.md"],"schemaPaths":[".ai/collision-ledger.schema.json"],"contractPaths":[],"validatorIds":["collision-inspection","authority","harness"],"artifactIds":["collision-ledger","run-context","operator-report","final-handoff"]},
+    {"workflowId":"axtask.prompt-leap-routing.v1","domainId":"repository-harness","skillPaths":[],"schemaPaths":["shared/schemas/agent-routing/task-demand.schema.json","shared/schemas/agent-routing/route-decision.schema.json"],"contractPaths":[],"validatorIds":["authority","harness"],"artifactIds":["task-demand","route-decision","operator-report","final-handoff"]},
+    {"workflowId":"axtask.account-backup-roundtrip-certification.v1","domainId":"data-state","skillPaths":[],"schemaPaths":[".ai/schemas/account-backup-certification-result.schema.json"],"contractPaths":[],"validatorIds":["account-backup-roundtrip","typecheck","tests"],"artifactIds":["account-backup-certification","account-backup-certification-report","operator-report","final-handoff"]},
+    {"workflowId":"axtask.predeploy-cost-readiness.v1","domainId":"deployment-runtime","skillPaths":[],"schemaPaths":[".ai/schemas/predeploy-readiness-result.schema.json"],"contractPaths":[],"validatorIds":["predeploy-readiness","authority","harness"],"artifactIds":["predeploy-readiness","operator-report","final-handoff"]},
+    {"workflowId":"axtask.stateful-architecture-migration.v1","domainId":"data-state","skillPaths":[".ai/skills/stateful-architecture-migration.md"],"schemaPaths":[".ai/stateful-surface-ledger.schema.json"],"contractPaths":[],"validatorIds":["stateful-architecture","authority","harness"],"artifactIds":["stateful-surface-ledger","stateful-architecture-report","operator-report","final-handoff"],"conditionalLoads":[{"when":"Changing a specific ledger surface or migration decision.","paths":[".ai/stateful-surface-ledger.json","docs/architecture/STATEFUL_SURFACE_LEDGER.md"]}]},
+    {"workflowId":"axtask.log-retention-capacity-defense.v1","domainId":"data-state","skillPaths":[".ai/skills/log-retention-capacity-defense.md"],"schemaPaths":[],"contractPaths":[".ai/log-retention-contract.json"],"validatorIds":["log-retention","authority","harness"],"artifactIds":["log-retention-proof","log-retention-report","operator-report","final-handoff"]},
+    {"workflowId":"axtask.agent-workspace-lifecycle.v1","domainId":"repository-harness","skillPaths":[".ai/skills/agent-workspace-lifecycle.md"],"schemaPaths":[],"contractPaths":[".ai/agent-workspace-contract.json"],"validatorIds":["agent-workspaces","authority","harness"],"artifactIds":["agent-workspace-contract","agent-workspace-report","operator-report","final-handoff"],"conditionalLoads":[{"when":"Changing the workspace contract structure rather than executing lifecycle operations.","paths":[".ai/agent-workspace-contract.schema.json"]}]}
+  ],
+  "sharedWorkflowContracts": {"failurePolicy":".ai/contracts/workflow-failure-policy.md","handoff":".ai/contracts/workflow-handoff.md"},
+  "onDemandOnlyPrefixes": [".ai/workflows/",".ai/skills/",".ai/reports/",".ai/handoff/",".ai/schemas/","docs/releases/","docs/closed/","client/","server/","shared/","scripts/","migrations/"],
+  "validator": {"id":"progressive-disclosure","command":"node scripts/ai-harness/validate-progressive-disclosure.mjs","contractTest":"server/ai-harness/progressive-disclosure-contract.test.ts","ciWorkflow":".github/workflows/harness-progressive-disclosure.yml"}
+}

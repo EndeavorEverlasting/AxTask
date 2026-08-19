@@ -38,6 +38,7 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   const artifacts = readJson(rootDir, ".ai/artifact-registry.json", errors);
   const validators = readJson(rootDir, ".ai/validator-registry.json", errors);
   const workflows = readJson(rootDir, ".ai/workflow-registry.json", errors);
+  const disclosure = readJson(rootDir, ".ai/disclosure-map.json", errors);
 
   const workflowPath = ".ai/workflows/local-deployment-certification.md";
   const skillPath = ".ai/skills/runtime-proof.md";
@@ -48,7 +49,7 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
   const sessionSafeRunnerPath = "scripts/ai-harness/run-r7-local-cert.ps1";
   const contractTestPath = "server/ai-harness/local-production-certification-contract.test.ts";
 
-  for (const requiredPath of [workflowPath, skillPath, localCertSkillPath, schemaPath, proofValidatorPath, harnessValidatorPath, sessionSafeRunnerPath, contractTestPath, "scripts/deploy/run-local-cert.mjs"]) {
+  for (const requiredPath of [workflowPath, skillPath, localCertSkillPath, schemaPath, proofValidatorPath, harnessValidatorPath, sessionSafeRunnerPath, contractTestPath, "scripts/deploy/run-local-cert.mjs", ".ai/domains/deployment-runtime.md"]) {
     if (!fs.existsSync(path.join(rootDir, requiredPath))) errors.push(`local-cert harness missing tracked dependency: ${requiredPath}`);
   }
 
@@ -144,9 +145,24 @@ export function validateLocalCertHarness(rootDir = DEFAULT_REPO_ROOT) {
     if (!report.includes(marker)) errors.push(`operator report template missing runtime-proof marker ${marker}`);
   }
 
+  const route = (disclosure?.workflowRoutes ?? []).find((item) => item?.workflowId === "axtask.local-deployment-certification.v1");
+  if (route?.domainId !== "deployment-runtime") errors.push("progressive disclosure must route local deployment certification through deployment-runtime");
+  if (!route?.skillPaths?.includes(localCertSkillPath)) errors.push("local-cert disclosure route missing owning local-cert skill");
+  if (!route?.schemaPaths?.includes(schemaPath)) errors.push("local-cert disclosure route missing runtime-proof schema");
+  for (const id of ["local-cert-harness", "runtime-proof", "local-production-certification"]) {
+    if (!route?.validatorIds?.includes(id)) errors.push(`local-cert disclosure route missing validator ${id}`);
+  }
+  for (const id of ["runtime-proof", "local-cert-report", "operator-report", "final-handoff"]) {
+    if (!route?.artifactIds?.includes(id)) errors.push(`local-cert disclosure route missing artifact ${id}`);
+  }
+
   const readme = readText(rootDir, ".ai/README.md", errors);
-  for (const marker of ["axtask.local-deployment-certification.v1", "AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs", "validate-local-cert-harness.mjs"]) {
-    if (!readme.includes(marker)) errors.push(`.ai/README.md: missing local-cert entry marker ${marker}`);
+  for (const marker of ["deployment-runtime", "show-context.mjs domain deployment-runtime", "show-context.mjs workflow <workflow-id>"]) {
+    if (!readme.includes(marker)) errors.push(`.ai/README.md: missing local-cert drill-down marker ${marker}`);
+  }
+  const deploymentDomain = readText(rootDir, ".ai/domains/deployment-runtime.md", errors);
+  for (const marker of ["axtask.local-deployment-certification.v1", "render.yaml", "scripts/production-start.mjs"]) {
+    if (!deploymentDomain.includes(marker)) errors.push(`.ai/domains/deployment-runtime.md: missing local-cert routing marker ${marker}`);
   }
 
   return { errors, componentsChecked: Object.keys(requiredHarnessComponents).length };

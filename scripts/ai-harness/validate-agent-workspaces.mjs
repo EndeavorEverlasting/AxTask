@@ -181,6 +181,7 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   const artifacts = readJson(rootDir, ".ai/artifact-registry.json", errors);
   const validators = readJson(rootDir, ".ai/validator-registry.json", errors);
   const map = readJson(rootDir, ".ai/codebase-map.json", errors);
+  const disclosure = readJson(rootDir, ".ai/disclosure-map.json", errors);
 
   for (const componentId of ["agent-workspace-contract", "agent-workspace-contract-schema", "agent-workspace-workflow", "agent-workspace-skill", "agent-workspace-tool", "agent-workspace-validator", "agent-workspace-report", "agent-workspace-contract-test", "agent-workspace-ci"]) if (!hasId(harness?.components, componentId)) errors.push(`harness missing component ${componentId}`);
   if (!harness?.skills?.includes("axtask.skill.agent-workspace-lifecycle.v1")) errors.push("harness missing agent workspace skill registration");
@@ -194,6 +195,13 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   if (validator?.command !== "node scripts/ai-harness/validate-agent-workspaces.mjs") errors.push("agent-workspaces validator command mismatch");
   for (const commandId of ["agent-workspace-root", "agent-workspace-list", "agent-workspace-create", "agent-workspace-doctor", "agent-workspace-classify", "agent-workspace-cleanup"]) if (!hasId(map?.commands, commandId)) errors.push(`codebase map missing ${commandId}`);
 
+  const workspaceRoute = disclosure?.workflowRoutes?.find((item) => item?.workflowId === "axtask.agent-workspace-lifecycle.v1");
+  if (workspaceRoute?.domainId !== "repository-harness") errors.push("progressive disclosure must route agent workspace lifecycle through repository-harness");
+  if (!workspaceRoute?.skillPaths?.includes(".ai/skills/agent-workspace-lifecycle.md")) errors.push("workspace disclosure route missing owning skill");
+  if (!workspaceRoute?.contractPaths?.includes(".ai/agent-workspace-contract.json")) errors.push("workspace disclosure route missing deterministic contract");
+  const workspaceConditionalPaths = workspaceRoute?.conditionalLoads?.flatMap((item) => item?.paths ?? []) ?? [];
+  if (!workspaceConditionalPaths.includes(".ai/agent-workspace-contract.schema.json")) errors.push("workspace disclosure route missing demand-loaded schema");
+
   const diffValidator = readText(rootDir, "scripts/ai-harness/validate-working-diff.mjs", errors);
   for (const token of ["diff", "--cached", "--check", "--ignore-cr-at-eol", "inspectWorkspaceCleanliness"]) if (!diffValidator.includes(token)) errors.push(`working diff validator missing ${token}`);
 
@@ -201,11 +209,13 @@ export function validateAgentWorkspaceContract(rootDir = DEFAULT_REPO_ROOT) {
   for (const heading of ["## Use when", "## Inputs", "## Steps", "## Known traps", "## Outputs", "## Stop conditions", "## Proof ceiling"]) if (!workflow.includes(heading)) errors.push(`workspace workflow missing ${heading}`);
   if (!workflow.includes(WORKING_DIFF_COMMAND)) errors.push("workspace workflow missing EOL-aware working diff validation");
   const skill = readText(rootDir, ".ai/skills/agent-workspace-lifecycle.md", errors);
-  if (!skill.includes("axtask.skill.agent-workspace-lifecycle.v1") || !skill.includes("workspaces.mjs create") || !skill.includes("workspaces.mjs doctor") || !skill.includes(WORKING_DIFF_COMMAND)) errors.push("workspace skill missing executable lifecycle/diff contract");
+  if (!skill.includes("axtask.skill.agent-workspace-lifecycle.v1") || !skill.includes("workspaces.mjs create") || !skill.includes("workspaces.mjs doctor --strict-current") || !skill.includes(WORKING_DIFF_COMMAND)) errors.push("workspace skill missing executable lifecycle/diff contract");
   const report = readText(rootDir, ".ai/reports/agent-workspace-report-template.md", errors);
   for (const heading of ["## REPOSITORY", "## MANAGED ROOT", "## WORKSPACES", "## DIFF HYGIENE", "## WORKING", "## BROKEN", "## MISSING", "## CLEANUP SAFETY", "## PROOF CEILING", "## NEXT ACTION"]) if (!report.includes(heading)) errors.push(`workspace report missing ${heading}`);
+  const repositoryHarnessDomain = readText(rootDir, ".ai/domains/repository-harness.md", errors);
+  for (const text of ["workspaces", "axtask.agent-workspace-lifecycle.v1", ".ai/disclosure-map.json"]) if (!repositoryHarnessDomain.includes(text)) errors.push(`repository-harness domain missing workspace routing marker: ${text}`);
   const readme = readText(rootDir, ".ai/README.md", errors);
-  for (const text of ["workspaces.mjs doctor --strict-current", "workspaces.mjs create", "AppData/Local/Temp", WORKING_DIFF_COMMAND]) if (!readme.includes(text)) errors.push(`.ai/README.md missing workspace guidance: ${text}`);
+  for (const text of ["repository-harness", "show-context.mjs domain repository-harness", "show-context.mjs workflow <workflow-id>"]) if (!readme.includes(text)) errors.push(`50k orientation missing workspace drill-down marker: ${text}`);
   const preCommit = readText(rootDir, ".githooks/pre-commit", errors);
   if (!preCommit.includes("validate-agent-workspaces.mjs") || !preCommit.includes("workspaces.mjs doctor --strict-current") || !preCommit.includes(PRECOMMIT_DIFF_COMMAND)) errors.push(".githooks/pre-commit missing workspace/diff enforcement");
   const prePush = readText(rootDir, ".githooks/pre-push", errors);

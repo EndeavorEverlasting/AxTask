@@ -54,6 +54,7 @@ describe("AI harness validator selection", () => {
       "authority",
       "harness",
       "harness-infrastructure",
+      "progressive-disclosure",
       "local-cert-harness",
       "repo-location-recovery",
       "stateful-architecture",
