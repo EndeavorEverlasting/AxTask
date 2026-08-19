@@ -189,8 +189,7 @@ describe("AI harness validator selection", () => {
       const relativeOutputPath = ".ai/runs/fresh-run/validator-plan.json";
       const resultPath = ensureOutputPath(tempRootDir, relativeOutputPath);
       expect(fs.existsSync(path.dirname(resultPath))).toBe(true);
-      const resultPathResolved = path.resolve(tempRootDir, relativeOutputPath);
-      expect(resultPath).toBe(resultPathResolved);
+      expect(resultPath).toBe(path.resolve(tempRootDir, relativeOutputPath));
     } finally {
       fs.rmSync(tempRootDir, { recursive: true, force: true });
     }
