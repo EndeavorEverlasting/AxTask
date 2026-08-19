@@ -15,7 +15,15 @@ authorityRef: axtask.agent-authority.v1
 
 ## Registered workflows
 
-Repository intake, PR closeout, failure recovery, repository-location recovery, parallel sprint intake, prompt-leap routing, and agent-workspace lifecycle are routed by `.ai/disclosure-map.json`. Execute:
+- `axtask.repository-intake.v1`
+- `axtask.pr-closeout.v1`
+- `axtask.failure-recovery.v1`
+- `axtask.repository-location-recovery.v1`
+- `axtask.parallel-sprint-intake.v1`
+- `axtask.prompt-leap-routing.v1`
+- `axtask.agent-workspace-lifecycle.v1`
+
+Load exactly one selected workflow with:
 
 ```bash
 node scripts/ai-harness/show-context.mjs workflow <workflow-id>
