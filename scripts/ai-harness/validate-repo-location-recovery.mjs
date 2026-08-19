@@ -11,6 +11,8 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const REQUIRED_FILES = [
   ".ai/README.md",
+  ".ai/disclosure-map.json",
+  ".ai/domains/repository-harness.md",
   ".ai/harness.json",
   ".ai/artifact-registry.json",
   ".ai/workflows/repository-location-recovery.md",
@@ -96,15 +98,20 @@ if (!rawBootstrap.includes("Set-Location -LiteralPath $r.selected")) {
   fail("raw bootstrap must enter only the artifact-capable selected checkout");
 }
 
+const disclosure = JSON.parse(read(".ai/disclosure-map.json"));
+const recoveryRoute = disclosure.workflowRoutes?.find((entry) => entry.workflowId === "axtask.repository-location-recovery.v1");
+if (recoveryRoute?.domainId !== "repository-harness") fail("progressive disclosure must route repository-location recovery through repository-harness");
+if (!recoveryRoute?.skillPaths?.includes(".ai/skills/repository-location-recovery.md")) fail("repository-location disclosure route missing owning skill");
+const recoveryConditionalPaths = recoveryRoute?.conditionalLoads?.flatMap((entry) => entry?.paths ?? []) ?? [];
+if (!recoveryConditionalPaths.includes(".ai/skills/operator-preflight-bootstrap.md")) fail("repository-location disclosure route missing conditional operator-preflight skill");
+
 const readme = read(".ai/README.md");
-for (const marker of [
-  "operator-preflight.ps1",
-  "-Fetch -EnsureArtifactWorktree -Json",
-  "requiredArtifactAvailable",
-  "Set-Location -LiteralPath $r.selected",
-  "`primary` is only the first canonical checkout discovered; use `selected` for tracked-artifact execution",
-]) {
-  if (!readme.includes(marker)) fail(`harness README missing fresh-agent recovery marker: ${marker}`);
+for (const marker of ["repository-harness", "show-context.mjs domain repository-harness", "show-context.mjs workflow <workflow-id>"]) {
+  if (!readme.includes(marker)) fail(`50k orientation missing repository-recovery drill-down marker: ${marker}`);
+}
+const repositoryDomain = read(".ai/domains/repository-harness.md");
+for (const marker of ["repository-location recovery", "axtask.repository-location-recovery.v1", ".ai/disclosure-map.json"]) {
+  if (!repositoryDomain.includes(marker)) fail(`repository-harness domain missing recovery routing marker: ${marker}`);
 }
 if (readme.includes("axtask-resolve-checkout.mjs'; Invoke-WebRequest")) {
   fail("harness README must not bootstrap the resolver directly from an unproven checkout flow");
@@ -253,4 +260,4 @@ try {
   fs.rmSync(staleScratch, { recursive: true, force: true });
 }
 
-if (!process.exitCode) console.log("[repo-location-recovery] PASS non-repository cwd recovery plus stale-checkout artifact gating with artifact-capable operator bootstrap contract");
+if (!process.exitCode) console.log("[repo-location-recovery] PASS non-repository cwd recovery plus stale-checkout artifact gating with progressive-disclosure operator bootstrap routing");
