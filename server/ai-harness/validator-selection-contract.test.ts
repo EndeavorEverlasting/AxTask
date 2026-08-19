@@ -54,6 +54,7 @@ describe("AI harness validator selection", () => {
       "authority",
       "harness",
       "harness-infrastructure",
+      "progressive-disclosure",
       "local-cert-harness",
       "repo-location-recovery",
       "stateful-architecture",
@@ -188,7 +189,8 @@ describe("AI harness validator selection", () => {
       const relativeOutputPath = ".ai/runs/fresh-run/validator-plan.json";
       const resultPath = ensureOutputPath(tempRootDir, relativeOutputPath);
       expect(fs.existsSync(path.dirname(resultPath))).toBe(true);
-      expect(resultPath).toBe(path.resolve(tempRootDir, relativeOutputPath));
+      const resultPathResolved = path.resolve(tempRootDir, relativeOutputPath);
+      expect(resultPath).toBe(resultPathResolved);
     } finally {
       fs.rmSync(tempRootDir, { recursive: true, force: true });
     }
