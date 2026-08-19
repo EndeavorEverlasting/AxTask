@@ -29,20 +29,22 @@ The dedicated CI workflow runs the same three queries through `show-context.mjs 
 | Retrieval simulation | Bytes after | Estimated tokens after | Reduction |
 |---|---:|---:|---:|
 | What is this app and how is it organized? | 2,507 | 627 | 96.5% |
-| How does the repository harness domain work? | 3,199 | 800 | 94.4% |
+| How does the repository harness domain work? | 3,229 | 808 | 94.4% |
 | How do I run local deployment certification? | 15,112 | 3,778 | 64.1% |
 
-The full route validator reports `orientation=627`, `max-domain=800`, and `max-workflow=3888` estimated tokens, so all 50k / 30k / 15k bundles stay within their 1,000 / 2,000 / 4,000 soft ceilings without exceptions.
+The full route validator reports `orientation=627`, `max-domain=808`, and `max-workflow=3888` estimated tokens, so all 50k / 30k / 15k bundles stay within their 1,000 / 2,000 / 4,000 soft ceilings without exceptions.
 
 ## Enforcement
 
-`node scripts/ai-harness/validate-progressive-disclosure.mjs` fails when a route is broken, a registered workflow is unrouted, a domain owner has no load condition, a validator/artifact ID is unresolved, an unrelated domain leaks into a selected domain bundle, authority anchors disappear, or a context bundle exceeds its budget without a recorded safety exception. The validator is registered in `.ai/validator-registry.json`; its contract test, dedicated CI workflow, and pre-push gate prevent silent re-bloat.
+`node scripts/ai-harness/validate-progressive-disclosure.mjs` fails when a route is broken, a registered workflow is unrouted, a domain owner has no load condition, a validator/artifact ID is unresolved, an unrelated domain leaks into a selected domain bundle, authority anchors disappear, a routed path resolves outside the real checkout, or a context bundle exceeds its budget without a structured, scoped, authority-referenced, unexpired safety exception. Stale exceptions on in-budget bundles also fail. The validator is registered in `.ai/validator-registry.json`; its contract test, dedicated CI workflow, and pre-push gate prevent silent re-bloat.
+
+High-risk PR closeout now conditionally routes `docs/GIT_BRANCHING_AND_DEPLOYMENT.md`, and CI polling during closeout routes `docs/CI_POLLING_FOR_AGENTS.md`, preserving those removed universal rules without loading them by default.
 
 Legacy workspace and repository-location validators were also factored so they continue to prove their full workflow/skill/runtime safety contracts while requiring only routing/drill-down markers at 50k. Their procedure text remains demand-loaded at 30k/15k.
 
 ## Authority and proof ceiling
 
-`AGENTS.md` retains universal governance and machine-authority anchors; unique domain rules remain owned by their existing canonical documents and are routed from the relevant 30k map. Repository/CI validation proves information architecture and routing only; it does not prove live Render/Neon state or deployment.
+`AGENTS.md` retains universal governance and machine-authority anchors; unique domain rules remain owned by their existing canonical documents and are routed from the relevant 30k map or selected workflow. Repository/CI validation proves information architecture and routing only; it does not prove live Render/Neon state or deployment.
 
 ## First exercise
 
