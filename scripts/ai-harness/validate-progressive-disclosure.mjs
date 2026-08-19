@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateAuthorityContract } from "./validate-authority.mjs";
 import {
   DEFAULT_REPO_ROOT,
+  assertRepositoryPath,
   estimateContext,
   loadDisclosureState,
   renderDomain,
@@ -18,17 +19,49 @@ function nonEmpty(value) { return typeof value === "string" && value.trim().leng
 function duplicateValues(values) { const seen = new Set(); const duplicates = new Set(); for (const value of values) { if (seen.has(value)) duplicates.add(value); seen.add(value); } return [...duplicates].sort(); }
 
 function existingRelativePath(rootDir, relativePath, errors, label) {
-  if (!nonEmpty(relativePath) || path.isAbsolute(relativePath)) { errors.push(`${label}: invalid repository-relative path ${String(relativePath)}`); return false; }
-  const absolute = path.resolve(rootDir, relativePath);
-  const rel = path.relative(rootDir, absolute);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) { errors.push(`${label}: path escapes repository root: ${relativePath}`); return false; }
-  if (!fs.existsSync(absolute)) { errors.push(`${label}: missing path ${relativePath}`); return false; }
-  return true;
+  try { assertRepositoryPath(rootDir, relativePath); return true; }
+  catch (error) { errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`); return false; }
 }
+
 function budgetLimit(budget) { return budget?.maxEstimatedTokens ?? budget?.maxAdditionalEstimatedTokens ?? null; }
+
+export function validateBudgetException(exception, label, now = new Date()) {
+  if (exception == null) return { approved: false, errors: [] };
+  const errors = [];
+  if (typeof exception !== "object" || Array.isArray(exception)) return { approved: false, errors: [`${label}: budgetException must be an object`] };
+  const allowed = new Set(["kind", "bundle", "owner", "reason", "approvalRef", "expiresOn"]);
+  for (const key of Object.keys(exception)) if (!allowed.has(key)) errors.push(`${label}: budgetException contains unknown field ${key}`);
+  if (exception.kind !== "axtask.context-budget-exception.v1") errors.push(`${label}: budgetException.kind must be axtask.context-budget-exception.v1`);
+  if (exception.bundle !== label) errors.push(`${label}: budgetException.bundle must equal ${label}`);
+  if (!nonEmpty(exception.owner)) errors.push(`${label}: budgetException.owner is required`);
+  if (!nonEmpty(exception.reason) || exception.reason.trim().length < 20) errors.push(`${label}: budgetException.reason must explain why a smaller authoritative split would be unsafe or misleading`);
+  if (exception.approvalRef !== "axtask.agent-authority.v1") errors.push(`${label}: budgetException.approvalRef must equal axtask.agent-authority.v1`);
+  if (typeof exception.expiresOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(exception.expiresOn)) {
+    errors.push(`${label}: budgetException.expiresOn must be YYYY-MM-DD`);
+  } else {
+    const expires = new Date(`${exception.expiresOn}T23:59:59.999Z`);
+    if (Number.isNaN(expires.getTime())) errors.push(`${label}: budgetException.expiresOn is invalid`);
+    else if (expires.getTime() < now.getTime()) errors.push(`${label}: budgetException expired on ${exception.expiresOn}`);
+  }
+  return { approved: errors.length === 0, errors };
+}
+
 function checkBudget(label, rendered, budget, estimator, errors, measurements, exception) {
-  const measure = estimateContext(rendered, estimator.bytesPerEstimatedToken); const limit = budgetLimit(budget); measurements[label] = { ...measure, limit };
-  if (Number.isInteger(limit) && measure.estimatedTokens > limit && !nonEmpty(exception?.reason)) errors.push(`${label}: estimated ${measure.estimatedTokens} tokens exceeds soft ceiling ${limit} without a recorded safety exception`);
+  const measure = estimateContext(rendered, estimator.bytesPerEstimatedToken);
+  const limit = budgetLimit(budget);
+  const exceptionResult = validateBudgetException(exception, label);
+  const exceeded = Number.isInteger(limit) && measure.estimatedTokens > limit;
+  measurements[label] = { ...measure, limit, exceptionApproved: exceeded && exceptionResult.approved };
+  if (!Number.isInteger(limit)) return;
+  if (!exceeded) {
+    if (exception != null) errors.push(`${label}: budgetException is stale because the bundle is within its ${limit}-token ceiling`);
+    return;
+  }
+  if (exception == null) {
+    errors.push(`${label}: estimated ${measure.estimatedTokens} tokens exceeds soft ceiling ${limit} without a structured safety exception`);
+    return;
+  }
+  errors.push(...exceptionResult.errors);
 }
 
 export function validateProgressiveDisclosure(rootDir = DEFAULT_REPO_ROOT) {
@@ -82,13 +115,13 @@ export function validateProgressiveDisclosure(rootDir = DEFAULT_REPO_ROOT) {
   for (const routeId of routeIds) if (!workflowIds.includes(routeId)) errors.push(`workflow route references unknown workflow ${routeId}`);
   const domainIdSet = new Set(domainIds);
   for (const route of routes) {
-    const label = `workflow ${route?.workflowId ?? "unknown"}`;
+    const label = `workflow:${route?.workflowId ?? "unknown"}`;
     if (!domainIdSet.has(route?.domainId)) errors.push(`${label}: unknown domain ${String(route?.domainId)}`);
     for (const p of [...array(route.skillPaths), ...array(route.contractPaths), ...array(route.schemaPaths)]) existingRelativePath(rootDir, p, errors, label);
     for (const conditional of array(route.conditionalLoads)) { if (!nonEmpty(conditional?.when)) errors.push(`${label}: conditional load requires when`); for (const p of array(conditional?.paths)) existingRelativePath(rootDir, p, errors, `${label} conditional`); }
     for (const id of array(route.validatorIds)) if (!validatorIds.has(id)) errors.push(`${label}: unknown validator ${id}`);
     for (const id of array(route.artifactIds)) if (!artifactIds.has(id)) errors.push(`${label}: unknown artifact ${id}`);
-    try { checkBudget(`workflow:${route.workflowId}`, renderWorkflow(state, route.workflowId), workflowBudget, estimator, errors, measurements, route.budgetException); } catch (error) { errors.push(`${label} render failed: ${error instanceof Error ? error.message : String(error)}`); }
+    try { checkBudget(label, renderWorkflow(state, route.workflowId), workflowBudget, estimator, errors, measurements, route.budgetException); } catch (error) { errors.push(`${label} render failed: ${error instanceof Error ? error.message : String(error)}`); }
   }
   for (const [name, p] of Object.entries(routing.sharedWorkflowContracts ?? {})) existingRelativePath(rootDir, p, errors, `shared workflow contract ${name}`);
   const agents = fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");
