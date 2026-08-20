@@ -31,10 +31,10 @@ function repositoryPath(rootDir, relativePath) {
 }
 
 function pythonCandidates() {
-  const configured = process.env.AXTASK_TOKENIZER_PYTHON;
-  const candidates = [];
-  if (configured) candidates.push({ command: configured, args: [] });
-  candidates.push({ command: "python3", args: [] }, { command: "python", args: [] });
+  const candidates = [
+    { command: "python3", args: [] },
+    { command: "python", args: [] },
+  ];
   if (process.platform === "win32") candidates.push({ command: "py", args: ["-3"] });
   return candidates;
 }
