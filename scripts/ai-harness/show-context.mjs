@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { measureContext } from "./tokenizer.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -34,9 +35,9 @@ export function assertRepositoryPath(rootDir, relativePath) {
   return relativePath;
 }
 
-export function estimateContext(text, bytesPerEstimatedToken = 4) {
-  const bytes = Buffer.byteLength(text, "utf8");
-  return { bytes, estimatedTokens: Math.ceil(bytes / bytesPerEstimatedToken) };
+export function estimateContext(text, _legacyBytesPerEstimatedToken = 4, rootDir = DEFAULT_REPO_ROOT, profileId) {
+  const measured = measureContext(text, { rootDir, profileId });
+  return { ...measured, estimatedTokens: measured.tokens };
 }
 
 export function loadDisclosureState(rootDir = DEFAULT_REPO_ROOT) {
@@ -176,10 +177,17 @@ function main() {
   const positional = args.filter((arg) => arg !== "--measure");
   const [kind = "orientation", id] = positional;
   try {
-    const rendered = renderRequestedContext(kind, id);
+    const state = loadDisclosureState();
+    const rendered = kind === "orientation"
+      ? renderOrientation(state)
+      : kind === "domain"
+        ? (id ? renderDomain(state, id) : (() => { throw new Error("domain id is required"); })())
+        : kind === "workflow"
+          ? (id ? renderWorkflow(state, id) : (() => { throw new Error("workflow id is required"); })())
+          : (() => { throw new Error(`unknown context kind: ${kind}`); })();
     if (measureOnly) {
-      const estimate = estimateContext(rendered);
-      process.stdout.write(`${JSON.stringify({ kind, id: id ?? null, ...estimate, estimator: "UTF-8 bytes/4" })}\n`);
+      const measurement = estimateContext(rendered, undefined, state.rootDir, state.routing?.estimator?.profileId);
+      process.stdout.write(`${JSON.stringify({ kind, id: id ?? null, ...measurement })}\n`);
       return;
     }
     process.stdout.write(rendered);

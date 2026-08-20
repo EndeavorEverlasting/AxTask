@@ -1,0 +1,3 @@
+# Canonical OpenAI context-counting backend.
+# Keep this pin aligned with .ai/tokenizer-registry.json.
+tiktoken==0.14.0

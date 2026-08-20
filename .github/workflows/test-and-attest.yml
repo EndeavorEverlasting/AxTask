@@ -47,8 +47,18 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Setup Python for exact tokenizer proof
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/ai-harness/tokenizer-requirements.txt
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Install exact tokenizer backend
+        run: python -m pip install -r scripts/ai-harness/tokenizer-requirements.txt
 
       - name: Typecheck
         run: npm run check
