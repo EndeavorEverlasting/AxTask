@@ -35,8 +35,8 @@ export function assertRepositoryPath(rootDir, relativePath) {
   return relativePath;
 }
 
-export function estimateContext(text, _legacyBytesPerEstimatedToken = 4, rootDir = DEFAULT_REPO_ROOT) {
-  const measured = measureContext(text, { rootDir });
+export function estimateContext(text, _legacyBytesPerEstimatedToken = 4, rootDir = DEFAULT_REPO_ROOT, profileId) {
+  const measured = measureContext(text, { rootDir, profileId });
   return { ...measured, estimatedTokens: measured.tokens };
 }
 
@@ -177,9 +177,16 @@ function main() {
   const positional = args.filter((arg) => arg !== "--measure");
   const [kind = "orientation", id] = positional;
   try {
-    const rendered = renderRequestedContext(kind, id);
+    const state = loadDisclosureState();
+    const rendered = kind === "orientation"
+      ? renderOrientation(state)
+      : kind === "domain"
+        ? (id ? renderDomain(state, id) : (() => { throw new Error("domain id is required"); })())
+        : kind === "workflow"
+          ? (id ? renderWorkflow(state, id) : (() => { throw new Error("workflow id is required"); })())
+          : (() => { throw new Error(`unknown context kind: ${kind}`); })();
     if (measureOnly) {
-      const measurement = estimateContext(rendered);
+      const measurement = estimateContext(rendered, undefined, state.rootDir, state.routing?.estimator?.profileId);
       process.stdout.write(`${JSON.stringify({ kind, id: id ?? null, ...measurement })}\n`);
       return;
     }
