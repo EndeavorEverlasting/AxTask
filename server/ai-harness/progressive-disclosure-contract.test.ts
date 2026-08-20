@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,11 +13,34 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+function pinnedTokenizerAvailable() {
+  const { backend } = loadTokenizerContract(ROOT);
+  const version = backend.package?.version;
+  const check = [
+    "import importlib.metadata, sys",
+    `sys.exit(0 if importlib.metadata.version('tiktoken') == ${JSON.stringify(version)} else 1)`,
+  ].join("; ");
+  const candidates: Array<[string, string[]]> = [
+    ["python3", []],
+    ["python", []],
+  ];
+  if (process.platform === "win32") candidates.push(["py", ["-3"]]);
+  return candidates.some(([command, args]) => {
+    const result = spawnSync(command, [...args, "-c", check], { stdio: "ignore", windowsHide: true });
+    return result.status === 0;
+  });
+}
+
 function withinBudget(measurement: { estimatedTokens: number; limit: number; exceptionApproved?: boolean }) {
   return measurement.estimatedTokens <= measurement.limit || measurement.exceptionApproved === true;
 }
 
 describe("progressive disclosure harness contract", () => {
+  if (!pinnedTokenizerAvailable()) {
+    it.skip("requires pinned exact tokenizer backend; tokenizer-enabled harness CI installs it", () => {});
+    return;
+  }
+
   const result = validateProgressiveDisclosure(ROOT);
 
   it("keeps routing complete and fail-closed", () => {
@@ -24,17 +48,19 @@ describe("progressive disclosure harness contract", () => {
   });
 
   it("uses Hugging Face as the canonical general backend and OpenAI tiktoken for exact context counting", () => {
-    const { registry, profile, backend } = loadTokenizerContract(ROOT);
+    const routing = JSON.parse(fs.readFileSync(path.join(ROOT, ".ai/disclosure-map.json"), "utf8"));
+    const { registry, profile, backend } = loadTokenizerContract(ROOT, routing.estimator.profileId);
     expect(registry.canonicalGeneralBackendId).toBe("huggingface-tokenizers");
     expect(registry.backends.find((item: { id?: string }) => item.id === "huggingface-tokenizers")).toMatchObject({
       repository: "huggingface/tokenizers",
       status: "canonical-general",
     });
     expect(backend).toMatchObject({ repository: "openai/tiktoken", status: "active-context-counting" });
-    expect(profile).toMatchObject({ encoding: "o200k_base", measurement: "exact-tokenization" });
+    expect(profile).toMatchObject({ id: routing.estimator.profileId, encoding: "o200k_base", measurement: "exact-tokenization" });
     for (const measurement of Object.values(result.measurements)) {
       expect(measurement).toMatchObject({
         measurement: "exact-tokenization",
+        profileId: routing.estimator.profileId,
         backend: "openai/tiktoken",
         encoding: "o200k_base",
       });
