@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateAuthorityContract } from "./validate-authority.mjs";
+import { loadTokenizerContract } from "./tokenizer.mjs";
 import {
   DEFAULT_REPO_ROOT,
   assertRepositoryPath,
@@ -46,19 +47,20 @@ export function validateBudgetException(exception, label, now = new Date()) {
   return { approved: errors.length === 0, errors };
 }
 
-function checkBudget(label, rendered, budget, estimator, errors, measurements, exception) {
-  const measure = estimateContext(rendered, estimator.bytesPerEstimatedToken);
+function checkBudget(label, rendered, budget, estimator, errors, measurements, exception, rootDir) {
+  const measure = estimateContext(rendered, undefined, rootDir);
   const limit = budgetLimit(budget);
   const exceptionResult = validateBudgetException(exception, label);
   const exceeded = Number.isInteger(limit) && measure.estimatedTokens > limit;
   measurements[label] = { ...measure, limit, exceptionApproved: exceeded && exceptionResult.approved };
+  if (measure.measurement !== "exact-tokenization") errors.push(`${label}: measurement must be exact-tokenization`);
   if (!Number.isInteger(limit)) return;
   if (!exceeded) {
     if (exception != null) errors.push(`${label}: budgetException is stale because the bundle is within its ${limit}-token ceiling`);
     return;
   }
   if (exception == null) {
-    errors.push(`${label}: estimated ${measure.estimatedTokens} tokens exceeds soft ceiling ${limit} without a structured safety exception`);
+    errors.push(`${label}: exact count ${measure.estimatedTokens} tokens exceeds soft ceiling ${limit} without a structured safety exception`);
     return;
   }
   errors.push(...exceptionResult.errors);
@@ -73,16 +75,38 @@ export function validateProgressiveDisclosure(rootDir = DEFAULT_REPO_ROOT) {
   if (routing.authorityRef !== authority.authorityId) errors.push(".ai/disclosure-map.json: authorityRef mismatch");
   if (routing.routingId !== "axtask.progressive-disclosure.v1") errors.push(".ai/disclosure-map.json: routingId mismatch");
   const estimator = routing.estimator ?? {};
-  if (estimator.kind !== "utf8-bytes-divided-by-four" || estimator.bytesPerEstimatedToken !== 4 || estimator.tokenizerAvailable !== false) errors.push(".ai/disclosure-map.json: estimator must explicitly use the no-tokenizer UTF-8 bytes/4 estimate");
+  if (estimator.kind !== "exact-tokenizer" || estimator.registryPath !== ".ai/tokenizer-registry.json" || estimator.profileId !== "openai-o200k" || estimator.tokenizerAvailable !== true) {
+    errors.push(".ai/disclosure-map.json: estimator must route exact tokenization through .ai/tokenizer-registry.json profile openai-o200k");
+  }
+  existingRelativePath(rootDir, estimator.registryPath, errors, "tokenizer registry");
+  try {
+    const { registry, profile, backend } = loadTokenizerContract(rootDir, estimator.profileId);
+    if (registry.authorityRef !== authority.authorityId) errors.push("tokenizer registry authorityRef mismatch");
+    if (registry.canonicalGeneralBackendId !== "huggingface-tokenizers") errors.push("tokenizer registry must designate huggingface-tokenizers as the canonical general backend");
+    const general = array(registry.backends).find((item) => item?.id === registry.canonicalGeneralBackendId);
+    if (general?.repository !== "huggingface/tokenizers" || general?.status !== "canonical-general") errors.push("canonical general tokenizer backend must be huggingface/tokenizers");
+    if (backend.repository !== "openai/tiktoken" || backend.status !== "active-context-counting") errors.push("active context tokenizer backend must be openai/tiktoken");
+    if (profile.encoding !== "o200k_base" || profile.measurement !== "exact-tokenization") errors.push("openai-o200k profile must use exact o200k_base tokenization");
+    existingRelativePath(rootDir, backend.runner, errors, "tokenizer backend runner");
+    const requirementsPath = "scripts/ai-harness/tokenizer-requirements.txt";
+    if (existingRelativePath(rootDir, requirementsPath, errors, "tokenizer requirements")) {
+      const requirements = fs.readFileSync(path.join(rootDir, requirementsPath), "utf8");
+      if (!requirements.split(/\r?\n/).some((line) => line.trim() === `${backend.package?.name}==${backend.package?.version}`)) {
+        errors.push("tokenizer requirements must pin the registry package name and version exactly");
+      }
+    }
+  } catch (error) {
+    errors.push(`tokenizer contract failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const contractValidator = routing.validator ?? {};
   if (contractValidator.id !== "progressive-disclosure") errors.push("disclosure validator id must be progressive-disclosure");
   if (contractValidator.command !== "node scripts/ai-harness/validate-progressive-disclosure.mjs") errors.push("disclosure validator command mismatch");
   for (const [label, routedPath] of [["contract test", contractValidator.contractTest], ["CI workflow", contractValidator.ciWorkflow]]) existingRelativePath(rootDir, routedPath, errors, `disclosure ${label}`);
 
   const orientationBudget = routing.budgets?.orientation; const domainBudget = routing.budgets?.domain; const workflowBudget = routing.budgets?.workflow;
-  if (budgetLimit(orientationBudget) !== 1000) errors.push("orientation budget must be 1000 estimated tokens");
-  if (budgetLimit(domainBudget) !== 2000) errors.push("domain budget must be 2000 additional estimated tokens");
-  if (budgetLimit(workflowBudget) !== 4000) errors.push("workflow budget must be 4000 additional estimated tokens");
+  if (budgetLimit(orientationBudget) !== 1000) errors.push("orientation budget must be 1000 tokens");
+  if (budgetLimit(domainBudget) !== 2000) errors.push("domain budget must be 2000 additional tokens");
+  if (budgetLimit(workflowBudget) !== 4000) errors.push("workflow budget must be 4000 additional tokens");
   const defaultPaths = array(routing.orientation?.defaultLoadPaths);
   if (defaultPaths.length !== 1 || defaultPaths[0] !== ".ai/README.md") errors.push("50k orientation must load only .ai/README.md by default");
   for (const p of defaultPaths) existingRelativePath(rootDir, p, errors, "orientation");
@@ -92,7 +116,7 @@ export function validateProgressiveDisclosure(rootDir = DEFAULT_REPO_ROOT) {
   const forbiddenDefaultPrefixes = array(routing.onDemandOnlyPrefixes);
   if (forbiddenDefaultPrefixes.length === 0) errors.push("onDemandOnlyPrefixes must enumerate demand-loaded resource families");
   for (const p of defaultPaths) if (forbiddenDefaultPrefixes.some((prefix) => p.startsWith(prefix))) errors.push(`50k orientation illegally preloads ${p}`);
-  try { checkBudget("orientation", renderOrientation(state), orientationBudget, estimator, errors, measurements, routing.orientation?.budgetException); } catch (error) { errors.push(`orientation render failed: ${error instanceof Error ? error.message : String(error)}`); }
+  try { checkBudget("orientation", renderOrientation(state), orientationBudget, estimator, errors, measurements, routing.orientation?.budgetException, rootDir); } catch (error) { errors.push(`orientation render failed: ${error instanceof Error ? error.message : String(error)}`); }
 
   const validatorIds = new Set(array(state.validatorRegistry?.validators).map((item) => item?.id).filter(nonEmpty));
   const artifactIds = new Set(array(state.artifactRegistry?.artifacts).map((item) => item?.id).filter(nonEmpty));
@@ -106,7 +130,7 @@ export function validateProgressiveDisclosure(rootDir = DEFAULT_REPO_ROOT) {
     for (const workflowId of array(domain.workflowIds)) if (!array(routing.workflowRoutes).some((route) => route?.workflowId === workflowId && route?.domainId === domain.id)) errors.push(`domain ${domain.id}: workflow ${workflowId} is not routed back to this domain`);
     for (const id of array(domain.validatorIds)) if (!validatorIds.has(id)) errors.push(`domain ${domain.id}: unknown validator ${id}`);
     for (const id of array(domain.artifactIds)) if (!artifactIds.has(id)) errors.push(`domain ${domain.id}: unknown artifact ${id}`);
-    try { const rendered = renderDomain(state, domain.id); checkBudget(`domain:${domain.id}`, rendered, domainBudget, estimator, errors, measurements, domain.budgetException); for (const other of domains) if (other.id !== domain.id && rendered.includes(other.path)) errors.push(`domain ${domain.id} embeds unrelated domain map ${other.path}`); } catch (error) { errors.push(`domain ${domain.id} render failed: ${error instanceof Error ? error.message : String(error)}`); }
+    try { const rendered = renderDomain(state, domain.id); checkBudget(`domain:${domain.id}`, rendered, domainBudget, estimator, errors, measurements, domain.budgetException, rootDir); for (const other of domains) if (other.id !== domain.id && rendered.includes(other.path)) errors.push(`domain ${domain.id} embeds unrelated domain map ${other.path}`); } catch (error) { errors.push(`domain ${domain.id} render failed: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
   const workflowRecords = array(state.workflowRegistry?.workflows); const workflowIds = workflowRecords.map((item) => item?.id).filter(nonEmpty); const routes = array(routing.workflowRoutes); const routeIds = routes.map((item) => item?.workflowId).filter(nonEmpty);
@@ -121,7 +145,7 @@ export function validateProgressiveDisclosure(rootDir = DEFAULT_REPO_ROOT) {
     for (const conditional of array(route.conditionalLoads)) { if (!nonEmpty(conditional?.when)) errors.push(`${label}: conditional load requires when`); for (const p of array(conditional?.paths)) existingRelativePath(rootDir, p, errors, `${label} conditional`); }
     for (const id of array(route.validatorIds)) if (!validatorIds.has(id)) errors.push(`${label}: unknown validator ${id}`);
     for (const id of array(route.artifactIds)) if (!artifactIds.has(id)) errors.push(`${label}: unknown artifact ${id}`);
-    try { checkBudget(label, renderWorkflow(state, route.workflowId), workflowBudget, estimator, errors, measurements, route.budgetException); } catch (error) { errors.push(`${label} render failed: ${error instanceof Error ? error.message : String(error)}`); }
+    try { checkBudget(label, renderWorkflow(state, route.workflowId), workflowBudget, estimator, errors, measurements, route.budgetException, rootDir); } catch (error) { errors.push(`${label} render failed: ${error instanceof Error ? error.message : String(error)}`); }
   }
   for (const [name, p] of Object.entries(routing.sharedWorkflowContracts ?? {})) existingRelativePath(rootDir, p, errors, `shared workflow contract ${name}`);
   const agents = fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");
@@ -135,6 +159,6 @@ function main() {
   const orientation = result.measurements.orientation;
   const maxDomain = Math.max(...Object.entries(result.measurements).filter(([key]) => key.startsWith("domain:")).map(([, value]) => value.estimatedTokens));
   const maxWorkflow = Math.max(...Object.entries(result.measurements).filter(([key]) => key.startsWith("workflow:")).map(([, value]) => value.estimatedTokens));
-  console.log(`[progressive-disclosure] PASS orientation=${orientation.estimatedTokens} max-domain=${maxDomain} max-workflow=${maxWorkflow} estimated-tokens (UTF-8 bytes/4)`);
+  console.log(`[progressive-disclosure] PASS orientation=${orientation.estimatedTokens} max-domain=${maxDomain} max-workflow=${maxWorkflow} exact-tokens (${orientation.backend} ${orientation.encoding})`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
