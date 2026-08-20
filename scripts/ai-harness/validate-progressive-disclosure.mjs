@@ -48,12 +48,13 @@ export function validateBudgetException(exception, label, now = new Date()) {
 }
 
 function checkBudget(label, rendered, budget, estimator, errors, measurements, exception, rootDir) {
-  const measure = estimateContext(rendered, undefined, rootDir);
+  const measure = estimateContext(rendered, undefined, rootDir, estimator?.profileId);
   const limit = budgetLimit(budget);
   const exceptionResult = validateBudgetException(exception, label);
   const exceeded = Number.isInteger(limit) && measure.estimatedTokens > limit;
   measurements[label] = { ...measure, limit, exceptionApproved: exceeded && exceptionResult.approved };
   if (measure.measurement !== "exact-tokenization") errors.push(`${label}: measurement must be exact-tokenization`);
+  if (measure.profileId !== estimator?.profileId) errors.push(`${label}: measured tokenizer profile ${String(measure.profileId)} does not match routed profile ${String(estimator?.profileId)}`);
   if (!Number.isInteger(limit)) return;
   if (!exceeded) {
     if (exception != null) errors.push(`${label}: budgetException is stale because the bundle is within its ${limit}-token ceiling`);
