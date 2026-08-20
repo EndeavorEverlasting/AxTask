@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { assertRepositoryPath } from "../../scripts/ai-harness/show-context.mjs";
+import { loadTokenizerContract } from "../../scripts/ai-harness/tokenizer.mjs";
 import {
   validateBudgetException,
   validateProgressiveDisclosure,
@@ -20,6 +21,26 @@ describe("progressive disclosure harness contract", () => {
 
   it("keeps routing complete and fail-closed", () => {
     expect(result.errors).toEqual([]);
+  });
+
+  it("uses Hugging Face as the canonical general backend and OpenAI tiktoken for exact context counting", () => {
+    const { registry, profile, backend } = loadTokenizerContract(ROOT);
+    expect(registry.canonicalGeneralBackendId).toBe("huggingface-tokenizers");
+    expect(registry.backends.find((item: { id?: string }) => item.id === "huggingface-tokenizers")).toMatchObject({
+      repository: "huggingface/tokenizers",
+      status: "canonical-general",
+    });
+    expect(backend).toMatchObject({ repository: "openai/tiktoken", status: "active-context-counting" });
+    expect(profile).toMatchObject({ encoding: "o200k_base", measurement: "exact-tokenization" });
+    for (const measurement of Object.values(result.measurements)) {
+      expect(measurement).toMatchObject({
+        measurement: "exact-tokenization",
+        backend: "openai/tiktoken",
+        encoding: "o200k_base",
+      });
+      expect(Number.isInteger(measurement.tokens)).toBe(true);
+      expect(measurement.estimatedTokens).toBe(measurement.tokens);
+    }
   });
 
   it("keeps the 50k orientation under the soft ceiling or an approved structured exception", () => {
