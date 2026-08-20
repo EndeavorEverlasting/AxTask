@@ -3,9 +3,10 @@
   "authorityRef": "axtask.agent-authority.v1",
   "routingId": "axtask.progressive-disclosure.v1",
   "estimator": {
-    "kind": "utf8-bytes-divided-by-four",
-    "bytesPerEstimatedToken": 4,
-    "tokenizerAvailable": false
+    "kind": "exact-tokenizer",
+    "registryPath": ".ai/tokenizer-registry.json",
+    "profileId": "openai-o200k",
+    "tokenizerAvailable": true
   },
   "budgets": {
     "orientation": {"label": "50k", "maxEstimatedTokens": 1000},
@@ -92,6 +93,7 @@
         {"loadWhen":"distinct safety boundaries","path":"AGENT_GUARDRAILS.md"},
         {"loadWhen":"50k orientation","path":".ai/README.md"},
         {"loadWhen":"progressive-disclosure routing","path":".ai/disclosure-map.json"},
+        {"loadWhen":"exact context-token measurement","path":".ai/tokenizer-registry.json"},
         {"loadWhen":"deep code/command discovery","path":".ai/codebase-map.json"},
         {"loadWhen":"shared unfinished work coordination","path":".ai/WORK_QUEUE.md"}
       ],
