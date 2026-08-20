@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.tokenizer-registry.v1",
+  "canonicalGeneralBackendId": "huggingface-tokenizers",
+  "defaultContextProfileId": "openai-o200k",
+  "backends": [
+    {
+      "id": "openai-tiktoken",
+      "repository": "openai/tiktoken",
+      "license": "MIT",
+      "runtime": "python",
+      "package": {"name": "tiktoken", "version": "0.14.0"},
+      "runner": "scripts/ai-harness/tiktoken-backend.py",
+      "status": "active-context-counting"
+    },
+    {
+      "id": "huggingface-tokenizers",
+      "repository": "huggingface/tokenizers",
+      "license": "Apache-2.0",
+      "runtime": "cross-language",
+      "bindings": ["rust", "python", "node"],
+      "status": "canonical-general",
+      "adapterStatus": "not-required-for-axtask-context-proof"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "openai-o200k",
+      "backendId": "openai-tiktoken",
+      "encoding": "o200k_base",
+      "modelFamily": "gpt-5",
+      "measurement": "exact-tokenization",
+      "purpose": "AxTask progressive-disclosure context budgets"
+    }
+  ]
+}
