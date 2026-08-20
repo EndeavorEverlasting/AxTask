@@ -35,6 +35,8 @@ jobs:
           cache: pip
           cache-dependency-path: scripts/ai-harness/tokenizer-requirements.txt
       - run: npm ci
+      - name: Prove generic test isolation without tokenizer backend
+        run: npx --no-install vitest run server/ai-harness/progressive-disclosure-contract.test.ts
       - name: Install exact tokenizer backend
         run: python -m pip install -r scripts/ai-harness/tokenizer-requirements.txt
       - run: node scripts/ai-harness/validate-authority.mjs
@@ -44,4 +46,5 @@ jobs:
           node scripts/ai-harness/show-context.mjs orientation --measure
           node scripts/ai-harness/show-context.mjs domain repository-harness --measure
           node scripts/ai-harness/show-context.mjs workflow axtask.local-deployment-certification.v1 --measure
-      - run: npx --no-install vitest run server/ai-harness/progressive-disclosure-contract.test.ts
+      - name: Prove exact tokenizer contract with pinned backend
+        run: npx --no-install vitest run server/ai-harness/progressive-disclosure-contract.test.ts
