@@ -29,7 +29,14 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/ai-harness/tokenizer-requirements.txt
       - run: npm ci
+      - name: Install exact tokenizer backend
+        run: python -m pip install -r scripts/ai-harness/tokenizer-requirements.txt
       - run: node scripts/ai-harness/validate-authority.mjs
       - run: node scripts/ai-harness/validate-progressive-disclosure.mjs
       - name: Measure representative retrieval paths
