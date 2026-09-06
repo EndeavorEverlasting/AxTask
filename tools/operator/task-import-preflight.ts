@@ -59,7 +59,7 @@ export function inspectTaskImportCsv(
   };
 }
 
-function parseArgs(argv: string[]) {
+export function parseTaskImportPreflightArgs(argv: string[]) {
   const value = (name: string) => {
     const index = argv.indexOf(name);
     return index >= 0 ? argv[index + 1] : undefined;
@@ -96,7 +96,7 @@ function openOperatorSurfaces(result: TaskImportPreflightResult): void {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseTaskImportPreflightArgs(process.argv.slice(2));
   if (!args.file) {
     throw new Error(
       "Usage: npx tsx tools/operator/task-import-preflight.ts --file <tasks.csv> [--expect N] [--sha256 HEX] [--base-url URL] [--open]",
