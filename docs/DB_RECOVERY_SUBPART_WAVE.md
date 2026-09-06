@@ -11,7 +11,7 @@ This document accelerates the production database recovery without weakening `do
 Run these as separate sub-parts. They do not own each other's files or runtime artifacts.
 
 1. **R1 operator evidence** — production SELECT-only forensics. This remains the decision gate for the removable event class.
-2. **R3 raw backup + disposable restore** — may proceed in parallel with R1 because it preserves data and does not depend on the account-evidence export. Use source-read-only backup mode.
+2. **R3 raw backup + disposable restore** — may proceed in parallel with R1 because it preserves data and does not depend on the account-evidence export. Use source-read-only backup mode. R3 is backup and rollback proof, not physical reclaim.
 3. **R7 local production certification** — may proceed in parallel because it uses disposable local PostgreSQL and proves only local runtime behavior.
 
 ### Wave B — launch immediately after R1 is accepted
@@ -40,6 +40,9 @@ R1.5 and R2 assessment are parallel lanes. R2 mutation, if needed, is not.
 **Owner:** protected operator runtime / backup sub-part agent.
 
 **May start:** immediately while R1 is still being gathered.
+
+R3 is backup and rollback proof, not physical reclaim. Do not run
+`db-reclaim-api-request.mjs` or `VACUUM FULL` as part of this sub-part.
 
 **Production safety:** do not write to the source DB merely to record the backup. The recovery path uses `--no-ledger` and validates every prerequisite before spawning `pg_dump`.
 

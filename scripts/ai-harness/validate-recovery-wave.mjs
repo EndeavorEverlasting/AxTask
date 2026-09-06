@@ -42,6 +42,16 @@ const requireText = (source, needle, label) => {
   if (!source.includes(needle)) errors.push(`${label}: missing '${needle}'`);
 };
 
+function field(source, name, label) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = source.match(new RegExp(String.raw`^- \*\*${escaped}:\*\*\s*(.*)$`, "m"));
+  if (!match) {
+    errors.push(`${label}: missing field '${name}'`);
+    return "";
+  }
+  return match[1].trim();
+}
+
 try {
   const queue = read(".ai/WORK_QUEUE.md");
   const runbook = read("docs/DB_RECOVERY_RUNBOOK.md");
@@ -60,6 +70,23 @@ try {
   requireText(queue, "## Urgent recovery concurrency", "work queue");
   requireText(r3, "**Dependencies:** none", "AXQ-003");
   if (r3.includes("**Dependencies:** AXQ-002")) errors.push("AXQ-003 must not be serialized behind R1.5");
+
+  const r3Scope = field(r3, "Scope", "AXQ-003");
+  const r3Next = field(r3, "Next action", "AXQ-003");
+  const r3Forbidden = field(r3, "Forbidden", "AXQ-003");
+  if (!/backup/i.test(r3Scope) || !/restore/i.test(r3Scope)) {
+    errors.push("AXQ-003 Scope must identify R3 as backup and restore proof");
+  }
+  if (!/not physical reclaim/i.test(r3Scope)) {
+    errors.push("AXQ-003 Scope must state that R3 is not physical reclaim");
+  }
+  if (/R3 reclaim|reclaim path/i.test(`${r3Scope} ${r3Next}`)) {
+    errors.push("AXQ-003 must not label R3 as a reclaim path; physical reclaim is AXQ-008/R5");
+  }
+  if (!/reclaim/i.test(r3Forbidden)) {
+    errors.push("AXQ-003 Forbidden must continue to exclude reclaim");
+  }
+  requireText(r56, "physical reclaim", "AXQ-008");
 
   const r7Ready = r7.includes("**Status:** READY");
   const r7Done = r7.includes("**Status:** DONE");
@@ -84,11 +111,16 @@ try {
   const r3Commands = fencedCommands(r3Runbook);
   requireText(r3Commands, "npm run db:backup:preflight -- --no-ledger", "runbook R3 commands");
   requireText(r3Commands, "npm run db:restore:test", "runbook R3 commands");
+  requireText(r3Runbook, "not physical reclaim", "runbook R3");
+  if (/VACUUM FULL|db-reclaim-api-request/.test(r3Commands)) {
+    errors.push("runbook R3 commands must not include physical-reclaim operations");
+  }
   if (/^\s*npm run db:backup\s*$/m.test(r3Commands)) {
     errors.push("runbook R3 must not execute a duplicate standalone db:backup after preflight");
   }
 
   requireText(wave, "Sub-Part Agent A — R3 backup/restore", "sub-part wave");
+  requireText(wave, "not physical reclaim", "sub-part wave R3 naming");
   requireText(wave, "Sub-Part Agent B — R7 local certification", "sub-part wave");
   requireText(wave, "Sub-Part Agent C — R1.5 evidence preservation", "sub-part wave");
   requireText(wave, "Sub-Part Agent D — R2 containment", "sub-part wave");
