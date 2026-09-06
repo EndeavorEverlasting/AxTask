@@ -10,9 +10,10 @@ Close the false-green acceptance gap in spreadsheet task import without committi
 
 - all four response counts (`imported`, `failed`, `skippedAsDuplicate`, `total`) must be non-negative safe integers and must reconcile exactly with the submitted row count;
 - a response that reports failed rows is surfaced as an import error instead of a green completion;
-- a clean insert needs no extra list read because the server has already returned from the database insert path;
-- when the server skips one or more rows as duplicate fingerprints, the client performs one authenticated `GET /api/tasks` and verifies that every requested logical task is actually present among rows where `viewerRole === "owner"`;
-- collaborator-shared lookalikes cannot satisfy the owned-task import postcondition;
+- a clean insert needs no extra verification request because the server has already returned from the database insert path;
+- when the server skips one or more rows as duplicate fingerprints, the client calls authenticated `POST /api/account/task-import-presence` with that import chunk;
+- the presence endpoint checks `storage.getTasks(userId)`, which is owner-only and excludes deleted tasks, so collaborator-shared lookalikes cannot satisfy the import postcondition;
+- the endpoint returns only logical presence counts, not the user's full task list;
 - logical presence uses the collision-safe normalized date/time/activity/notes identity introduced by the operator-preflight sprint;
 - if any logical task is missing after duplicate handling, the request rejects and the existing Import/Export page cannot reach its green `Import Complete` state;
 - every failed import-request path invalidates task and task-stat caches because the server may have committed a valid subset before the error surfaced.
@@ -21,10 +22,10 @@ This specifically prevents a stale fingerprint record, malformed import summary,
 
 ## Performance boundary
 
-The extra task-list read occurs only when the import response reports at least one duplicate skip. Ordinary clean imports do not add a verification request.
+The compact presence request occurs only when the import response reports at least one duplicate skip. It returns counts only. After success, the Import/Export page keeps its existing cache invalidation, so duplicate handling does not add a second full `/api/tasks` network read. The presence endpoint accepts at most 2,000 rows, matching the browser import chunk size.
 
 ## Privacy and production boundary
 
-The verifier operates on the authenticated user's normal `/api/tasks` response and the tasks already selected in the browser. It does not persist private import contents anywhere new, does not bypass authentication, and does not mutate Render or Neon configuration.
+The verifier operates on the tasks already selected in the browser and the authenticated user's owned task rows on the server. It does not persist private import contents anywhere new, return task contents from the verification endpoint, bypass authentication, or mutate Render or Neon configuration.
 
 Repository/CI proof establishes request-level false-green prevention. Actual production deployment, Google login, restart persistence, and the real operator-account import remain runtime gates governed by `docs/DB_RECOVERY_RUNBOOK.md`.
