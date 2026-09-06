@@ -65,10 +65,10 @@ function parseArgs(argv: string[]) {
     return index >= 0 ? argv[index + 1] : undefined;
   };
   const expectedRowsRaw = value("--expect");
-  const expectedRows = expectedRowsRaw === undefined ? undefined : Number.parseInt(expectedRowsRaw, 10);
-  if (expectedRowsRaw !== undefined && (!Number.isInteger(expectedRows) || expectedRows! < 1)) {
+  if (expectedRowsRaw !== undefined && !/^[1-9]\d*$/.test(expectedRowsRaw)) {
     throw new Error(`--expect must be a positive integer, got: ${expectedRowsRaw}`);
   }
+  const expectedRows = expectedRowsRaw === undefined ? undefined : Number(expectedRowsRaw);
   return {
     file: value("--file"),
     expectedRows,
