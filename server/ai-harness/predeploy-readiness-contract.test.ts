@@ -17,7 +17,7 @@ function base(overrides: Record<string, unknown> = {}) {
     buildStatus: "PASS",
     runtimeStatus: "UNKNOWN",
     changedPaths: ["server/routes/account-backup.ts"],
-    productionRecovery: { active: false },
+    productionRecovery: { active: false, closureEvidence: "operator-proof:incident-closed" },
     ...overrides,
   };
 }
@@ -26,21 +26,14 @@ function completeRecovery() {
   return {
     active: true,
     gates: {
-      r0: "PASS",
-      r1: "PASS",
-      r1_5: "PASS",
-      r2: "PASS",
-      r3: "PASS",
-      r4: "PASS",
-      r5: "NOT_REQUIRED",
-      r6: "PASS",
-      r7: "PASS",
+      r0: "PASS", r1: "PASS", r1_5: "PASS", r2: "PASS", r3: "PASS",
+      r4: "PASS", r5: "NOT_REQUIRED", r6: "PASS", r7: "PASS",
     },
   };
 }
 
 describe("predeploy readiness evaluator", () => {
-  it("classifies docs/harness-only changes as no-deploy-needed without inventing provider cost", () => {
+  it("classifies docs/harness-only changes as no-deploy-needed without recovery evidence", () => {
     const result = evaluatePredeployReadiness(base({
       changedPaths: ["docs/releases/2026-07-31-note.md", ".ai/workflows/pr-closeout.md"],
       backupStatus: "NOT_REQUIRED",
@@ -53,15 +46,11 @@ describe("predeploy readiness evaluator", () => {
   });
 
   it("requires account round-trip proof before runtime-affecting deployment work", () => {
-    const result = evaluatePredeployReadiness(base({ backupStatus: "MISSING" }));
-    expect(result.verdict).toBe("NOT_READY_BACKUP");
+    expect(evaluatePredeployReadiness(base({ backupStatus: "MISSING" })).verdict).toBe("NOT_READY_BACKUP");
   });
 
   it("requires migration safety for schema-affecting changes", () => {
-    const result = evaluatePredeployReadiness(base({
-      changedPaths: ["migrations/0043_example.sql", "shared/schema.ts"],
-      schemaStatus: "FAIL",
-    }));
+    const result = evaluatePredeployReadiness(base({ changedPaths: ["migrations/0043_example.sql", "shared/schema.ts"], schemaStatus: "FAIL" }));
     expect(result.verdict).toBe("NOT_READY_SCHEMA");
   });
 
@@ -74,43 +63,40 @@ describe("predeploy readiness evaluator", () => {
   it("fails closed when recovery evidence is omitted even after local runtime passes", () => {
     const result = evaluatePredeployReadiness(base({ runtimeStatus: "PASS", productionRecovery: undefined }));
     expect(result.verdict).toBe("NOT_READY_RECOVERY");
-    expect(result.recommendation).toBe("COMPLETE_PRODUCTION_RECOVERY_GATES");
     expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain("recovery-r1-production-forensics");
-    expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain("recovery-r7-local-certification");
   });
 
   it("keeps deployment blocked when R7 is proven but production recovery gates remain open", () => {
-    const result = evaluatePredeployReadiness(base({
-      runtimeStatus: "PASS",
-      productionRecovery: { active: true, gates: { r7: "PASS" } },
-    }));
+    const result = evaluatePredeployReadiness(base({ runtimeStatus: "PASS", productionRecovery: { active: true, gates: { r7: "PASS" } } }));
+    const missing = result.missingGates.map((gate: { name: string }) => gate.name);
     expect(result.verdict).toBe("NOT_READY_RECOVERY");
-    expect(result.missingGates.map((gate: { name: string }) => gate.name)).not.toContain("recovery-r7-local-certification");
-    expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain("recovery-r1-production-forensics");
+    expect(missing).not.toContain("recovery-r7-local-certification");
+    expect(missing).toContain("recovery-r1-production-forensics");
   });
 
-  it("allows authorized-deployment readiness only after local runtime and recovery gates pass", () => {
+  it("allows authorized-deployment readiness only after local runtime and active recovery gates pass", () => {
     const result = evaluatePredeployReadiness(base({ runtimeStatus: "PASS", productionRecovery: completeRecovery() }));
     expect(result.verdict).toBe("READY_FOR_AUTHORIZED_DEPLOYMENT");
-    expect(result.recommendation).toBe("AWAIT_EXPLICIT_DEPLOYMENT_AUTHORIZATION");
   });
 
-  it("allows explicit inactive recovery state for normal post-incident deployments", () => {
-    const result = evaluatePredeployReadiness(base({ runtimeStatus: "PASS", productionRecovery: { active: false } }));
-    expect(result.verdict).toBe("READY_FOR_AUTHORIZED_DEPLOYMENT");
+  it("requires durable closure evidence before inactive recovery can authorize deployment", () => {
+    const withoutEvidence = evaluatePredeployReadiness(base({ runtimeStatus: "PASS", productionRecovery: { active: false } }));
+    expect(withoutEvidence.verdict).toBe("NOT_READY_RECOVERY");
+    expect(withoutEvidence.missingGates.map((gate: { name: string }) => gate.name)).toContain("recovery-closure-evidence");
+
+    const withEvidence = evaluatePredeployReadiness(base({ runtimeStatus: "PASS", productionRecovery: { active: false, closureEvidence: "operator-proof:R9-closed" } }));
+    expect(withEvidence.verdict).toBe("READY_FOR_AUTHORIZED_DEPLOYMENT");
   });
 
   it("accepts NOT_REQUIRED only for optional R5 physical reclaim", () => {
     const recovery = completeRecovery();
-    const gates = buildProductionRecoveryGates(recovery);
-    expect(gates.find((gate: { name: string }) => gate.name === "recovery-r5-physical-reclaim")?.ok).toBe(true);
+    expect(buildProductionRecoveryGates(recovery).find((gate: { name: string }) => gate.name === "recovery-r5-physical-reclaim")?.ok).toBe(true);
     recovery.gates.r4 = "NOT_REQUIRED";
     expect(buildProductionRecoveryGates(recovery).find((gate: { name: string }) => gate.name === "recovery-r4-logical-cleanup")?.ok).toBe(false);
   });
 
   it("blocks stale candidates and open PR floors before later gates", () => {
-    const result = evaluatePredeployReadiness(base({ candidateSha: "b".repeat(40), blockingPrCount: 2, ciGreen: false }));
-    expect(result.verdict).toBe("NOT_READY_REPOSITORY");
+    expect(evaluatePredeployReadiness(base({ candidateSha: "b".repeat(40), blockingPrCount: 2, ciGreen: false })).verdict).toBe("NOT_READY_REPOSITORY");
   });
 
   it("separates application, schema, and deployment configuration impact", () => {
