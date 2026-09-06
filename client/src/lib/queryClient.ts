@@ -44,8 +44,14 @@ export async function apiFetch(
 }
 
 type TaskImportApiSummary = {
+  imported?: unknown;
   failed?: unknown;
   skippedAsDuplicate?: unknown;
+  total?: unknown;
+};
+
+type OwnedTaskImportIdentity = TaskImportIdentityInput & {
+  viewerRole?: unknown;
 };
 
 function isTaskImportRequest(method: string, url: string): boolean {
@@ -57,12 +63,20 @@ function refreshTaskCachesAfterImportError(): void {
   void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
 }
 
+function requireImportCount(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Task import returned an invalid ${field} count; completion cannot be verified.`);
+  }
+  return value;
+}
+
 /**
  * Spreadsheet import is intentionally a stronger boundary than a generic API
  * request. Newly inserted rows are returned by the database insert itself. A
  * duplicate skip, however, is only safe to present as success when the logical
- * task is still visible in the authenticated task list. This postcondition
- * prevents a stale fingerprint row from becoming a false-green import result.
+ * task is still visible among the authenticated user's owned tasks. This
+ * prevents stale fingerprints or collaborator-shared lookalikes from becoming
+ * false-green import results.
  */
 async function enforceTaskImportPostcondition(
   method: string,
@@ -82,15 +96,24 @@ async function enforceTaskImportPostcondition(
     throw new Error("Task import returned an unreadable result; completion cannot be verified.");
   }
 
-  const failed = typeof summary.failed === "number" ? summary.failed : 0;
+  const imported = requireImportCount(summary.imported, "imported");
+  const failed = requireImportCount(summary.failed, "failed");
+  const skippedAsDuplicate = requireImportCount(summary.skippedAsDuplicate, "skippedAsDuplicate");
+  const total = requireImportCount(summary.total, "total");
+
+  if (
+    total !== requestedTasks.length ||
+    imported + failed + skippedAsDuplicate !== total
+  ) {
+    throw new Error("Task import returned inconsistent counts; completion cannot be verified.");
+  }
+
   if (failed > 0) {
     throw new Error(
       `Task import needs attention: ${failed} row(s) failed validation. Successfully imported rows were kept and will be deduplicated on retry.`,
     );
   }
 
-  const skippedAsDuplicate =
-    typeof summary.skippedAsDuplicate === "number" ? summary.skippedAsDuplicate : 0;
   if (skippedAsDuplicate <= 0) return;
 
   const verifyResponse = await apiFetch("GET", "/api/tasks");
@@ -100,14 +123,17 @@ async function enforceTaskImportPostcondition(
     throw new Error("Task import verification returned an invalid task-list payload.");
   }
 
+  const ownedTasks = (currentTasks as OwnedTaskImportIdentity[]).filter(
+    (task) => task?.viewerRole === "owner",
+  );
   const verification = verifyImportedTaskPresence(
     requestedTasks as TaskImportIdentityInput[],
-    currentTasks as TaskImportIdentityInput[],
+    ownedTasks,
   );
 
   if (verification.missingLogicalTasks > 0) {
     throw new Error(
-      `Task import postcondition failed: ${verification.missingLogicalTasks} of ${verification.expectedLogicalTasks} selected logical task(s) are missing after duplicate handling. Completion was not accepted.`,
+      `Task import postcondition failed: ${verification.missingLogicalTasks} of ${verification.expectedLogicalTasks} selected logical task(s) are missing from owned tasks after duplicate handling. Completion was not accepted.`,
     );
   }
 }
