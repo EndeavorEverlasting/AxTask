@@ -54,15 +54,18 @@ type OwnedTaskImportIdentity = TaskImportIdentityInput & {
   viewerRole?: unknown;
 };
 
+/** True only for the spreadsheet bulk-import request that owns these postconditions. */
 function isTaskImportRequest(method: string, url: string): boolean {
   return method.toUpperCase() === "POST" && url === "/api/tasks/import";
 }
 
+/** Refresh task surfaces after an import error because the server may have partially committed rows. */
 function refreshTaskCachesAfterImportError(): void {
   void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
   void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
 }
 
+/** Parse one server import count and fail closed on missing, negative, fractional, or non-numeric values. */
 function requireImportCount(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`Task import returned an invalid ${field} count; completion cannot be verified.`);
@@ -138,6 +141,7 @@ async function enforceTaskImportPostcondition(
   }
 }
 
+/** Perform an authenticated API request and enforce the spreadsheet-import completion contract when applicable. */
 export async function apiRequest(
   method: string,
   url: string,
