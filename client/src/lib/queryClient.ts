@@ -1,8 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { AXTASK_CLIENT_INSTANCE_HEADER, AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
-import type { TaskImportIdentityInput } from "@shared/task-import-identity";
 import { getClientInstanceId } from "./client-instance-id";
-import { verifyImportedTaskPresence } from "./import-verification";
 
 const csrfCookiePattern = new RegExp(
   `(?:^|;\\s*)${AXTASK_CSRF_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
@@ -50,8 +48,10 @@ type TaskImportApiSummary = {
   total?: unknown;
 };
 
-type OwnedTaskImportIdentity = TaskImportIdentityInput & {
-  viewerRole?: unknown;
+type TaskImportPresenceSummary = {
+  expectedLogicalTasks?: unknown;
+  presentLogicalTasks?: unknown;
+  missingLogicalTasks?: unknown;
 };
 
 /** True only for the spreadsheet bulk-import request that owns these postconditions. */
@@ -76,10 +76,9 @@ function requireImportCount(value: unknown, field: string): number {
 /**
  * Spreadsheet import is intentionally a stronger boundary than a generic API
  * request. Newly inserted rows are returned by the database insert itself. A
- * duplicate skip, however, is only safe to present as success when the logical
- * task is still visible among the authenticated user's owned tasks. This
- * prevents stale fingerprints or collaborator-shared lookalikes from becoming
- * false-green import results.
+ * duplicate skip is only safe to present as success when the compact,
+ * authenticated presence endpoint proves the logical task exists among the
+ * current user's owned, non-deleted tasks.
  */
 async function enforceTaskImportPostcondition(
   method: string,
@@ -119,24 +118,42 @@ async function enforceTaskImportPostcondition(
 
   if (skippedAsDuplicate <= 0) return;
 
-  const verifyResponse = await apiFetch("GET", "/api/tasks");
+  const verifyResponse = await apiFetch("POST", "/api/account/task-import-presence", {
+    tasks: requestedTasks,
+  });
   await throwIfResNotOk(verifyResponse);
-  const currentTasks = await verifyResponse.json();
-  if (!Array.isArray(currentTasks)) {
-    throw new Error("Task import verification returned an invalid task-list payload.");
+
+  let presence: TaskImportPresenceSummary;
+  try {
+    presence = (await verifyResponse.json()) as TaskImportPresenceSummary;
+  } catch {
+    throw new Error("Task import presence verification returned an unreadable result.");
   }
 
-  const ownedTasks = (currentTasks as OwnedTaskImportIdentity[]).filter(
-    (task) => task?.viewerRole === "owner",
+  const expectedLogicalTasks = requireImportCount(
+    presence.expectedLogicalTasks,
+    "expectedLogicalTasks",
   );
-  const verification = verifyImportedTaskPresence(
-    requestedTasks as TaskImportIdentityInput[],
-    ownedTasks,
+  const presentLogicalTasks = requireImportCount(
+    presence.presentLogicalTasks,
+    "presentLogicalTasks",
+  );
+  const missingLogicalTasks = requireImportCount(
+    presence.missingLogicalTasks,
+    "missingLogicalTasks",
   );
 
-  if (verification.missingLogicalTasks > 0) {
+  if (
+    expectedLogicalTasks < 1 ||
+    expectedLogicalTasks > requestedTasks.length ||
+    presentLogicalTasks + missingLogicalTasks !== expectedLogicalTasks
+  ) {
+    throw new Error("Task import presence verification returned inconsistent counts.");
+  }
+
+  if (missingLogicalTasks > 0) {
     throw new Error(
-      `Task import postcondition failed: ${verification.missingLogicalTasks} of ${verification.expectedLogicalTasks} selected logical task(s) are missing from owned tasks after duplicate handling. Completion was not accepted.`,
+      `Task import postcondition failed: ${missingLogicalTasks} of ${expectedLogicalTasks} selected logical task(s) are missing from owned tasks after duplicate handling. Completion was not accepted.`,
     );
   }
 }
