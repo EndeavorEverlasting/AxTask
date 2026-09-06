@@ -17,7 +17,7 @@ The evaluator now fails closed around the active recovery sequence:
 - R5 may use `NOT_REQUIRED` only with durable evidence proving physical reclaim unnecessary;
 - all other active gates require `PASS` plus durable evidence;
 - omitted recovery evidence, plain string statuses, stale candidate binding, missing evidence, or malformed evidence remain `NOT_READY_RECOVERY`;
-- post-incident `active=false` requires durable closure evidence using `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`.
+- post-incident `active=false` is stricter than ordinary gate proof and accepts only an operator-controlled `operator-proof:<reference>` proving the production incident is closed. Local-certification workflow/run tokens and repository commits cannot close the incident.
 
 The result contract adds `NOT_READY_RECOVERY` / `COMPLETE_PRODUCTION_RECOVERY_GATES`.
 
@@ -46,28 +46,29 @@ R1 and R3 are intentionally parallel. R1.5 and R2 assessment can proceed after R
 
 ## Queue reconciliation
 
-`.ai/WORK_QUEUE.md` records AXQ-007/R7 as `DONE` from workflow `34044694367`; current repository/runtime changes in this PR are harness/docs-only. The recovery-wave validator is updated to accept either an executable `READY` R7 or a durably proven `DONE` R7, so future candidate movement can reopen R7 without breaking the contract.
+`.ai/WORK_QUEUE.md` records AXQ-007/R7 as `DONE` from workflow `34044694367`; current repository/runtime changes in this PR are harness/docs-only. `validate-recovery-wave.mjs` now accepts either an executable `READY` R7 or a durably proven `DONE` R7, so future candidate movement can reopen R7 without breaking the contract.
 
 AXQ-001/R1 and AXQ-003/R3 remain operator-owned. R8 remains blocked behind production recovery/capacity convergence.
 
 ## Review / reconciliation
 
-- Bare `active=false` was identified as an escape hatch -> durable closure evidence became mandatory.
-- Arbitrary free text was still too weak -> evidence is restricted to repository durable-proof prefixes.
+- Bare `active=false` was an escape hatch -> closure evidence became mandatory.
+- Arbitrary free text was too weak -> evidence uses machine-recognizable durable tokens.
+- Local-certification/other generic durable tokens could still masquerade as incident closure -> `active=false` now requires specifically operator-controlled production `operator-proof:` closure evidence.
 - R5 `NOT_REQUIRED` lacked proof -> all active recovery statuses now carry durable evidence, including R5.
 - Recovery statuses were not candidate-bound -> active packets now require `productionRecovery.candidateSha === candidateSha`.
-- AXQ-007 `DONE` conflicted with a validator hard-coded to `READY` -> validator now supports `READY` or evidence-bearing `DONE` instead of reverting current truth.
+- AXQ-007 `DONE` conflicted with a validator hard-coded to `READY` -> validator supports `READY` or evidence-bearing `DONE` instead of reverting current truth.
 - The evaluator was reformatted after safety changes to preserve explicit ownership and readable control flow.
 
 ## Rollout
 
-This PR changes repository-side deployment evaluation only. Once merged, future predeploy evidence packets must use the new candidate-bound recovery record shape. Existing callers are limited to the evaluator CLI/contracts in this repository; malformed or legacy active-recovery input fails closed as `NOT_READY_RECOVERY` rather than authorizing deployment.
+This PR changes repository-side deployment evaluation only. Once merged, future active-recovery evidence packets must use the new candidate-bound `{status,evidence}` shape. Malformed or legacy input fails closed as `NOT_READY_RECOVERY` rather than authorizing deployment.
 
 No provider setting, Render service, Neon database, production row, migration, or R8 state is changed by rollout.
 
 ## Rollback
 
-Provider rollback is **not applicable** because this PR performs no provider mutation and no production deployment. If the repository change itself must be reverted, revert the merge commit on `main`; doing so restores only the evaluator/schema/workflow/queue behavior and does not alter production data or provider state.
+Provider rollback is **not applicable** because this PR performs no provider mutation and no production deployment. If the repository change itself must be reverted, revert the merge commit on `main`; doing so restores only evaluator/schema/workflow/queue behavior and does not alter production data or provider state.
 
 ## Testing
 
@@ -90,4 +91,4 @@ The `.ai/**` diff also triggers the agent-workspace harness, whose exact-head wh
 
 ## Proof ceiling / remaining boundary
 
-This release closes the repository/local-runtime deployment-readiness false green. It does **not** prove production R1/R1.5/R2/R3/R4/R5/R6, authorize R8, or mutate Render/Neon. The next live recovery evidence remains operator-controlled R1 and R3, followed by the dependency-ordered preservation/containment/cleanup/capacity gates and finally one explicitly authorized R8 attempt.
+This release closes the repository/local-runtime deployment-readiness false green. It does **not** prove production R1/R1.5/R2/R3/R4/R5/R6, authorize R8, or mutate Render/Neon. The next live recovery evidence remains operator-controlled R1 and R3, followed by dependency-ordered preservation/containment/cleanup/capacity gates and finally one explicitly authorized R8 attempt.

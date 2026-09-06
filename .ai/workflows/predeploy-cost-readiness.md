@@ -38,7 +38,7 @@ During an active recovery, bind the packet to the exact candidate and give every
 }
 ```
 
-Durable evidence must use one of the repository proof prefixes: `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`. R5 may use `NOT_REQUIRED` only when its durable post-cleanup evidence proves physical reclaim is unnecessary. Other recovery gates require `PASS`. Missing candidate binding, missing evidence, plain string statuses, omitted gates, or unrecognized proof strings keep deployment blocked.
+Active-gate durable evidence may use the repository proof prefixes `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`. R5 may use `NOT_REQUIRED` only when its durable post-cleanup evidence proves physical reclaim is unnecessary. Other recovery gates require `PASS`. Missing candidate binding, missing evidence, plain string statuses, omitted gates, or unrecognized proof strings keep deployment blocked.
 
 After the incident is formally closed, future evaluations may instead provide:
 
@@ -46,12 +46,12 @@ After the incident is formally closed, future evaluations may instead provide:
 {
   "productionRecovery": {
     "active": false,
-    "closureEvidence": "operator-proof:<durable R9/incident-closure reference>"
+    "closureEvidence": "operator-proof:<durable production incident-closure reference>"
   }
 }
 ```
 
-A bare `active=false`, malformed value, or free-form closure note remains `NOT_READY_RECOVERY`.
+Incident closure is intentionally stricter than ordinary gate evidence: `active=false` accepts only a non-empty `operator-proof:` reference controlled by the operator. A local-certification `workflow:`/`run:` token, a repository commit, malformed value, or free-form note cannot close the production incident.
 
 ## Steps
 
@@ -65,8 +65,8 @@ A bare `active=false`, malformed value, or free-form closure note remains `NOT_R
 8. After local runtime proof passes, evaluate the active recovery sequence from `docs/DB_RECOVERY_RUNBOOK.md`.
 9. Require active-recovery evidence to be bound to `candidateSha` and require each accepted R0–R7 status to carry a durable proof token.
 10. While any recovery prerequisite remains open, emit `NOT_READY_RECOVERY` / `COMPLETE_PRODUCTION_RECOVERY_GATES` with exact missing gates.
-11. If recovery is declared inactive, require machine-recognizable durable incident-closure evidence.
-12. Only after local runtime proof and every active recovery prerequisite (or durable post-incident closure proof) pass may the evaluator emit `READY_FOR_AUTHORIZED_DEPLOYMENT`.
+11. If recovery is declared inactive, require operator-controlled durable production incident-closure proof.
+12. Only after local runtime proof and every active recovery prerequisite (or proven post-incident closure) pass may the evaluator emit `READY_FOR_AUTHORIZED_DEPLOYMENT`.
 13. Emit qualitative cost exposure only; do not fabricate provider pricing.
 
 ## Command
@@ -90,7 +90,7 @@ A bare `active=false`, malformed value, or free-form closure note remains `NOT_R
 - A passing R7/local-runtime result never substitutes for R1/R1.5/R2/R3/R4/R5/R6.
 - Recovery proof is candidate-bound; stale evidence is not silently promoted to a moved head.
 - `NOT_REQUIRED` is evidence-bearing and is accepted only for R5.
-- `productionRecovery.active=false` requires a recognized durable closure token.
+- `productionRecovery.active=false` requires `operator-proof:` production incident closure; local certification cannot close the incident.
 - Green CI remains repository evidence, not live-runtime proof.
 
 ## Proof ceiling
