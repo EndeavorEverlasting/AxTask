@@ -1,8 +1,10 @@
 import { createHash } from "crypto";
+import {
+  buildTaskImportIdentityKey,
+  normalizeTaskImportIdentityValue,
+} from "@shared/task-import-identity";
 
-export function normalizeForFingerprint(value?: string | null): string {
-  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
+export const normalizeForFingerprint = normalizeTaskImportIdentityValue;
 
 /** Stable hash for dedupe / import anti-abuse (matches server/routes bulk import). */
 export function computeTaskFingerprint(task: {
@@ -11,11 +13,5 @@ export function computeTaskFingerprint(task: {
   activity?: string | null;
   notes?: string | null;
 }): string {
-  const base = [
-    normalizeForFingerprint(task.date || ""),
-    normalizeForFingerprint(task.time || ""),
-    normalizeForFingerprint(task.activity || ""),
-    normalizeForFingerprint(task.notes || ""),
-  ].join("|");
-  return createHash("sha256").update(base).digest("hex");
+  return createHash("sha256").update(buildTaskImportIdentityKey(task)).digest("hex");
 }
