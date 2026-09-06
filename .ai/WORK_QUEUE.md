@@ -66,11 +66,11 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 
 Deployment recovery must not serialize independent preservation and local-proof work behind one operator step. Follow `docs/DB_RECOVERY_SUBPART_WAVE.md`:
 
-- **Wave A now:** AXQ-001 R1 operator evidence, AXQ-003 R3 source-read-only backup/restore, and AXQ-007 R7 local certification proceed in parallel.
+- **Wave A current:** AXQ-001 R1 operator evidence and AXQ-003 R3 source-read-only backup/restore may proceed in parallel. AXQ-007 R7 local certification is already `DONE` on the current candidate floor.
 - **Wave B after R1:** AXQ-002 R1.5 evidence preservation and AXQ-006 R2 containment assessment proceed in parallel. Any R2 mutation still waits for AXQ-003.
 - **Wave C:** AXQ-004 R4 cleanup only after AXQ-002, AXQ-003, and AXQ-006 satisfy their gates.
 - **Wave D:** AXQ-008 R5/R6 physical-capacity convergence.
-- **Wave E:** AXQ-005 one controlled Render recovery only after AXQ-007 and AXQ-008.
+- **Wave E:** AXQ-005 one controlled Render recovery only after AXQ-008; AXQ-007 is already satisfied.
 
 ## AXQ-001 — Production R1 read-only database forensics
 
@@ -84,9 +84,9 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`, `scripts/db-size-audit.mjs`
 - **Acceptance gate:** production R1 evidence records current database/table size distribution, exact `security_events` event mix/timestamps, containment-trigger state, and migration-9999 ledger state
 - **Gate:** requires operator-controlled production `DATABASE_URL` / Neon access; repository and disposable CI proof cannot satisfy live R1
-- **Last proof:** merge:6b57add26207c8130a3b333755ec21059176c6bc merged the single-pass fail-closed R1 implementation; no durable live R1 artifact has been recorded in this queue
-- **Next action:** operator runs the read-only R1 procedure in `docs/DB_RECOVERY_RUNBOOK.md` against production and records sanitized proof outside Git while AXQ-003 and AXQ-007 proceed independently
-- **Updated:** 2026-08-11T17:36:00Z
+- **Last proof:** artifact:docs/DB_RECOVERY_RUNBOOK.md records the verified incident floor (36.20 GB database, 36.19 GB `security_events`, 10.00 GB configured capacity-budget hard fail); no durable live `production-audit.json` proving exact event mix/trigger/migration state is recorded in this queue
+- **Next action:** operator runs the read-only R1 procedure in `docs/DB_RECOVERY_RUNBOOK.md` against production and records sanitized proof outside Git while AXQ-003 proceeds independently
+- **Updated:** 2026-09-06T16:34:00Z
 
 ## AXQ-002 — Production R1.5 portable account evidence preservation
 
@@ -147,10 +147,10 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Dependencies:** AXQ-007, AXQ-008
 - **References:** `render.yaml`, `Dockerfile`, `scripts/production-start.mjs`, `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ENVIRONMENT_VARIABLES.md`
 - **Acceptance gate:** R0-R7 proof is recorded; exact intended `main` SHA is deployed once with verified environment/health settings; startup gates and Render health succeed; live proof is recorded without secrets
-- **Gate:** blocked until local certification and post-cleanup capacity convergence are complete; R8 also requires explicit operator authorization for the one live attempt
-- **Last proof:** historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists
-- **Next action:** when AXQ-007 and AXQ-008 are DONE, operator records exact main SHA/provider settings and authorizes one R8 resume/deploy attempt
-- **Updated:** 2026-08-11T17:36:00Z
+- **Gate:** AXQ-007 is satisfied; deployment remains blocked until AXQ-008 capacity convergence is complete and the operator explicitly authorizes the one R8 attempt
+- **Last proof:** workflow:34044694367 proves current-candidate local production certification; historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists
+- **Next action:** when AXQ-008 is DONE, operator records exact current `main` SHA/provider settings and explicitly authorizes one R8 resume/deploy attempt
+- **Updated:** 2026-09-06T16:34:00Z
 
 ## AXQ-006 — Production R2 containment assessment and repair
 
@@ -170,19 +170,19 @@ Deployment recovery must not serialize independent preservation and local-proof 
 
 ## AXQ-007 — R7 local production certification
 
-- **Status:** READY
+- **Status:** DONE
 - **Priority:** P0
-- **Owner:** unclaimed
-- **Branch / PR:** none
+- **Owner:** repository-ci
+- **Branch / PR:** main
 - **Scope:** certify the exact recovery candidate against disposable local PostgreSQL and run deployment/build validators
 - **Forbidden:** production credentials, production DB mutation, Render resume/deploy, claiming local proof as live deployment proof
 - **Dependencies:** none
 - **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `.ai/workflows/local-deployment-certification.md`, `scripts/deploy/run-local-cert.mjs`
 - **Acceptance gate:** local production certificate proves launcher start, `/health`, `/ready`, client shell, and fail-closed recovery defaults for the exact candidate SHA; deploy validators/build pass
 - **Gate:** none
-- **Last proof:** workflow:31506420398 attested merged R1 main, but R7 should be rerun/recorded as an explicit recovery sub-part for the exact deployment candidate
-- **Next action:** Sub-Part B runs `AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs`, then `npm run test:deploy` and `npm run build`, preserving the generated sanitized runtime proof/report
-- **Updated:** 2026-08-11T17:36:00Z
+- **Last proof:** workflow:34044694367 passed typecheck, full tests, release guardrail, production build, account backup round-trip, migration/bootstrap verification, and Local production certification on merge:b4d3bdac13e73cb6458b630e0d4dec69fbd4990c; commit:de5dd317ba67320600e5b8428a65565b9077daf0 is the subsequent `[skip ci]` test-attestation update containing that merge
+- **Next action:** none; no safe actionable work remains
+- **Updated:** 2026-09-06T16:34:00Z
 
 ## AXQ-008 — R5/R6 physical reclaim and capacity convergence
 

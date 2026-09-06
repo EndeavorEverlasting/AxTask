@@ -35,6 +35,18 @@ const DEPLOYMENT_PATTERNS = [
   /^scripts\/deploy\//,
 ];
 
+const RECOVERY_GATE_DEFINITIONS = [
+  ["r0", "recovery-r0-render-suspended", ["PASS"], "operator", "Verify R0 in docs/DB_RECOVERY_RUNBOOK.md", "Render must remain suspended with auto-deploy off until the recovery sequence reaches R8."],
+  ["r1", "recovery-r1-production-forensics", ["PASS"], "operator", "node scripts/db-size-audit.mjs --forensics --json > production-audit.json", "Current production event mix, timestamps, containment-trigger state, and migration-9999 state must be proven."],
+  ["r1_5", "recovery-r1.5-account-evidence", ["PASS"], "operator", "Follow R1.5 in docs/DB_RECOVERY_RUNBOOK.md", "Portable account evidence and independently verified copies must exist before destructive cleanup."],
+  ["r2", "recovery-r2-containment", ["PASS"], "operator", "node scripts/db-contain-api-request.mjs --json", "Origin-active api_request containment must be proven before cleanup and deployment recovery."],
+  ["r3", "recovery-r3-backup-restore", ["PASS"], "operator", "npm run db:backup:preflight -- --no-ledger", "A protected source-read-only backup and disposable restore proof must be recorded."],
+  ["r4", "recovery-r4-logical-cleanup", ["PASS"], "operator", "Follow R4 in docs/DB_RECOVERY_RUNBOOK.md", "The incident cleanup gate must be completed under the preservation and containment prerequisites."],
+  ["r5", "recovery-r5-physical-reclaim", ["PASS", "NOT_REQUIRED"], "operator", "node scripts/db-reclaim-api-request.mjs --vacuum-full --json", "Physical reclaim must either pass or be explicitly proven unnecessary from post-cleanup evidence."],
+  ["r6", "recovery-r6-capacity-policy", ["PASS"], "operator", "node scripts/deploy/check-db-capacity.mjs", "The post-recovery capacity policy must pass under an explicit operator budget or report-only decision."],
+  ["r7", "recovery-r7-local-certification", ["PASS"], "repository-owner", "AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs", "The exact deployment candidate must have current local production certification."],
+];
+
 function normalizePath(value) {
   return String(value ?? "").replace(/\\/g, "/").replace(/^\.\//, "").trim();
 }
@@ -61,6 +73,14 @@ export function classifyChangedPaths(changedPaths = []) {
 
 function gate(name, ok, owner, command, reason) {
   return { name, ok, owner, command, reason };
+}
+
+export function buildProductionRecoveryGates(productionRecovery) {
+  if (productionRecovery?.active === false) return [];
+  const statuses = productionRecovery?.gates ?? {};
+  return RECOVERY_GATE_DEFINITIONS.map(([key, name, accepted, owner, command, reason]) =>
+    gate(name, accepted.includes(String(statuses[key] ?? "UNKNOWN")), owner, command, reason),
+  );
 }
 
 export function evaluatePredeployReadiness(input) {
@@ -121,6 +141,7 @@ export function evaluatePredeployReadiness(input) {
         "npm run build",
         "Runtime-affecting candidates require a successful production build.",
       ),
+      ...buildProductionRecoveryGates(input.productionRecovery),
     );
   }
 
@@ -143,12 +164,15 @@ export function evaluatePredeployReadiness(input) {
   } else if (input.runtimeStatus === "FAIL") {
     verdict = "NOT_READY_RUNTIME";
     recommendation = "REPAIR_LOCAL_RUNTIME";
-  } else if (input.runtimeStatus === "PASS") {
-    verdict = "READY_FOR_AUTHORIZED_DEPLOYMENT";
-    recommendation = "AWAIT_EXPLICIT_DEPLOYMENT_AUTHORIZATION";
-  } else {
+  } else if (input.runtimeStatus !== "PASS") {
     verdict = "READY_FOR_LOCAL_ACCEPTANCE";
     recommendation = "RUN_LOCAL_PRODUCTION_CERTIFICATION";
+  } else if (failed.some((item) => item.name.startsWith("recovery-"))) {
+    verdict = "NOT_READY_RECOVERY";
+    recommendation = "COMPLETE_PRODUCTION_RECOVERY_GATES";
+  } else {
+    verdict = "READY_FOR_AUTHORIZED_DEPLOYMENT";
+    recommendation = "AWAIT_EXPLICIT_DEPLOYMENT_AUTHORIZATION";
   }
 
   const costExposure = !impact.deploymentNeeded
@@ -198,6 +222,7 @@ function usage() {
     "  node scripts/ai-harness/evaluate-predeploy-readiness.mjs --input <evidence.json> [--output .ai/runs/<run-id>/predeploy-readiness.json] [--json]",
     "",
     "The input is repository evidence only; this evaluator never contacts Render or Neon.",
+    "productionRecovery is fail-closed: omit it only when NOT_READY_RECOVERY is intended; set active=false only after the incident recovery is formally closed.",
   ].join("\n");
 }
 
