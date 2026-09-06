@@ -23,7 +23,14 @@ export interface TaskImportPreflightResult {
 }
 
 export function buildImportUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/$/, "")}/import-export`;
+  const url = new URL(baseUrl);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Unsupported AxTask base URL protocol: ${url.protocol}`);
+  }
+  url.search = "";
+  url.hash = "";
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/import-export`;
+  return url.toString();
 }
 
 export function inspectTaskImportCsv(
@@ -37,6 +44,9 @@ export function inspectTaskImportCsv(
   const bytes = readFileSync(file);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const expectedSha = options.expectedSha256?.trim().toLowerCase();
+  if (expectedSha && !/^[a-f0-9]{64}$/.test(expectedSha)) {
+    throw new Error(`--sha256 must be exactly 64 hexadecimal characters, got: ${options.expectedSha256}`);
+  }
   if (expectedSha && sha256 !== expectedSha) {
     throw new Error(`SHA-256 mismatch: expected ${expectedSha}, got ${sha256}`);
   }
@@ -62,17 +72,29 @@ export function inspectTaskImportCsv(
 export function parseTaskImportPreflightArgs(argv: string[]) {
   const value = (name: string) => {
     const index = argv.indexOf(name);
-    return index >= 0 ? argv[index + 1] : undefined;
+    if (index < 0) return undefined;
+    const candidate = argv[index + 1];
+    if (!candidate || candidate.startsWith("--")) {
+      throw new Error(`${name} requires a value`);
+    }
+    return candidate;
   };
+
   const expectedRowsRaw = value("--expect");
   if (expectedRowsRaw !== undefined && !/^[1-9]\d*$/.test(expectedRowsRaw)) {
     throw new Error(`--expect must be a positive integer, got: ${expectedRowsRaw}`);
   }
   const expectedRows = expectedRowsRaw === undefined ? undefined : Number(expectedRowsRaw);
+
+  const expectedSha256 = value("--sha256");
+  if (expectedSha256 !== undefined && !/^[a-fA-F0-9]{64}$/.test(expectedSha256)) {
+    throw new Error(`--sha256 must be exactly 64 hexadecimal characters, got: ${expectedSha256}`);
+  }
+
   return {
     file: value("--file"),
     expectedRows,
-    expectedSha256: value("--sha256"),
+    expectedSha256,
     baseUrl: value("--base-url"),
     open: argv.includes("--open"),
   };
@@ -80,7 +102,7 @@ export function parseTaskImportPreflightArgs(argv: string[]) {
 
 function openOperatorSurfaces(result: TaskImportPreflightResult): void {
   if (process.platform === "win32") {
-    spawn("cmd.exe", ["/d", "/s", "/c", "start", "", result.importUrl], {
+    spawn("explorer.exe", [result.importUrl], {
       detached: true,
       stdio: "ignore",
     }).unref();
