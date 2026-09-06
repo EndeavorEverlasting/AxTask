@@ -32,14 +32,16 @@ describe("task import apiRequest postcondition", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("refetches and accepts duplicate skips only when all requested logical tasks are present", async () => {
+  it("refetches and accepts duplicate skips only when all requested logical tasks are owned and present", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         jsonResponse({ imported: 0, failed: 0, skippedAsDuplicate: 1, total: 1 }),
       )
       .mockResolvedValueOnce(
-        jsonResponse([{ date: "2026-09-06", activity: "TASK A", notes: " first " }], 200),
+        jsonResponse([
+          { date: "2026-09-06", activity: "TASK A", notes: " first ", viewerRole: "owner" },
+        ], 200),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -51,6 +53,26 @@ describe("task import apiRequest postcondition", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/tasks");
+  });
+
+  it("rejects a collaborator-shared lookalike instead of treating it as the owned duplicate", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ imported: 0, failed: 0, skippedAsDuplicate: 1, total: 1 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse([
+          { date: "2026-09-06", activity: "Task A", notes: "First", viewerRole: "viewer" },
+        ], 200),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiRequest("POST", "/api/tasks/import", {
+        tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
+      }),
+    ).rejects.toThrow("missing from owned tasks");
   });
 
   it("rejects a false-green duplicate and refreshes task caches when the logical task is missing", async () => {
@@ -92,6 +114,23 @@ describe("task import apiRequest postcondition", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks/stats"] });
+  });
+
+  it.each([
+    ["missing failed", { imported: 1, skippedAsDuplicate: 0, total: 1 }],
+    ["string failed", { imported: 1, failed: "0", skippedAsDuplicate: 0, total: 1 }],
+    ["negative failed", { imported: 1, failed: -1, skippedAsDuplicate: 1, total: 1 }],
+    ["fractional skipped", { imported: 0, failed: 0, skippedAsDuplicate: 0.5, total: 1 }],
+    ["inconsistent total", { imported: 1, failed: 0, skippedAsDuplicate: 0, total: 2 }],
+  ])("rejects unverifiable import summaries: %s", async (_label, summary) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(summary));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiRequest("POST", "/api/tasks/import", {
+        tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
+      }),
+    ).rejects.toThrow(/cannot be verified|inconsistent counts/);
   });
 
   it("refreshes task caches after a non-OK import response because the server may have partially committed", async () => {
