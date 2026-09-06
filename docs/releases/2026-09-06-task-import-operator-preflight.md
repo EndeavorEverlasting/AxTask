@@ -16,7 +16,7 @@ The command is read-only with respect to AxTask data. It:
 2. computes and optionally pins SHA-256;
 3. parses the file with AxTask's canonical `parseTasksFromCSV` implementation;
 4. validates the expected parsed row count when supplied;
-5. reports logical duplicates with the same date/time/activity/notes identity used by server import dedupe;
+5. reports logical duplicates from normalized date/time/activity/notes identity;
 6. resolves the target `/import-export` URL; and
 7. with `--open`, opens the import surface and highlights the selected CSV on Windows.
 
@@ -24,7 +24,7 @@ It does **not** upload tasks, bypass authentication, mutate a database, resume R
 
 ## Identity contract
 
-`shared/task-import-identity.ts` now owns the normalized logical task identity. `server/task-fingerprint.ts` hashes that shared identity before persistence, so operator preflight and server dedupe cannot silently disagree about whitespace/case normalization.
+`shared/task-import-identity.ts` owns the normalized date/time/activity/notes identity parts. New operator/client comparisons use a collision-safe serialized key. `server/task-fingerprint.ts` hashes the historical pipe-joined representation of those same normalized parts so existing persisted fingerprint rows remain valid. A regression test pins the known legacy hash, preventing this refactor from silently changing server dedupe compatibility.
 
 ## Proof ceiling
 
