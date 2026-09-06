@@ -93,4 +93,21 @@ describe("task import apiRequest postcondition", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks/stats"] });
   });
+
+  it("refreshes task caches after a non-OK import response because the server may have partially committed", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({ message: "classification update failed" }, 500),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiRequest("POST", "/api/tasks/import", {
+        tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
+      }),
+    ).rejects.toThrow("500:");
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks/stats"] });
+  });
 });
