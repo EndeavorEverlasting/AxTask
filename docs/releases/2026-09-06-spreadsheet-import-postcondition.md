@@ -8,13 +8,16 @@ Close the false-green acceptance gap in spreadsheet task import without committi
 
 `apiRequest` now applies a narrow postcondition to `POST /api/tasks/import`:
 
+- all four response counts (`imported`, `failed`, `skippedAsDuplicate`, `total`) must be non-negative safe integers and must reconcile exactly with the submitted row count;
 - a response that reports failed rows is surfaced as an import error instead of a green completion;
 - a clean insert needs no extra list read because the server has already returned from the database insert path;
-- when the server skips one or more rows as duplicate fingerprints, the client performs one authenticated `GET /api/tasks` and verifies that every requested logical task is actually present;
+- when the server skips one or more rows as duplicate fingerprints, the client performs one authenticated `GET /api/tasks` and verifies that every requested logical task is actually present among rows where `viewerRole === "owner"`;
+- collaborator-shared lookalikes cannot satisfy the owned-task import postcondition;
 - logical presence uses the collision-safe normalized date/time/activity/notes identity introduced by the operator-preflight sprint;
-- if any logical task is missing after duplicate handling, the request rejects and the existing Import/Export page cannot reach its green `Import Complete` state.
+- if any logical task is missing after duplicate handling, the request rejects and the existing Import/Export page cannot reach its green `Import Complete` state;
+- every failed import-request path invalidates task and task-stat caches because the server may have committed a valid subset before the error surfaced.
 
-This specifically prevents a stale fingerprint record from being treated as proof that the corresponding task still exists.
+This specifically prevents a stale fingerprint record, malformed import summary, or matching shared task from being treated as proof that the requested owned task still exists.
 
 ## Performance boundary
 
