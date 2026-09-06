@@ -2,7 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { inspectTaskImportCsv } from "./task-import-preflight";
+import { buildTaskImportIdentityKey } from "../../shared/task-import-identity";
+import {
+  inspectTaskImportCsv,
+  parseTaskImportPreflightArgs,
+} from "./task-import-preflight";
 
 const tempDirs: string[] = [];
 
@@ -47,5 +51,17 @@ describe("task import operator preflight", () => {
 
     expect(() => inspectTaskImportCsv(file, { expectedRows: 2 })).toThrow("Task count mismatch");
     expect(() => inspectTaskImportCsv(file, { expectedSha256: "0".repeat(64) })).toThrow("SHA-256 mismatch");
+  });
+
+  it("rejects malformed --expect pins instead of partially parsing them", () => {
+    expect(() => parseTaskImportPreflightArgs(["--expect", "3oops"])).toThrow("positive integer");
+    expect(() => parseTaskImportPreflightArgs(["--expect", "1e3"])).toThrow("positive integer");
+    expect(parseTaskImportPreflightArgs(["--expect", "11"]).expectedRows).toBe(11);
+  });
+
+  it("keeps new logical identity keys collision-safe when fields contain pipes", () => {
+    const left = buildTaskImportIdentityKey({ activity: "A|B", notes: "C" });
+    const right = buildTaskImportIdentityKey({ activity: "A", notes: "B|C" });
+    expect(left).not.toBe(right);
   });
 });
