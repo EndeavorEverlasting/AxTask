@@ -31,10 +31,18 @@ function section(source, startHeading, endHeading) {
 }
 
 function fencedCommands(source) {
-  return [...source.matchAll(/```(?:bash|sh|text)?\s*\n([\s\S]*?)```/g)]
+  return [...source.matchAll(/```[^\n]*\n([\s\S]*?)```/g)]
     .map((match) => match[1].trim())
     .filter(Boolean)
     .join("\n");
+}
+
+function normalize(text) {
+  return String(text).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function containsReclaimCommand(text) {
+  return /vacuum\s+full|db-reclaim-api-request/.test(normalize(text));
 }
 
 const errors = [];
@@ -44,12 +52,15 @@ const requireText = (source, needle, label) => {
 
 function field(source, name, label) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = source.match(new RegExp(String.raw`^- \*\*${escaped}:\*\*\s*(.*)$`, "m"));
-  if (!match) {
+  const matches = [...source.matchAll(new RegExp(String.raw`^- \*\*${escaped}:\*\*\s*(.*)$`, "gm"))];
+  if (matches.length === 0) {
     errors.push(`${label}: missing field '${name}'`);
     return "";
   }
-  return match[1].trim();
+  if (matches.length > 1) {
+    errors.push(`${label}: duplicate field '${name}'`);
+  }
+  return matches[matches.length - 1][1].trim();
 }
 
 try {
@@ -74,19 +85,26 @@ try {
   const r3Scope = field(r3, "Scope", "AXQ-003");
   const r3Next = field(r3, "Next action", "AXQ-003");
   const r3Forbidden = field(r3, "Forbidden", "AXQ-003");
+  const r56Scope = field(r56, "Scope", "AXQ-008");
   if (!/backup/i.test(r3Scope) || !/restore/i.test(r3Scope)) {
     errors.push("AXQ-003 Scope must identify R3 as backup and restore proof");
   }
   if (!/not physical reclaim/i.test(r3Scope)) {
     errors.push("AXQ-003 Scope must state that R3 is not physical reclaim");
   }
-  if (/R3 reclaim|reclaim path/i.test(`${r3Scope} ${r3Next}`)) {
-    errors.push("AXQ-003 must not label R3 as a reclaim path; physical reclaim is AXQ-008/R5");
+  const r3ScopeWithoutNegation = normalize(r3Scope).replace(/not physical reclaim/g, "");
+  if (/reclaim/.test(r3ScopeWithoutNegation) || /reclaim/.test(normalize(r3Next))) {
+    errors.push("AXQ-003 Scope/Next action must not assign reclaim to R3");
   }
-  if (!/reclaim/i.test(r3Forbidden)) {
+  if (!/\breclaim\b/i.test(r3Forbidden)) {
     errors.push("AXQ-003 Forbidden must continue to exclude reclaim");
   }
-  requireText(r56, "physical reclaim", "AXQ-008");
+  if (/\b(?:allow|allows|allowed|permit|permits|permitted)\b.{0,24}\breclaim\b|\breclaim\b.{0,24}\b(?:allow|allows|allowed|permit|permits|permitted)\b/i.test(r3Forbidden)) {
+    errors.push("AXQ-003 Forbidden must exclude reclaim, not allow it");
+  }
+  if (!/physical reclaim/i.test(r56Scope)) {
+    errors.push("AXQ-008 Scope must own physical reclaim");
+  }
 
   const r7Ready = r7.includes("**Status:** READY");
   const r7Done = r7.includes("**Status:** DONE");
@@ -112,7 +130,7 @@ try {
   requireText(r3Commands, "npm run db:backup:preflight -- --no-ledger", "runbook R3 commands");
   requireText(r3Commands, "npm run db:restore:test", "runbook R3 commands");
   requireText(r3Runbook, "not physical reclaim", "runbook R3");
-  if (/VACUUM FULL|db-reclaim-api-request/.test(r3Commands)) {
+  if (containsReclaimCommand(r3Commands)) {
     errors.push("runbook R3 commands must not include physical-reclaim operations");
   }
   if (/^\s*npm run db:backup\s*$/m.test(r3Commands)) {

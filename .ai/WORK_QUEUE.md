@@ -118,7 +118,7 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Acceptance gate:** protected dump + manifest exist; `sourceLedgerMode` is `skipped`; SHA-256 verifies; disposable restore succeeds; manifest records non-null `restoreTestedAt`
 - **Gate:** requires operator-controlled production `DATABASE_URL`, `BACKUP_STORAGE_TARGET`, protected storage, PostgreSQL client tools, and a separate disposable `RESTORE_DATABASE_URL`
 - **Last proof:** none
-- **Next action:** operator runs `npm run db:backup:preflight -- --no-ledger`, preserves the printed `AXTASK_BACKUP_MANIFEST` path, then `npm run db:restore:test -- --recovery --file="<exact manifest path>"`; do not run a second `npm run db:backup`; physical reclaim remains AXQ-008/R5
+- **Next action:** operator runs `npm run db:backup:preflight -- --no-ledger`, preserves the printed `AXTASK_BACKUP_MANIFEST` path, then `npm run db:restore:test -- --recovery --file="<exact manifest path>"`; do not run a second `npm run db:backup`; R5/AXQ-008 remains the later physical-shrink lane
 - **Updated:** 2026-09-06T21:55:00Z
 
 ## AXQ-004 — Production R4 targeted logical cleanup

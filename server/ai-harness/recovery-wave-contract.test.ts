@@ -189,20 +189,25 @@ describe("post-R1 recovery wave contract", () => {
     const r3SectionStart = runbook.indexOf("## R3 — backup and rollback proof");
     const r4SectionStart = runbook.indexOf("## R4 — targeted logical cleanup");
     const r3Runbook = runbook.slice(r3SectionStart, r4SectionStart);
-    const r3Commands = [...r3Runbook.matchAll(/```(?:bash|sh|text)?\s*\n([\s\S]*?)```/g)]
+    const r3Commands = [...r3Runbook.matchAll(/```[^\n]*\n([\s\S]*?)```/g)]
       .map((match) => match[1])
       .join("\n");
+    const r56Scope = r56.match(/^- \*\*Scope:\*\*\s*(.*)$/m)?.[1] ?? "";
+    const normalizedCommands = r3Commands.toLowerCase().replace(/\s+/g, " ");
+    const r3ScopeWithoutNegation = r3Scope.toLowerCase().replace(/not physical reclaim/g, "");
 
     expect(r3).not.toBe("");
     expect(r56).not.toBe("");
     expect(r3Scope.toLowerCase()).toMatch(/backup/);
     expect(r3Scope.toLowerCase()).toMatch(/restore/);
     expect(r3Scope.toLowerCase()).toMatch(/not physical reclaim/);
-    expect(`${r3Scope} ${r3Next}`.toLowerCase()).not.toMatch(/r3 reclaim|reclaim path/);
-    expect(r3Forbidden.toLowerCase()).toMatch(/reclaim/);
-    expect(r56.toLowerCase()).toMatch(/physical reclaim/);
+    expect(r3ScopeWithoutNegation).not.toMatch(/reclaim/);
+    expect(r3Next.toLowerCase()).not.toMatch(/reclaim/);
+    expect(r3Forbidden.toLowerCase()).toMatch(/\breclaim\b/);
+    expect(r3Forbidden.toLowerCase()).not.toMatch(/\b(?:allow|allows|allowed|permit|permits|permitted)\b.{0,24}\breclaim\b|\breclaim\b.{0,24}\b(?:allow|allows|allowed|permit|permits|permitted)\b/);
+    expect(r56Scope.toLowerCase()).toMatch(/physical reclaim/);
     expect(r3Runbook).toContain("not physical reclaim");
-    expect(r3Commands).not.toMatch(/VACUUM FULL|db-reclaim-api-request/);
+    expect(normalizedCommands).not.toMatch(/vacuum\s+full|db-reclaim-api-request/);
     expect(wave).toContain("not physical reclaim");
   });
 });
