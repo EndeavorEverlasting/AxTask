@@ -48,6 +48,10 @@ type TaskImportApiSummary = {
   skippedAsDuplicate?: unknown;
 };
 
+function isTaskImportRequest(method: string, url: string): boolean {
+  return method.toUpperCase() === "POST" && url === "/api/tasks/import";
+}
+
 /**
  * Spreadsheet import is intentionally a stronger boundary than a generic API
  * request. Newly inserted rows are returned by the database insert itself. A
@@ -61,7 +65,7 @@ async function enforceTaskImportPostcondition(
   data: unknown,
   response: Response,
 ): Promise<void> {
-  if (method.toUpperCase() !== "POST" || url !== "/api/tasks/import") return;
+  if (!isTaskImportRequest(method, url)) return;
 
   const requestedTasks = (data as { tasks?: unknown } | null)?.tasks;
   if (!Array.isArray(requestedTasks) || requestedTasks.length === 0) return;
@@ -111,7 +115,15 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await apiFetch(method, url, data, extraHeaders);
   await throwIfResNotOk(res);
-  await enforceTaskImportPostcondition(method, url, data, res);
+  try {
+    await enforceTaskImportPostcondition(method, url, data, res);
+  } catch (error) {
+    if (isTaskImportRequest(method, url)) {
+      void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    }
+    throw error;
+  }
   return res;
 }
 
