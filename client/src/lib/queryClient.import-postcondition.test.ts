@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("task import apiRequest postcondition", () => {
-  it("accepts a clean insert without an extra task-list read", async () => {
+  it("accepts a clean insert without an extra verification request", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       jsonResponse({ imported: 1, failed: 0, skippedAsDuplicate: 0, total: 1 }),
     );
@@ -32,16 +32,14 @@ describe("task import apiRequest postcondition", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("refetches and accepts duplicate skips only when all requested logical tasks are owned and present", async () => {
+  it("accepts duplicate skips only after the compact owned-task presence endpoint verifies them", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         jsonResponse({ imported: 0, failed: 0, skippedAsDuplicate: 1, total: 1 }),
       )
       .mockResolvedValueOnce(
-        jsonResponse([
-          { date: "2026-09-06", activity: "TASK A", notes: " first ", viewerRole: "owner" },
-        ], 200),
+        jsonResponse({ expectedLogicalTasks: 1, presentLogicalTasks: 1, missingLogicalTasks: 0 }, 200),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -52,19 +50,19 @@ describe("task import apiRequest postcondition", () => {
     ).resolves.toBeInstanceOf(Response);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/tasks");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/account/task-import-presence");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST", credentials: "include" });
   });
 
-  it("rejects a collaborator-shared lookalike instead of treating it as the owned duplicate", async () => {
+  it("rejects a false-green duplicate when owned-task presence reports a missing logical task", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         jsonResponse({ imported: 0, failed: 0, skippedAsDuplicate: 1, total: 1 }),
       )
       .mockResolvedValueOnce(
-        jsonResponse([
-          { date: "2026-09-06", activity: "Task A", notes: "First", viewerRole: "viewer" },
-        ], 200),
+        jsonResponse({ expectedLogicalTasks: 1, presentLogicalTasks: 0, missingLogicalTasks: 1 }, 200),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -73,23 +71,6 @@ describe("task import apiRequest postcondition", () => {
         tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
       }),
     ).rejects.toThrow("missing from owned tasks");
-  });
-
-  it("rejects a false-green duplicate and refreshes task caches when the logical task is missing", async () => {
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({ imported: 0, failed: 0, skippedAsDuplicate: 1, total: 1 }),
-      )
-      .mockResolvedValueOnce(jsonResponse([], 200));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      apiRequest("POST", "/api/tasks/import", {
-        tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
-      }),
-    ).rejects.toThrow("Task import postcondition failed");
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks/stats"] });
@@ -124,6 +105,27 @@ describe("task import apiRequest postcondition", () => {
     ["inconsistent total", { imported: 1, failed: 0, skippedAsDuplicate: 0, total: 2 }],
   ])("rejects unverifiable import summaries: %s", async (_label, summary) => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(summary));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiRequest("POST", "/api/tasks/import", {
+        tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
+      }),
+    ).rejects.toThrow(/cannot be verified|inconsistent counts/);
+  });
+
+  it.each([
+    ["missing expected", { presentLogicalTasks: 1, missingLogicalTasks: 0 }],
+    ["fractional present", { expectedLogicalTasks: 1, presentLogicalTasks: 0.5, missingLogicalTasks: 0.5 }],
+    ["inconsistent presence", { expectedLogicalTasks: 1, presentLogicalTasks: 1, missingLogicalTasks: 1 }],
+    ["too many logical tasks", { expectedLogicalTasks: 2, presentLogicalTasks: 2, missingLogicalTasks: 0 }],
+  ])("rejects unverifiable presence summaries: %s", async (_label, presence) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ imported: 0, failed: 0, skippedAsDuplicate: 1, total: 1 }),
+      )
+      .mockResolvedValueOnce(jsonResponse(presence, 200));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
