@@ -61,7 +61,7 @@ After the incident is formally closed, normal future evaluations may provide:
 }
 ```
 
-A bare `active=false` without non-empty durable closure evidence remains `NOT_READY_RECOVERY`; it is not a bypass switch.
+A bare `active=false` or free-form closure note remains `NOT_READY_RECOVERY`. `closureEvidence` must use one of the repository's machine-recognizable durable proof prefixes: `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`.
 
 ## Steps
 
@@ -74,7 +74,7 @@ A bare `active=false` without non-empty durable closure evidence remains `NOT_RE
 7. If repository gates pass but local runtime proof is absent, emit `READY_FOR_LOCAL_ACCEPTANCE`.
 8. After local runtime proof passes, evaluate the active recovery sequence from `docs/DB_RECOVERY_RUNBOOK.md`.
 9. While any R0–R7 recovery prerequisite remains open, emit `NOT_READY_RECOVERY` / `COMPLETE_PRODUCTION_RECOVERY_GATES` and list the exact missing gates.
-10. If recovery is declared inactive, require durable incident-closure evidence before allowing deployment readiness.
+10. If recovery is declared inactive, require machine-recognizable durable incident-closure evidence before allowing deployment readiness.
 11. Only after local runtime proof and every active recovery prerequisite (or durable post-incident closure proof) pass may the evaluator emit `READY_FOR_AUTHORIZED_DEPLOYMENT`.
 12. Emit qualitative cost exposure only. Monetary estimates remain null unless a separately sourced pricing workflow is introduced.
 13. Record exact missing gates with owner, command/operator action, and reason.
@@ -103,7 +103,7 @@ A bare `active=false` without non-empty durable closure evidence remains `NOT_RE
 - `/health` remains liveness and `/ready` remains explicit DB readiness in the separate local-certification workflow.
 - Green CI is repository evidence, not live-runtime proof.
 - A passing R7/local-runtime result never substitutes for R1/R1.5/R2/R3/R4/R5/R6 during an active recovery.
-- `productionRecovery.active=false` requires durable closure evidence and must not be used to bypass an active runbook.
+- `productionRecovery.active=false` requires a recognized durable proof token and must not be used to bypass an active runbook.
 
 ## Proof ceiling
 

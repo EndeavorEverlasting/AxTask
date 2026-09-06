@@ -28,7 +28,8 @@ The evaluator is deliberately fail-closed:
 - omitted recovery gate status means that gate is not proven;
 - `NOT_REQUIRED` is accepted only for R5;
 - `READY_FOR_AUTHORIZED_DEPLOYMENT` is impossible during active recovery until every required recovery gate passes;
-- post-incident `productionRecovery.active=false` additionally requires non-empty durable `closureEvidence`, so a bare boolean cannot bypass the recovery runbook.
+- post-incident `productionRecovery.active=false` requires `closureEvidence` using one of the repository's durable-proof prefixes: `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`;
+- a bare boolean or free-form note cannot bypass the recovery runbook.
 
 A new verdict/recommendation pair makes the distinction explicit:
 
@@ -43,9 +44,11 @@ The subsequent `de5dd317ba67320600e5b8428a65565b9077daf0` commit only updates `d
 
 This is sufficient durable repository/CI evidence to treat R7 as proven for the current candidate floor. It does not raise the proof ceiling for production recovery gates.
 
-## Review pass
+## Review passes
 
-A second-pass review identified that an explicit `productionRecovery.active=false` without durable closure evidence would still be an unsupported escape hatch. The evaluator now emits a missing `recovery-closure-evidence` gate until a non-empty durable closure reference is supplied.
+- Pass 2 identified that `active=false` without closure evidence was an unsupported escape hatch; closure evidence became mandatory.
+- Pass 3 identified that accepting arbitrary free text did not satisfy the repository's own durable-proof contract; closure evidence is now restricted to machine-recognizable durable proof token prefixes.
+- The evaluator was reformatted after the safety changes to preserve explicit gate ownership and readable control flow.
 
 ## Remaining deployment boundary
 

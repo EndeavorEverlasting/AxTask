@@ -35,6 +35,8 @@ const DEPLOYMENT_PATTERNS = [
   /^scripts\/deploy\//,
 ];
 
+const DURABLE_CLOSURE_EVIDENCE = /^(?:operator-proof|artifact|workflow|run|commit|merge):\S+$/;
+
 const RECOVERY_GATE_DEFINITIONS = [
   {
     key: "r0",
@@ -148,10 +150,10 @@ export function buildProductionRecoveryGates(productionRecovery) {
     return [
       gate(
         "recovery-closure-evidence",
-        closureEvidence.length > 0,
+        DURABLE_CLOSURE_EVIDENCE.test(closureEvidence),
         "operator",
-        "Record durable incident-closure evidence before setting productionRecovery.active=false",
-        "Post-incident mode requires durable closure evidence; a bare active=false assertion cannot bypass an active recovery runbook.",
+        "Record a durable operator-proof:/artifact:/workflow:/run:/commit:/merge: incident-closure token before setting productionRecovery.active=false",
+        "Post-incident mode requires machine-recognizable durable closure evidence; a bare active=false assertion cannot bypass an active recovery runbook.",
       ),
     ];
   }
@@ -318,7 +320,7 @@ function usage() {
     "  node scripts/ai-harness/evaluate-predeploy-readiness.mjs --input <evidence.json> [--output .ai/runs/<run-id>/predeploy-readiness.json] [--json]",
     "",
     "The input is repository evidence only; this evaluator never contacts Render or Neon.",
-    "productionRecovery is fail-closed; active=false also requires durable closureEvidence.",
+    "productionRecovery is fail-closed; active=false requires a durable closureEvidence token.",
   ].join("\n");
 }
 
