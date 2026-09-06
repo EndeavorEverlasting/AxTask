@@ -26,6 +26,16 @@ describe("computeTaskFingerprint", () => {
     expect(fp).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("preserves the persisted legacy fingerprint representation", () => {
+    const fp = computeTaskFingerprint({
+      date: "2025-01-01",
+      time: "09:00",
+      activity: "Morning run",
+      notes: "5km route",
+    });
+    expect(fp).toBe("86e61a2bfd8104422ee4d440426d879e34d9fd656bb9bfd2658c67a4aa7432df");
+  });
+
   it("is deterministic for identical inputs", () => {
     const task = { date: "2025-01-01", activity: "A", notes: "" };
     const a = computeTaskFingerprint(task);
