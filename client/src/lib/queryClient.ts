@@ -1,6 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { AXTASK_CLIENT_INSTANCE_HEADER, AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import type { TaskImportIdentityInput } from "@shared/task-import-identity";
 import { getClientInstanceId } from "./client-instance-id";
+import { verifyImportedTaskPresence } from "./import-verification";
 
 const csrfCookiePattern = new RegExp(
   `(?:^|;\\s*)${AXTASK_CSRF_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
@@ -41,6 +43,66 @@ export async function apiFetch(
   });
 }
 
+type TaskImportApiSummary = {
+  failed?: unknown;
+  skippedAsDuplicate?: unknown;
+};
+
+/**
+ * Spreadsheet import is intentionally a stronger boundary than a generic API
+ * request. Newly inserted rows are returned by the database insert itself. A
+ * duplicate skip, however, is only safe to present as success when the logical
+ * task is still visible in the authenticated task list. This postcondition
+ * prevents a stale fingerprint row from becoming a false-green import result.
+ */
+async function enforceTaskImportPostcondition(
+  method: string,
+  url: string,
+  data: unknown,
+  response: Response,
+): Promise<void> {
+  if (method.toUpperCase() !== "POST" || url !== "/api/tasks/import") return;
+
+  const requestedTasks = (data as { tasks?: unknown } | null)?.tasks;
+  if (!Array.isArray(requestedTasks) || requestedTasks.length === 0) return;
+
+  let summary: TaskImportApiSummary;
+  try {
+    summary = (await response.clone().json()) as TaskImportApiSummary;
+  } catch {
+    throw new Error("Task import returned an unreadable result; completion cannot be verified.");
+  }
+
+  const failed = typeof summary.failed === "number" ? summary.failed : 0;
+  if (failed > 0) {
+    throw new Error(
+      `Task import needs attention: ${failed} row(s) failed validation. Successfully imported rows were kept and will be deduplicated on retry.`,
+    );
+  }
+
+  const skippedAsDuplicate =
+    typeof summary.skippedAsDuplicate === "number" ? summary.skippedAsDuplicate : 0;
+  if (skippedAsDuplicate <= 0) return;
+
+  const verifyResponse = await apiFetch("GET", "/api/tasks");
+  await throwIfResNotOk(verifyResponse);
+  const currentTasks = await verifyResponse.json();
+  if (!Array.isArray(currentTasks)) {
+    throw new Error("Task import verification returned an invalid task-list payload.");
+  }
+
+  const verification = verifyImportedTaskPresence(
+    requestedTasks as TaskImportIdentityInput[],
+    currentTasks as TaskImportIdentityInput[],
+  );
+
+  if (verification.missingLogicalTasks > 0) {
+    throw new Error(
+      `Task import postcondition failed: ${verification.missingLogicalTasks} of ${verification.expectedLogicalTasks} selected logical task(s) are missing after duplicate handling. Completion was not accepted.`,
+    );
+  }
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -49,6 +111,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await apiFetch(method, url, data, extraHeaders);
   await throwIfResNotOk(res);
+  await enforceTaskImportPostcondition(method, url, data, res);
   return res;
 }
 
