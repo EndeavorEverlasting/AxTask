@@ -197,6 +197,10 @@ That command installs/verifies only the suppression function and trigger. It:
 
 ## R3 — backup and rollback proof
 
+R3 is backup and rollback proof. It is not physical reclaim. Physical reclaim
+is R5 and remains blocked until after R4. Do not run `db-reclaim-api-request.mjs`
+or `VACUUM FULL` as part of R3.
+
 R3 is a preservation lane and may proceed in parallel with R1. It does not depend
 on R1.5; instead, R1.5 and R3 are both mandatory prerequisites before R4.
 

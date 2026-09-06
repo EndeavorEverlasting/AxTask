@@ -31,16 +31,45 @@ function section(source, startHeading, endHeading) {
 }
 
 function fencedCommands(source) {
-  return [...source.matchAll(/```(?:bash|sh|text)?\s*\n([\s\S]*?)```/g)]
+  return [...source.matchAll(/```[^\n]*\n([\s\S]*?)```/g)]
     .map((match) => match[1].trim())
     .filter(Boolean)
     .join("\n");
 }
 
+function normalize(text) {
+  return String(text).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function stripSqlComments(text) {
+  return String(text)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ");
+}
+
+export function containsReclaimCommand(text) {
+  const normalized = normalize(stripSqlComments(text));
+  return /vacuum\s*\(\s*full\b|vacuum\s+full\b|db-reclaim-api-request/.test(normalized);
+}
+
+function runCli() {
 const errors = [];
 const requireText = (source, needle, label) => {
   if (!source.includes(needle)) errors.push(`${label}: missing '${needle}'`);
 };
+
+function field(source, name, label) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matches = [...source.matchAll(new RegExp(String.raw`^- \*\*${escaped}:\*\*\s*(.*)$`, "gm"))];
+  if (matches.length === 0) {
+    errors.push(`${label}: missing field '${name}'`);
+    return "";
+  }
+  if (matches.length > 1) {
+    errors.push(`${label}: duplicate field '${name}'`);
+  }
+  return matches[matches.length - 1][1].trim();
+}
 
 try {
   const queue = read(".ai/WORK_QUEUE.md");
@@ -60,6 +89,30 @@ try {
   requireText(queue, "## Urgent recovery concurrency", "work queue");
   requireText(r3, "**Dependencies:** none", "AXQ-003");
   if (r3.includes("**Dependencies:** AXQ-002")) errors.push("AXQ-003 must not be serialized behind R1.5");
+
+  const r3Scope = field(r3, "Scope", "AXQ-003");
+  const r3Next = field(r3, "Next action", "AXQ-003");
+  const r3Forbidden = field(r3, "Forbidden", "AXQ-003");
+  const r56Scope = field(r56, "Scope", "AXQ-008");
+  if (!/backup/i.test(r3Scope) || !/restore/i.test(r3Scope)) {
+    errors.push("AXQ-003 Scope must identify R3 as backup and restore proof");
+  }
+  if (!/not physical reclaim/i.test(r3Scope)) {
+    errors.push("AXQ-003 Scope must state that R3 is not physical reclaim");
+  }
+  const r3ScopeWithoutNegation = normalize(r3Scope).replace(/not physical reclaim/g, "");
+  if (/reclaim/.test(r3ScopeWithoutNegation) || /reclaim/.test(normalize(r3Next))) {
+    errors.push("AXQ-003 Scope/Next action must not assign reclaim to R3");
+  }
+  if (!/\breclaim\b/i.test(r3Forbidden)) {
+    errors.push("AXQ-003 Forbidden must continue to exclude reclaim");
+  }
+  if (/\b(?:allow|allows|allowed|permit|permits|permitted)\b.{0,24}\breclaim\b|\breclaim\b.{0,24}\b(?:allow|allows|allowed|permit|permits|permitted)\b/i.test(r3Forbidden)) {
+    errors.push("AXQ-003 Forbidden must exclude reclaim, not allow it");
+  }
+  if (!/physical reclaim/i.test(r56Scope)) {
+    errors.push("AXQ-008 Scope must own physical reclaim");
+  }
 
   const r7Ready = r7.includes("**Status:** READY");
   const r7Done = r7.includes("**Status:** DONE");
@@ -84,11 +137,16 @@ try {
   const r3Commands = fencedCommands(r3Runbook);
   requireText(r3Commands, "npm run db:backup:preflight -- --no-ledger", "runbook R3 commands");
   requireText(r3Commands, "npm run db:restore:test", "runbook R3 commands");
+  requireText(r3Runbook, "not physical reclaim", "runbook R3");
+  if (containsReclaimCommand(r3Commands)) {
+    errors.push("runbook R3 commands must not include physical-reclaim operations");
+  }
   if (/^\s*npm run db:backup\s*$/m.test(r3Commands)) {
     errors.push("runbook R3 must not execute a duplicate standalone db:backup after preflight");
   }
 
   requireText(wave, "Sub-Part Agent A — R3 backup/restore", "sub-part wave");
+  requireText(wave, "not physical reclaim", "sub-part wave R3 naming");
   requireText(wave, "Sub-Part Agent B — R7 local certification", "sub-part wave");
   requireText(wave, "Sub-Part Agent C — R1.5 evidence preservation", "sub-part wave");
   requireText(wave, "Sub-Part Agent D — R2 containment", "sub-part wave");
@@ -120,3 +178,9 @@ if (errors.length) {
 }
 
 console.log("[recovery-wave] PASS parallel post-R1 recovery contract");
+}
+
+const invokedPath = process.argv[1] ? path.normalize(path.resolve(process.argv[1])) : "";
+if (invokedPath && invokedPath === path.normalize(path.resolve(fileURLToPath(import.meta.url)))) {
+  runCli();
+}

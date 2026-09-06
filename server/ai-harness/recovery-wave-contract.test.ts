@@ -176,4 +176,49 @@ describe("post-R1 recovery wave contract", () => {
       expect(r3).toContain(marker);
     }
   });
+
+  it("keeps R3 backup/rollback distinct from R5 physical reclaim", () => {
+    const queue = fs.readFileSync(path.join(REPO_ROOT, ".ai", "WORK_QUEUE.md"), "utf8");
+    const runbook = fs.readFileSync(path.join(REPO_ROOT, "docs", "DB_RECOVERY_RUNBOOK.md"), "utf8");
+    const wave = fs.readFileSync(path.join(REPO_ROOT, "docs", "DB_RECOVERY_SUBPART_WAVE.md"), "utf8");
+    const r3 = queue.match(/^## AXQ-003\b[\s\S]*?(?=^## AXQ-\d+\b|(?![\s\S]))/m)?.[0] ?? "";
+    const r56 = queue.match(/^## AXQ-008\b[\s\S]*?(?=^## AXQ-\d+\b|(?![\s\S]))/m)?.[0] ?? "";
+    const r3Scope = r3.match(/^- \*\*Scope:\*\*\s*(.*)$/m)?.[1] ?? "";
+    const r3Next = r3.match(/^- \*\*Next action:\*\*\s*(.*)$/m)?.[1] ?? "";
+    const r3Forbidden = r3.match(/^- \*\*Forbidden:\*\*\s*(.*)$/m)?.[1] ?? "";
+    const r3SectionStart = runbook.indexOf("## R3 — backup and rollback proof");
+    const r4SectionStart = runbook.indexOf("## R4 — targeted logical cleanup");
+    const r3Runbook = runbook.slice(r3SectionStart, r4SectionStart);
+    const r3Commands = [...r3Runbook.matchAll(/```[^\n]*\n([\s\S]*?)```/g)]
+      .map((match) => match[1])
+      .join("\n");
+    const r56Scope = r56.match(/^- \*\*Scope:\*\*\s*(.*)$/m)?.[1] ?? "";
+    const normalizedCommands = r3Commands.toLowerCase().replace(/\s+/g, " ");
+    const r3ScopeWithoutNegation = r3Scope.toLowerCase().replace(/not physical reclaim/g, "");
+
+    expect(r3).not.toBe("");
+    expect(r56).not.toBe("");
+    expect(r3Scope.toLowerCase()).toMatch(/backup/);
+    expect(r3Scope.toLowerCase()).toMatch(/restore/);
+    expect(r3Scope.toLowerCase()).toMatch(/not physical reclaim/);
+    expect(r3ScopeWithoutNegation).not.toMatch(/reclaim/);
+    expect(r3Next.toLowerCase()).not.toMatch(/reclaim/);
+    expect(r3Forbidden.toLowerCase()).toMatch(/\breclaim\b/);
+    expect(r3Forbidden.toLowerCase()).not.toMatch(/\b(?:allow|allows|allowed|permit|permits|permitted)\b.{0,24}\breclaim\b|\breclaim\b.{0,24}\b(?:allow|allows|allowed|permit|permits|permitted)\b/);
+    expect(r56Scope.toLowerCase()).toMatch(/physical reclaim/);
+    expect(r3Runbook).toContain("not physical reclaim");
+    expect(normalizedCommands).not.toMatch(/vacuum\s+full|db-reclaim-api-request/);
+    expect(wave).toContain("not physical reclaim");
+  });
+
+  it("detects parenthesized and commented VACUUM FULL reclaim commands", async () => {
+    const { containsReclaimCommand } = await import("../../scripts/ai-harness/validate-recovery-wave.mjs");
+    expect(containsReclaimCommand("VACUUM FULL")).toBe(true);
+    expect(containsReclaimCommand("vacuum full")).toBe(true);
+    expect(containsReclaimCommand("VACUUM (FULL);")).toBe(true);
+    expect(containsReclaimCommand("VACUUM /* maintenance */ FULL;")).toBe(true);
+    expect(containsReclaimCommand("VACUUM -- nightly\nFULL")).toBe(true);
+    expect(containsReclaimCommand("node scripts/db-reclaim-api-request.mjs")).toBe(true);
+    expect(containsReclaimCommand("npm run db:backup:preflight -- --no-ledger")).toBe(false);
+  });
 });
