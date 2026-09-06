@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildTaskImportIdentityKey } from "../../shared/task-import-identity";
 import {
+  buildImportUrl,
   inspectTaskImportCsv,
   parseTaskImportPreflightArgs,
 } from "./task-import-preflight";
@@ -53,9 +54,13 @@ describe("task import operator preflight", () => {
     expect(() => inspectTaskImportCsv(file, { expectedSha256: "0".repeat(64) })).toThrow("SHA-256 mismatch");
   });
 
-  it("rejects malformed --expect pins instead of partially parsing them", () => {
+  it("rejects malformed or incomplete validation pins", () => {
     expect(() => parseTaskImportPreflightArgs(["--expect", "3oops"])).toThrow("positive integer");
     expect(() => parseTaskImportPreflightArgs(["--expect", "1e3"])).toThrow("positive integer");
+    expect(() => parseTaskImportPreflightArgs(["--expect"])).toThrow("--expect requires a value");
+    expect(() => parseTaskImportPreflightArgs(["--sha256"])).toThrow("--sha256 requires a value");
+    expect(() => parseTaskImportPreflightArgs(["--sha256", "xyz"])).toThrow("64 hexadecimal");
+    expect(() => parseTaskImportPreflightArgs(["--file", "--open"])).toThrow("--file requires a value");
     expect(parseTaskImportPreflightArgs(["--expect", "11"]).expectedRows).toBe(11);
   });
 
@@ -63,5 +68,11 @@ describe("task import operator preflight", () => {
     const left = buildTaskImportIdentityKey({ activity: "A|B", notes: "C" });
     const right = buildTaskImportIdentityKey({ activity: "A", notes: "B|C" });
     expect(left).not.toBe(right);
+  });
+
+  it("only builds operator URLs for HTTP(S) AxTask bases", () => {
+    expect(buildImportUrl("http://127.0.0.1:5000")).toBe("http://127.0.0.1:5000/import-export");
+    expect(buildImportUrl("https://example.test/root/?old=1#frag")).toBe("https://example.test/root/import-export");
+    expect(() => buildImportUrl("file:///tmp/axtask")).toThrow("Unsupported AxTask base URL protocol");
   });
 });
