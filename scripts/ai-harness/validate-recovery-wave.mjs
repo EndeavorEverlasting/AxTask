@@ -41,10 +41,18 @@ function normalize(text) {
   return String(text).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function containsReclaimCommand(text) {
-  return /vacuum\s+full|db-reclaim-api-request/.test(normalize(text));
+function stripSqlComments(text) {
+  return String(text)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ");
 }
 
+export function containsReclaimCommand(text) {
+  const normalized = normalize(stripSqlComments(text));
+  return /vacuum\s*\(\s*full\b|vacuum\s+full\b|db-reclaim-api-request/.test(normalized);
+}
+
+function runCli() {
 const errors = [];
 const requireText = (source, needle, label) => {
   if (!source.includes(needle)) errors.push(`${label}: missing '${needle}'`);
@@ -170,3 +178,9 @@ if (errors.length) {
 }
 
 console.log("[recovery-wave] PASS parallel post-R1 recovery contract");
+}
+
+const invokedPath = process.argv[1] ? path.normalize(path.resolve(process.argv[1])) : "";
+if (invokedPath && invokedPath === path.normalize(path.resolve(fileURLToPath(import.meta.url)))) {
+  runCli();
+}

@@ -210,4 +210,15 @@ describe("post-R1 recovery wave contract", () => {
     expect(normalizedCommands).not.toMatch(/vacuum\s+full|db-reclaim-api-request/);
     expect(wave).toContain("not physical reclaim");
   });
+
+  it("detects parenthesized and commented VACUUM FULL reclaim commands", async () => {
+    const { containsReclaimCommand } = await import("../../scripts/ai-harness/validate-recovery-wave.mjs");
+    expect(containsReclaimCommand("VACUUM FULL")).toBe(true);
+    expect(containsReclaimCommand("vacuum full")).toBe(true);
+    expect(containsReclaimCommand("VACUUM (FULL);")).toBe(true);
+    expect(containsReclaimCommand("VACUUM /* maintenance */ FULL;")).toBe(true);
+    expect(containsReclaimCommand("VACUUM -- nightly\nFULL")).toBe(true);
+    expect(containsReclaimCommand("node scripts/db-reclaim-api-request.mjs")).toBe(true);
+    expect(containsReclaimCommand("npm run db:backup:preflight -- --no-ledger")).toBe(false);
+  });
 });
