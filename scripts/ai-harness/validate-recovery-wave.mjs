@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
+const DURABLE_PROOF = /(?:operator-proof|artifact|workflow|run|commit|merge):\S+/;
 
 function read(rel) {
   const full = path.join(repoRoot, rel);
@@ -59,8 +60,18 @@ try {
   requireText(queue, "## Urgent recovery concurrency", "work queue");
   requireText(r3, "**Dependencies:** none", "AXQ-003");
   if (r3.includes("**Dependencies:** AXQ-002")) errors.push("AXQ-003 must not be serialized behind R1.5");
-  requireText(r7, "**Status:** READY", "AXQ-007");
+
+  const r7Ready = r7.includes("**Status:** READY");
+  const r7Done = r7.includes("**Status:** DONE");
+  if (!r7Ready && !r7Done) {
+    errors.push("AXQ-007 must be READY for execution or DONE with durable proof");
+  }
+  if (r7Done) {
+    if (!DURABLE_PROOF.test(r7)) errors.push("AXQ-007 DONE must include a durable proof token");
+    requireText(r7, "**Next action:** none; no safe actionable work remains", "AXQ-007 DONE");
+  }
   requireText(r7, "**Dependencies:** none", "AXQ-007");
+
   requireText(r2, "**Dependencies:** AXQ-001", "AXQ-006");
   requireText(r4, "**Dependencies:** AXQ-002, AXQ-003, AXQ-006", "AXQ-004");
   requireText(r56, "**Dependencies:** AXQ-004", "AXQ-008");

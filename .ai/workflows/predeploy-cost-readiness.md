@@ -14,43 +14,33 @@ Determine whether a deployment is needed and which repository, local-runtime, an
 
 ## Inputs
 
-A sanitized JSON evidence file containing:
+A sanitized JSON evidence file containing repository cleanliness/current-candidate/CI evidence, changed paths, backup/schema/build/local-runtime status, and `productionRecovery` status.
 
-- `currentMainSha` and `candidateSha`;
-- `repositoryClean`;
-- `blockingPrCount`;
-- `ciGreen`;
-- `changedPaths`;
-- account-backup certification status;
-- schema/migration status;
-- production build status;
-- local runtime status when available;
-- `productionRecovery` status.
-
-`productionRecovery` is fail-closed. During an active recovery, provide:
+During an active recovery, bind the packet to the exact candidate and give every gate both a status and a durable proof token:
 
 ```json
 {
   "productionRecovery": {
     "active": true,
+    "candidateSha": "<exact candidate SHA>",
     "gates": {
-      "r0": "PASS",
-      "r1": "PASS",
-      "r1_5": "PASS",
-      "r2": "PASS",
-      "r3": "PASS",
-      "r4": "PASS",
-      "r5": "PASS",
-      "r6": "PASS",
-      "r7": "PASS"
+      "r0": {"status":"PASS","evidence":"operator-proof:r0-suspended"},
+      "r1": {"status":"PASS","evidence":"artifact:production-audit.json"},
+      "r1_5": {"status":"PASS","evidence":"artifact:account-evidence-manifest"},
+      "r2": {"status":"PASS","evidence":"artifact:containment-proof"},
+      "r3": {"status":"PASS","evidence":"artifact:backup-restore-manifest"},
+      "r4": {"status":"PASS","evidence":"artifact:post-cleanup-audit"},
+      "r5": {"status":"NOT_REQUIRED","evidence":"artifact:post-r4-physical-size-proof"},
+      "r6": {"status":"PASS","evidence":"artifact:capacity-policy-result"},
+      "r7": {"status":"PASS","evidence":"workflow:<exact local-cert run>"}
     }
   }
 }
 ```
 
-R5 may use `NOT_REQUIRED` when post-cleanup evidence proves physical reclaim is unnecessary. Other recovery gates require `PASS` before R8. Omitting `productionRecovery`, omitting a required gate, or supplying any other status keeps deployment authorization blocked.
+Durable evidence must use one of the repository proof prefixes: `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`. R5 may use `NOT_REQUIRED` only when its durable post-cleanup evidence proves physical reclaim is unnecessary. Other recovery gates require `PASS`. Missing candidate binding, missing evidence, plain string statuses, omitted gates, or unrecognized proof strings keep deployment blocked.
 
-After the incident is formally closed, normal future evaluations may provide:
+After the incident is formally closed, future evaluations may instead provide:
 
 ```json
 {
@@ -61,7 +51,7 @@ After the incident is formally closed, normal future evaluations may provide:
 }
 ```
 
-A bare `active=false` or free-form closure note remains `NOT_READY_RECOVERY`. `closureEvidence` must use one of the repository's machine-recognizable durable proof prefixes: `operator-proof:`, `artifact:`, `workflow:`, `run:`, `commit:`, or `merge:`.
+A bare `active=false`, malformed value, or free-form closure note remains `NOT_READY_RECOVERY`.
 
 ## Steps
 
@@ -73,11 +63,11 @@ A bare `active=false` or free-form closure note remains `NOT_READY_RECOVERY`. `c
 6. If there is no runtime-affecting diff, emit `NO_DEPLOY_NEEDED`; do not wake provider resources.
 7. If repository gates pass but local runtime proof is absent, emit `READY_FOR_LOCAL_ACCEPTANCE`.
 8. After local runtime proof passes, evaluate the active recovery sequence from `docs/DB_RECOVERY_RUNBOOK.md`.
-9. While any R0–R7 recovery prerequisite remains open, emit `NOT_READY_RECOVERY` / `COMPLETE_PRODUCTION_RECOVERY_GATES` and list the exact missing gates.
-10. If recovery is declared inactive, require machine-recognizable durable incident-closure evidence before allowing deployment readiness.
-11. Only after local runtime proof and every active recovery prerequisite (or durable post-incident closure proof) pass may the evaluator emit `READY_FOR_AUTHORIZED_DEPLOYMENT`.
-12. Emit qualitative cost exposure only. Monetary estimates remain null unless a separately sourced pricing workflow is introduced.
-13. Record exact missing gates with owner, command/operator action, and reason.
+9. Require active-recovery evidence to be bound to `candidateSha` and require each accepted R0–R7 status to carry a durable proof token.
+10. While any recovery prerequisite remains open, emit `NOT_READY_RECOVERY` / `COMPLETE_PRODUCTION_RECOVERY_GATES` with exact missing gates.
+11. If recovery is declared inactive, require machine-recognizable durable incident-closure evidence.
+12. Only after local runtime proof and every active recovery prerequisite (or durable post-incident closure proof) pass may the evaluator emit `READY_FOR_AUTHORIZED_DEPLOYMENT`.
+13. Emit qualitative cost exposure only; do not fabricate provider pricing.
 
 ## Command
 
@@ -95,16 +85,14 @@ A bare `active=false` or free-form closure note remains `NOT_READY_RECOVERY`. `c
 
 ## Guardrails
 
-- No Render API calls.
-- No Neon connection.
-- No production readiness probe.
-- No deployment mutation.
-- No monetary price fabrication.
-- `/health` remains liveness and `/ready` remains explicit DB readiness in the separate local-certification workflow.
-- Green CI is repository evidence, not live-runtime proof.
-- A passing R7/local-runtime result never substitutes for R1/R1.5/R2/R3/R4/R5/R6 during an active recovery.
-- `productionRecovery.active=false` requires a recognized durable proof token and must not be used to bypass an active runbook.
+- No Render API calls or provider mutation.
+- No Neon connection or production probe.
+- A passing R7/local-runtime result never substitutes for R1/R1.5/R2/R3/R4/R5/R6.
+- Recovery proof is candidate-bound; stale evidence is not silently promoted to a moved head.
+- `NOT_REQUIRED` is evidence-bearing and is accepted only for R5.
+- `productionRecovery.active=false` requires a recognized durable closure token.
+- Green CI remains repository evidence, not live-runtime proof.
 
 ## Proof ceiling
 
-Repository-evidence only. A `READY_FOR_AUTHORIZED_DEPLOYMENT` verdict means repository gates, supplied local-runtime evidence, and any active-recovery prerequisites or durable incident-closure evidence satisfy this contract; it is not deployment authorization or production proof.
+Repository-evidence only. `READY_FOR_AUTHORIZED_DEPLOYMENT` means the supplied repository/local-runtime/recovery evidence satisfies this evaluator; it is not deployment authorization or production proof.

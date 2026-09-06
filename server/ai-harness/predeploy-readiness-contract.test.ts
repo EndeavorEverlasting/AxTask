@@ -8,6 +8,8 @@ import {
 } from "../../scripts/ai-harness/evaluate-predeploy-readiness.mjs";
 
 const SHA = "a".repeat(40);
+const evidence = (name: string) => `artifact:${name}`;
+const record = (status: string, proof: string) => ({ status, evidence: proof });
 
 function base(overrides: Record<string, unknown> = {}) {
   return {
@@ -29,19 +31,20 @@ function base(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function completeRecovery() {
+function completeRecovery(candidateSha = SHA) {
   return {
     active: true,
+    candidateSha,
     gates: {
-      r0: "PASS",
-      r1: "PASS",
-      r1_5: "PASS",
-      r2: "PASS",
-      r3: "PASS",
-      r4: "PASS",
-      r5: "NOT_REQUIRED",
-      r6: "PASS",
-      r7: "PASS",
+      r0: record("PASS", "operator-proof:r0-suspended"),
+      r1: record("PASS", evidence("production-audit.json")),
+      r1_5: record("PASS", evidence("account-evidence-manifest")),
+      r2: record("PASS", evidence("containment-proof")),
+      r3: record("PASS", evidence("backup-restore-manifest")),
+      r4: record("PASS", evidence("post-cleanup-audit")),
+      r5: record("NOT_REQUIRED", evidence("post-cleanup-physical-size")),
+      r6: record("PASS", evidence("capacity-policy-result")),
+      r7: record("PASS", "workflow:local-cert-run"),
     },
   };
 }
@@ -59,16 +62,15 @@ describe("predeploy readiness evaluator", () => {
         productionRecovery: undefined,
       }),
     );
-
     expect(result.deploymentNeeded).toBe(false);
     expect(result.verdict).toBe("READY_FOR_LOCAL_ACCEPTANCE");
     expect(result.recommendation).toBe("NO_DEPLOY_NEEDED");
   });
 
   it("requires account round-trip proof before runtime-affecting deployment work", () => {
-    expect(
-      evaluatePredeployReadiness(base({ backupStatus: "MISSING" })).verdict,
-    ).toBe("NOT_READY_BACKUP");
+    expect(evaluatePredeployReadiness(base({ backupStatus: "MISSING" })).verdict).toBe(
+      "NOT_READY_BACKUP",
+    );
   });
 
   it("requires migration safety for schema-affecting changes", () => {
@@ -97,21 +99,66 @@ describe("predeploy readiness evaluator", () => {
     );
   });
 
-  it("keeps deployment blocked when R7 is proven but production recovery gates remain open", () => {
+  it("requires every active recovery PASS/NOT_REQUIRED status to carry durable evidence", () => {
+    const recovery = completeRecovery();
+    recovery.gates.r1 = { status: "PASS", evidence: "production audit exists" };
+    const result = evaluatePredeployReadiness(
+      base({ runtimeStatus: "PASS", productionRecovery: recovery }),
+    );
+    expect(result.verdict).toBe("NOT_READY_RECOVERY");
+    expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain(
+      "recovery-r1-production-forensics",
+    );
+  });
+
+  it("keeps deployment blocked when only candidate-bound R7 is proven", () => {
     const result = evaluatePredeployReadiness(
       base({
         runtimeStatus: "PASS",
-        productionRecovery: { active: true, gates: { r7: "PASS" } },
+        productionRecovery: {
+          active: true,
+          candidateSha: SHA,
+          gates: { r7: record("PASS", "workflow:34044694367") },
+        },
       }),
     );
     const missing = result.missingGates.map((gate: { name: string }) => gate.name);
-
     expect(result.verdict).toBe("NOT_READY_RECOVERY");
     expect(missing).not.toContain("recovery-r7-local-certification");
     expect(missing).toContain("recovery-r1-production-forensics");
   });
 
-  it("allows authorized-deployment readiness only after local runtime and active recovery gates pass", () => {
+  it("rejects recovery evidence bound to a different candidate", () => {
+    const result = evaluatePredeployReadiness(
+      base({
+        runtimeStatus: "PASS",
+        productionRecovery: completeRecovery("b".repeat(40)),
+      }),
+    );
+    expect(result.verdict).toBe("NOT_READY_RECOVERY");
+    expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain(
+      "recovery-candidate-binding",
+    );
+  });
+
+  it("requires evidence when R5 is explicitly NOT_REQUIRED", () => {
+    const recovery = completeRecovery();
+    recovery.gates.r5 = { status: "NOT_REQUIRED", evidence: null };
+    expect(
+      buildProductionRecoveryGates(recovery, SHA).find(
+        (gate: { name: string }) => gate.name === "recovery-r5-physical-reclaim",
+      )?.ok,
+    ).toBe(false);
+
+    recovery.gates.r5 = record("NOT_REQUIRED", evidence("post-r4-size-proof"));
+    expect(
+      buildProductionRecoveryGates(recovery, SHA).find(
+        (gate: { name: string }) => gate.name === "recovery-r5-physical-reclaim",
+      )?.ok,
+    ).toBe(true);
+  });
+
+  it("allows authorized-deployment readiness only after local runtime and candidate-bound recovery evidence pass", () => {
     const result = evaluatePredeployReadiness(
       base({ runtimeStatus: "PASS", productionRecovery: completeRecovery() }),
     );
@@ -119,21 +166,21 @@ describe("predeploy readiness evaluator", () => {
   });
 
   it("requires a recognized durable proof token before inactive recovery can authorize deployment", () => {
-    const withoutEvidence = evaluatePredeployReadiness(
-      base({ runtimeStatus: "PASS", productionRecovery: { active: false } }),
-    );
-    expect(withoutEvidence.verdict).toBe("NOT_READY_RECOVERY");
-
-    const freeTextEvidence = evaluatePredeployReadiness(
+    const malformed = evaluatePredeployReadiness(
       base({
         runtimeStatus: "PASS",
-        productionRecovery: {
-          active: false,
-          closureEvidence: "incident closed",
-        },
+        productionRecovery: { active: false, closureEvidence: {} },
       }),
     );
-    expect(freeTextEvidence.verdict).toBe("NOT_READY_RECOVERY");
+    expect(malformed.verdict).toBe("NOT_READY_RECOVERY");
+
+    const freeText = evaluatePredeployReadiness(
+      base({
+        runtimeStatus: "PASS",
+        productionRecovery: { active: false, closureEvidence: "incident closed" },
+      }),
+    );
+    expect(freeText.verdict).toBe("NOT_READY_RECOVERY");
 
     const withEvidence = evaluatePredeployReadiness(
       base({
@@ -147,17 +194,11 @@ describe("predeploy readiness evaluator", () => {
     expect(withEvidence.verdict).toBe("READY_FOR_AUTHORIZED_DEPLOYMENT");
   });
 
-  it("accepts NOT_REQUIRED only for optional R5 physical reclaim", () => {
+  it("does not accept NOT_REQUIRED for non-optional recovery gates", () => {
     const recovery = completeRecovery();
+    recovery.gates.r4 = record("NOT_REQUIRED", evidence("cleanup-not-required"));
     expect(
-      buildProductionRecoveryGates(recovery).find(
-        (gate: { name: string }) => gate.name === "recovery-r5-physical-reclaim",
-      )?.ok,
-    ).toBe(true);
-
-    recovery.gates.r4 = "NOT_REQUIRED";
-    expect(
-      buildProductionRecoveryGates(recovery).find(
+      buildProductionRecoveryGates(recovery, SHA).find(
         (gate: { name: string }) => gate.name === "recovery-r4-logical-cleanup",
       )?.ok,
     ).toBe(false);
@@ -166,11 +207,7 @@ describe("predeploy readiness evaluator", () => {
   it("blocks stale candidates and open PR floors before later gates", () => {
     expect(
       evaluatePredeployReadiness(
-        base({
-          candidateSha: "b".repeat(40),
-          blockingPrCount: 2,
-          ciGreen: false,
-        }),
+        base({ candidateSha: "b".repeat(40), blockingPrCount: 2, ciGreen: false }),
       ).verdict,
     ).toBe("NOT_READY_REPOSITORY");
   });

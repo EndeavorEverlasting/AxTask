@@ -35,7 +35,7 @@ const DEPLOYMENT_PATTERNS = [
   /^scripts\/deploy\//,
 ];
 
-const DURABLE_CLOSURE_EVIDENCE = /^(?:operator-proof|artifact|workflow|run|commit|merge):\S+$/;
+const DURABLE_EVIDENCE = /^(?:operator-proof|artifact|workflow|run|commit|merge):\S+$/;
 
 const RECOVERY_GATE_DEFINITIONS = [
   {
@@ -123,6 +123,10 @@ function anyMatch(file, patterns) {
   return patterns.some((pattern) => pattern.test(file));
 }
 
+function isDurableEvidence(value) {
+  return typeof value === "string" && DURABLE_EVIDENCE.test(value.trim());
+}
+
 export function classifyChangedPaths(changedPaths = []) {
   const files = [...new Set(changedPaths.map(normalizePath).filter(Boolean))];
   const runtimeAffecting = files.filter((file) => anyMatch(file, RUNTIME_PATTERNS));
@@ -144,13 +148,22 @@ function gate(name, ok, owner, command, reason) {
   return { name, ok, owner, command, reason };
 }
 
-export function buildProductionRecoveryGates(productionRecovery) {
+function recoveryGateRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { status: "UNKNOWN", evidence: null };
+  }
+  return {
+    status: typeof raw.status === "string" ? raw.status : "UNKNOWN",
+    evidence: raw.evidence,
+  };
+}
+
+export function buildProductionRecoveryGates(productionRecovery, candidateSha = null) {
   if (productionRecovery?.active === false) {
-    const closureEvidence = String(productionRecovery?.closureEvidence ?? "").trim();
     return [
       gate(
         "recovery-closure-evidence",
-        DURABLE_CLOSURE_EVIDENCE.test(closureEvidence),
+        isDurableEvidence(productionRecovery?.closureEvidence),
         "operator",
         "Record a durable operator-proof:/artifact:/workflow:/run:/commit:/merge: incident-closure token before setting productionRecovery.active=false",
         "Post-incident mode requires machine-recognizable durable closure evidence; a bare active=false assertion cannot bypass an active recovery runbook.",
@@ -158,16 +171,36 @@ export function buildProductionRecoveryGates(productionRecovery) {
     ];
   }
 
-  const statuses = productionRecovery?.gates ?? {};
-  return RECOVERY_GATE_DEFINITIONS.map((definition) =>
+  const boundCandidate = typeof productionRecovery?.candidateSha === "string"
+    ? productionRecovery.candidateSha.trim()
+    : "";
+  const expectedCandidate = typeof candidateSha === "string" ? candidateSha.trim() : "";
+  const gates = [
     gate(
-      definition.name,
-      definition.accepted.includes(String(statuses[definition.key] ?? "UNKNOWN")),
-      definition.owner,
-      definition.command,
-      definition.reason,
+      "recovery-candidate-binding",
+      Boolean(expectedCandidate) && boundCandidate === expectedCandidate,
+      "repository-owner",
+      "Bind productionRecovery.candidateSha to the exact candidateSha being evaluated",
+      "Active recovery evidence must be explicitly bound to the exact deployment candidate; stale proof cannot authorize a different head.",
     ),
-  );
+  ];
+
+  const records = productionRecovery?.gates ?? {};
+  for (const definition of RECOVERY_GATE_DEFINITIONS) {
+    const record = recoveryGateRecord(records[definition.key]);
+    const statusAccepted = definition.accepted.includes(record.status);
+    const evidenceAccepted = isDurableEvidence(record.evidence);
+    gates.push(
+      gate(
+        definition.name,
+        statusAccepted && evidenceAccepted,
+        definition.owner,
+        definition.command,
+        `${definition.reason} Status must be accepted and carry a durable proof token.`,
+      ),
+    );
+  }
+  return gates;
 }
 
 export function evaluatePredeployReadiness(input) {
@@ -230,7 +263,7 @@ export function evaluatePredeployReadiness(input) {
         "npm run build",
         "Runtime-affecting candidates require a successful production build.",
       ),
-      ...buildProductionRecoveryGates(input.productionRecovery),
+      ...buildProductionRecoveryGates(input.productionRecovery, input.candidateSha),
     );
   }
 
@@ -320,7 +353,7 @@ function usage() {
     "  node scripts/ai-harness/evaluate-predeploy-readiness.mjs --input <evidence.json> [--output .ai/runs/<run-id>/predeploy-readiness.json] [--json]",
     "",
     "The input is repository evidence only; this evaluator never contacts Render or Neon.",
-    "productionRecovery is fail-closed; active=false requires a durable closureEvidence token.",
+    "Active recovery uses candidate-bound {status,evidence} gate records; active=false requires a durable closureEvidence token.",
   ].join("\n");
 }
 
