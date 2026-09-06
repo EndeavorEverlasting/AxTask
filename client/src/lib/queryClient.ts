@@ -52,6 +52,11 @@ function isTaskImportRequest(method: string, url: string): boolean {
   return method.toUpperCase() === "POST" && url === "/api/tasks/import";
 }
 
+function refreshTaskCachesAfterImportError(): void {
+  void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+  void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+}
+
 /**
  * Spreadsheet import is intentionally a stronger boundary than a generic API
  * request. Newly inserted rows are returned by the database insert itself. A
@@ -113,18 +118,16 @@ export async function apiRequest(
   data?: unknown | undefined,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const res = await apiFetch(method, url, data, extraHeaders);
-  await throwIfResNotOk(res);
+  const taskImportRequest = isTaskImportRequest(method, url);
   try {
+    const res = await apiFetch(method, url, data, extraHeaders);
+    await throwIfResNotOk(res);
     await enforceTaskImportPostcondition(method, url, data, res);
+    return res;
   } catch (error) {
-    if (isTaskImportRequest(method, url)) {
-      void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-    }
+    if (taskImportRequest) refreshTaskCachesAfterImportError();
     throw error;
   }
-  return res;
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
