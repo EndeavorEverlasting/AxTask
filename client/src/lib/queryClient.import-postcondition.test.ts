@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiRequest } from "./queryClient";
+import { apiRequest, queryClient } from "./queryClient";
 
 function jsonResponse(body: unknown, status = 201): Response {
   return new Response(JSON.stringify(body), {
@@ -10,6 +10,7 @@ function jsonResponse(body: unknown, status = 201): Response {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
   sessionStorage.clear();
@@ -52,7 +53,8 @@ describe("task import apiRequest postcondition", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/tasks");
   });
 
-  it("rejects a false-green duplicate when the logical task is missing", async () => {
+  it("rejects a false-green duplicate and refreshes task caches when the logical task is missing", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -66,9 +68,13 @@ describe("task import apiRequest postcondition", () => {
         tasks: [{ date: "2026-09-06", activity: "Task A", notes: "First" }],
       }),
     ).rejects.toThrow("Task import postcondition failed");
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks/stats"] });
   });
 
-  it("rejects partial validation failures instead of returning a green import result", async () => {
+  it("rejects partial validation failures and refreshes caches for rows that did commit", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     const fetchMock = vi.fn().mockResolvedValueOnce(
       jsonResponse({ imported: 1, failed: 1, skippedAsDuplicate: 0, total: 2 }),
     );
@@ -84,5 +90,7 @@ describe("task import apiRequest postcondition", () => {
     ).rejects.toThrow("1 row(s) failed validation");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["/api/tasks/stats"] });
   });
 });
