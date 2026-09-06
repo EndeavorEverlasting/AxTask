@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $startCmdPath = Join-Path $projectRoot "start-offline.cmd"
 
 if (-not (Test-Path $startCmdPath)) {
