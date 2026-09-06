@@ -41,15 +41,140 @@ export async function apiFetch(
   });
 }
 
+type TaskImportApiSummary = {
+  imported?: unknown;
+  failed?: unknown;
+  skippedAsDuplicate?: unknown;
+  total?: unknown;
+};
+
+type TaskImportPresenceSummary = {
+  expectedLogicalTasks?: unknown;
+  presentLogicalTasks?: unknown;
+  missingLogicalTasks?: unknown;
+};
+
+/** True only for the spreadsheet bulk-import request that owns these postconditions. */
+function isTaskImportRequest(method: string, url: string): boolean {
+  return method.toUpperCase() === "POST" && url === "/api/tasks/import";
+}
+
+/** Refresh task surfaces after an import error because the server may have partially committed rows. */
+function refreshTaskCachesAfterImportError(): void {
+  void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+  void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+}
+
+/** Parse one server import count and fail closed on missing, negative, fractional, or non-numeric values. */
+function requireImportCount(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Task import returned an invalid ${field} count; completion cannot be verified.`);
+  }
+  return value;
+}
+
+/**
+ * Spreadsheet import is intentionally a stronger boundary than a generic API
+ * request. Newly inserted rows are returned by the database insert itself. A
+ * duplicate skip is only safe to present as success when the compact,
+ * authenticated presence endpoint proves the logical task exists among the
+ * current user's owned, non-deleted tasks.
+ */
+async function enforceTaskImportPostcondition(
+  method: string,
+  url: string,
+  data: unknown,
+  response: Response,
+): Promise<void> {
+  if (!isTaskImportRequest(method, url)) return;
+
+  const requestedTasks = (data as { tasks?: unknown } | null)?.tasks;
+  if (!Array.isArray(requestedTasks) || requestedTasks.length === 0) return;
+
+  let summary: TaskImportApiSummary;
+  try {
+    summary = (await response.clone().json()) as TaskImportApiSummary;
+  } catch {
+    throw new Error("Task import returned an unreadable result; completion cannot be verified.");
+  }
+
+  const imported = requireImportCount(summary.imported, "imported");
+  const failed = requireImportCount(summary.failed, "failed");
+  const skippedAsDuplicate = requireImportCount(summary.skippedAsDuplicate, "skippedAsDuplicate");
+  const total = requireImportCount(summary.total, "total");
+
+  if (
+    total !== requestedTasks.length ||
+    imported + failed + skippedAsDuplicate !== total
+  ) {
+    throw new Error("Task import returned inconsistent counts; completion cannot be verified.");
+  }
+
+  if (failed > 0) {
+    throw new Error(
+      `Task import needs attention: ${failed} row(s) failed validation. Successfully imported rows were kept and will be deduplicated on retry.`,
+    );
+  }
+
+  if (skippedAsDuplicate <= 0) return;
+
+  const verifyResponse = await apiFetch("POST", "/api/account/task-import-presence", {
+    tasks: requestedTasks,
+  });
+  await throwIfResNotOk(verifyResponse);
+
+  let presence: TaskImportPresenceSummary;
+  try {
+    presence = (await verifyResponse.json()) as TaskImportPresenceSummary;
+  } catch {
+    throw new Error("Task import presence verification returned an unreadable result.");
+  }
+
+  const expectedLogicalTasks = requireImportCount(
+    presence.expectedLogicalTasks,
+    "expectedLogicalTasks",
+  );
+  const presentLogicalTasks = requireImportCount(
+    presence.presentLogicalTasks,
+    "presentLogicalTasks",
+  );
+  const missingLogicalTasks = requireImportCount(
+    presence.missingLogicalTasks,
+    "missingLogicalTasks",
+  );
+
+  if (
+    expectedLogicalTasks < 1 ||
+    expectedLogicalTasks > requestedTasks.length ||
+    presentLogicalTasks + missingLogicalTasks !== expectedLogicalTasks
+  ) {
+    throw new Error("Task import presence verification returned inconsistent counts.");
+  }
+
+  if (missingLogicalTasks > 0) {
+    throw new Error(
+      `Task import postcondition failed: ${missingLogicalTasks} of ${expectedLogicalTasks} selected logical task(s) are missing from owned tasks after duplicate handling. Completion was not accepted.`,
+    );
+  }
+}
+
+/** Perform an authenticated API request and enforce the spreadsheet-import completion contract when applicable. */
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const res = await apiFetch(method, url, data, extraHeaders);
-  await throwIfResNotOk(res);
-  return res;
+  const taskImportRequest = isTaskImportRequest(method, url);
+  try {
+    const res = await apiFetch(method, url, data, extraHeaders);
+    await throwIfResNotOk(res);
+    await enforceTaskImportPostcondition(method, url, data, res);
+    return res;
+  } catch (error) {
+    if (taskImportRequest) refreshTaskCachesAfterImportError();
+    throw error;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

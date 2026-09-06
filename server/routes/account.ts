@@ -2,6 +2,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { toPublicSessionUser } from "@shared/public-client-dtos";
+import { TASK_NOTES_MAX_CHARS } from "@shared/schema";
+import { verifyTaskImportPresence } from "@shared/task-import-identity";
 import {
   buildTotpKeyUri,
   encryptTotpSecretBase32,
@@ -19,9 +21,19 @@ import {
   verifyMfaChallenge,
   verifyMfaChallengeWithMetadata,
   setUserVerifiedPhone,
+  storage,
 } from "../storage";
 
 type RequireAuthMiddleware = (req: Request, res: Response, next: NextFunction) => unknown;
+
+const taskImportPresenceRequestSchema = z.object({
+  tasks: z.array(z.object({
+    date: z.string().max(40).optional().nullable(),
+    time: z.string().max(40).optional().nullable(),
+    activity: z.string().max(500).optional().nullable(),
+    notes: z.string().max(TASK_NOTES_MAX_CHARS).optional().nullable(),
+  })).min(1).max(2_000),
+});
 
 function isIsoCalendarDateStrict(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -33,6 +45,29 @@ function isIsoCalendarDateStrict(s: string): boolean {
 }
 
 export function registerAccountRoutes(app: Express, requireAuth: RequireAuthMiddleware) {
+  app.post("/api/account/task-import-presence", requireAuth, async (req, res) => {
+    try {
+      const { tasks: requestedTasks } = taskImportPresenceRequestSchema.parse(req.body);
+      const ownedTasks = await storage.getTasks(req.user!.id);
+      const {
+        expectedLogicalTasks,
+        presentLogicalTasks,
+        missingLogicalTasks,
+      } = verifyTaskImportPresence(requestedTasks, ownedTasks);
+
+      res.json({
+        expectedLogicalTasks,
+        presentLogicalTasks,
+        missingLogicalTasks,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid task-import presence request" });
+      }
+      res.status(500).json({ message: "Failed to verify imported task presence" });
+    }
+  });
+
   app.get("/api/account/profile", requireAuth, async (req, res) => {
     try {
       const row = await getUserRowById(req.user!.id);
