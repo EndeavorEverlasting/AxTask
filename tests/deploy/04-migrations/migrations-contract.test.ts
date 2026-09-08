@@ -49,7 +49,7 @@ describe("[04-migrations] apply-migrations.mjs", () => {
     expect(src).toContain("9999_disable_api_request_security_events.sql");
   });
 
-  it("fails non-loopback production startup before applying any pending migration when recovery SQL is pending", () => {
+  it("fails non-disposable production startup before applying any pending migration when recovery SQL is pending", () => {
     if (!src) src = fs.readFileSync(scriptPath, "utf8");
     const codeOnly = src
       .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -58,7 +58,7 @@ describe("[04-migrations] apply-migrations.mjs", () => {
     const guardIdx = codeOnly.indexOf("RECOVERY_ONLY_MIGRATION_PENDING", pendingIdx);
     const loopIdx = codeOnly.indexOf("for (const file of files)", guardIdx);
     expect(src).toContain('process.argv.includes("--production-startup")');
-    expect(src).toContain("isLoopbackDatabaseUrl(url)");
+    expect(src).toContain("isDisposableLocalDatabaseUrl(url)");
     expect(pendingIdx).toBeGreaterThan(-1);
     expect(guardIdx).toBeGreaterThan(pendingIdx);
     expect(loopIdx).toBeGreaterThan(guardIdx);
@@ -66,7 +66,7 @@ describe("[04-migrations] apply-migrations.mjs", () => {
 
   it("does not turn the recovery guard into a generic migration ban", () => {
     if (!src) src = fs.readFileSync(scriptPath, "utf8");
-    expect(src).toContain("productionStartup && !loopbackTarget");
+    expect(src).toContain("productionStartup && !disposableLocalTarget");
     expect(src).toContain("Follow docs/DB_RECOVERY_RUNBOOK.md");
   });
 });

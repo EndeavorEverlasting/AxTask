@@ -117,7 +117,7 @@ Compose order ([`docker-compose.yml`](../docker-compose.yml)):
 1. **database** — Postgres; healthcheck `pg_isready`.
 2. **migrate** — one-shot container:
    `node scripts/apply-migrations.mjs --production-startup && npm run db:push`
-   **SQL migrations always run before** Drizzle push. The `--production-startup` marker engages the same recovery-only airlock as Render (`RECOVERY_ONLY_MIGRATION_PENDING` when recovery SQL such as `9999` is pending against a non-loopback DB). See [production-startup recovery migration airlock](releases/2026-09-08-production-startup-recovery-migration-airlock.md).
+   **SQL migrations always run before** Drizzle push. The `--production-startup` marker engages the recovery-only airlock (`RECOVERY_ONLY_MIGRATION_PENDING` when recovery SQL such as `9999` is pending against a remote DB). The Compose service hostname **`database`** (from [`.env.docker.example`](../.env.docker.example)) is treated as a disposable local target so fresh volumes can still replay the full migration chain; Neon/remote hosts remain fail-closed. See [production-startup recovery migration airlock](releases/2026-09-08-production-startup-recovery-migration-airlock.md).
 3. **app** — starts only after `migrate` **completed successfully**; exposes port **5000**.
 
 Health checks:
@@ -139,7 +139,7 @@ So production containers reuse Path E ordering (**env → capacity → SQL migra
 
 [`package.json`](../package.json) **`npm run start`** runs [`scripts/production-start.mjs`](../scripts/production-start.mjs): **env gate → DB capacity gate → `apply-migrations.mjs --production-startup` → conditional `drizzle-kit push --force` → `node dist/index.js`**. On Render (and when `SKIP_DB_PUSH_ON_START=true` / non-interactive), Drizzle push is **skipped by default**; versioned SQL migrations still run. Use **`npm run start:app`** only if you intentionally skip the whole startup orchestrator (rare; not recommended for production).
 
-Pending recovery-only SQL on a non-loopback database fails closed before any migration apply (`RECOVERY_ONLY_MIGRATION_PENDING`). Treat each deploy as a release event with explicit contract evidence (`docs/releases/*.md`) and run `npm run release:check` in CI/PR validation before merge.
+Pending recovery-only SQL on a remote (non-disposable) database fails closed before any migration apply (`RECOVERY_ONLY_MIGRATION_PENDING`). Treat each deploy as a release event with explicit contract evidence (`docs/releases/*.md`) and run `npm run release:check` in CI/PR validation before merge.
 
 [`drizzle-kit`](../package.json) is a **production dependency** so installs that omit devDependencies still have the CLI when an operator deliberately allows startup push (`AXTASK_ALLOW_DB_PUSH_ON_START=true`).
 

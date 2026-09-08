@@ -5,6 +5,8 @@ import path from "node:path";
 
 const ROUTING_OVERRIDE_KEYS = new Set(["host", "hostaddr", "port", "dbname", "database", "service", "servicefile"]);
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+/** Docker Compose service hostname from `.env.docker.example` (local disposable Postgres only). */
+const DISPOSABLE_COMPOSE_HOSTS = new Set(["database"]);
 
 /** Normalize URL.hostname across bracketed and unbracketed IP literals. */
 export function normalizePgHostname(hostname) {
@@ -24,6 +26,17 @@ export function assertNoDatabaseTargetOverrides(databaseUrl) {
 export function isLoopbackDatabaseUrl(databaseUrl) {
   const parsed = new URL(databaseUrl);
   return LOOPBACK_HOSTS.has(normalizePgHostname(parsed.hostname));
+}
+
+/**
+ * Targets safe for full migration replay under `--production-startup`, including
+ * recovery-only SQL: loopback certification DBs and the Compose service hostname
+ * `database` from `.env.docker.example`. Remote hosts remain fail-closed.
+ */
+export function isDisposableLocalDatabaseUrl(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  const host = normalizePgHostname(parsed.hostname);
+  return LOOPBACK_HOSTS.has(host) || DISPOSABLE_COMPOSE_HOSTS.has(host);
 }
 
 function canonicalTargetHost(hostname) {

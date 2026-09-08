@@ -15,6 +15,7 @@ That doc drift could send operators back toward the unsafe startup story after t
 - Update [`docs/DEV_DATABASE_AND_SCHEMA.md`](../DEV_DATABASE_AND_SCHEMA.md) Path C/D/E to match Compose, Dockerfile `CMD ["node", "scripts/production-start.mjs"]`, and Render’s skip-push-by-default posture.
 - Align [`.cursor/rules/schema-migrations.mdc`](../../.cursor/rules/schema-migrations.mdc) and [`docs/DOCKER_ACCESSIBILITY_PATH.md`](../DOCKER_ACCESSIBILITY_PATH.md).
 - Contract-test Path C in [`server/deploy-schema-workflow.test.ts`](../../server/deploy-schema-workflow.test.ts) so the unguarded compose migrate command cannot return unnoticed.
+- Treat Compose hostname `database` as a disposable local migration target in [`scripts/db/pg-tools.mjs`](../../scripts/db/pg-tools.mjs) so fresh Compose volumes can replay recovery-only SQL under `--production-startup` without weakening the remote/Neon fail-closed fuse.
 
 ## Non-goals
 

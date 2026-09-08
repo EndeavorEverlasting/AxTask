@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 // @ts-ignore executable ESM helper intentionally has no .d.ts surface.
 import {
   assertNoDatabaseTargetOverrides,
+  isDisposableLocalDatabaseUrl,
   isLoopbackDatabaseUrl,
 } from "../../../scripts/db/pg-tools.mjs";
 
@@ -21,6 +22,18 @@ describe("[04-migrations] recovery-only production startup target identity", () 
     expect(isLoopbackDatabaseUrl("postgresql://u:p@localhost:5432/axtask")).toBe(true);
     expect(isLoopbackDatabaseUrl("postgresql://u:p@127.0.0.1:5432/axtask")).toBe(true);
     expect(isLoopbackDatabaseUrl("postgresql://u:p@[::1]:5432/axtask")).toBe(true);
+  });
+
+  it("treats the Compose service hostname database as disposable for recovery replay", () => {
+    expect(isDisposableLocalDatabaseUrl("postgresql://axtask:replace-me@database:5432/axtask")).toBe(
+      true,
+    );
+    expect(isDisposableLocalDatabaseUrl("postgresql://u:p@localhost:5432/axtask")).toBe(true);
+    expect(
+      isDisposableLocalDatabaseUrl(
+        "postgresql://u:p@ep-example.us-east-2.aws.neon.tech/neondb?sslmode=require",
+      ),
+    ).toBe(false);
   });
 
   it("does not recognize a Neon-style remote target as loopback", () => {
@@ -43,11 +56,11 @@ describe("[04-migrations] recovery-only production startup target identity", () 
     );
   });
 
-  it("calls target-override rejection before trusting the loopback classifier", () => {
+  it("calls target-override rejection before trusting the disposable-local classifier", () => {
     const assertIdx = migrationRunner.indexOf("assertNoDatabaseTargetOverrides(url)");
-    const loopbackIdx = migrationRunner.indexOf("isLoopbackDatabaseUrl(url)");
+    const disposableIdx = migrationRunner.indexOf("isDisposableLocalDatabaseUrl(url)");
     expect(assertIdx).toBeGreaterThan(-1);
-    expect(loopbackIdx).toBeGreaterThan(assertIdx);
+    expect(disposableIdx).toBeGreaterThan(assertIdx);
   });
 
   it("does not offer a production-startup override for recovery-only SQL", () => {
