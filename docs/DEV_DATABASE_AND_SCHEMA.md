@@ -64,10 +64,10 @@ Use this when you already manage the database yourself and want the fastest edit
 1. `npm install`
 2. Copy env: `cp .env.example .env` (Windows: `Copy-Item .env.example .env`)
 3. Edit `.env`: set `DATABASE_URL` and `SESSION_SECRET` (see `.env.example`).
-4. After **any** change to Drizzle schema (`shared/schema.ts`), `drizzle.config.ts`, or when the DB is new:  
+4. After **any** change to Drizzle schema (`shared/schema.ts`), `drizzle.config.ts`, or when the DB is new:
    `npm run db:push`
-5. If the repo added or changed files under `migrations/*.sql`, apply them **before** or alongside push:  
-   `npm run db:migrate` (loads `.env`; same as `node -r dotenv/config scripts/apply-migrations.mjs`)  
+5. If the repo added or changed files under `migrations/*.sql`, apply them **before** or alongside push:
+   `npm run db:migrate` (loads `.env`; same as `node -r dotenv/config scripts/apply-migrations.mjs`)
    then `npm run db:push` if needed for Drizzle drift.
 6. `npm run dev` — starts **only** the dev server (`tsx server/index.ts`). **No** migrations and **no** `db:push` run automatically.
 
@@ -85,8 +85,8 @@ Implemented in [`tools/local/offline-start.mjs`](../tools/local/offline-start.mj
 4. Load `.env` and validate `DATABASE_URL` is set.
 5. **`node scripts/apply-migrations.mjs`** — runs every time; applies pending `migrations/*.sql` in lexicographic order (tracked in `applied_sql_migrations`).
 6. If lockfile or `package.json` fingerprint changed: `npm run deps:sync`.
-7. **Fingerprint** over `shared/schema.ts`, `drizzle.config.ts`, and **all `migrations/*.sql` contents**.  
-   - If unchanged vs `.local/smart-start-state.json`: skip `db:push`.  
+7. **Fingerprint** over `shared/schema.ts`, `drizzle.config.ts`, and **all `migrations/*.sql` contents**.
+   - If unchanged vs `.local/smart-start-state.json`: skip `db:push`.
    - If changed (or fingerprint unavailable): `npm run db:push`.
 8. `npx tsx server/index.ts` (same entry as plain dev; **not** `npm run dev`).
 
@@ -115,9 +115,9 @@ Requires `.env.docker` (copy from `.env.docker.example`; set `POSTGRES_PASSWORD`
 Compose order ([`docker-compose.yml`](../docker-compose.yml)):
 
 1. **database** — Postgres; healthcheck `pg_isready`.
-2. **migrate** — one-shot container:  
-   `node scripts/apply-migrations.mjs && npm run db:push`  
-   **SQL migrations always run before** Drizzle push.
+2. **migrate** — one-shot container:
+   `node scripts/apply-migrations.mjs --production-startup && npm run db:push`
+   **SQL migrations always run before** Drizzle push. The `--production-startup` marker engages the recovery-only airlock (`RECOVERY_ONLY_MIGRATION_PENDING` when recovery SQL such as `9999` is pending against a remote DB). The Compose service hostname **`database`** (from [`.env.docker.example`](../.env.docker.example)) is treated as a disposable local target so fresh volumes can still replay the full migration chain; Neon/remote hosts remain fail-closed. See [production-startup recovery migration airlock](releases/2026-09-08-production-startup-recovery-migration-airlock.md).
 3. **app** — starts only after `migrate` **completed successfully**; exposes port **5000**.
 
 Health checks:
@@ -130,20 +130,20 @@ Health checks:
 The runtime image [`Dockerfile`](../Dockerfile) ends with:
 
 ```text
-node scripts/apply-migrations.mjs && npx drizzle-kit push --force && node dist/index.js
+CMD ["node", "scripts/production-start.mjs"]
 ```
 
-So: **versioned SQL migrations → forced Drizzle schema sync → Node server**. CI and [`server/deploy-schema-workflow.test.ts`](../server/deploy-schema-workflow.test.ts) guard this ordering.
+So production containers reuse Path E ordering (**env → capacity → SQL migrations with `--production-startup` → optional Drizzle push → Node server**), not an inline `apply-migrations && drizzle-kit push` shell chain. CI and [`server/deploy-schema-workflow.test.ts`](../server/deploy-schema-workflow.test.ts) guard this delegation.
 
 ## Path E: Native Node production (e.g. Render `npm run start`)
 
-[`package.json`](../package.json) **`npm run start`** runs [`scripts/production-start.mjs`](../scripts/production-start.mjs): **`apply-migrations.mjs` → `drizzle-kit push --force` → `node dist/index.js`**, matching Path D. Use **`npm run start:app`** only if you intentionally skip migrations/push (rare; not recommended for production).
+[`package.json`](../package.json) **`npm run start`** runs [`scripts/production-start.mjs`](../scripts/production-start.mjs): **env gate → DB capacity gate → `apply-migrations.mjs --production-startup` → conditional `drizzle-kit push --force` → `node dist/index.js`**. On Render (and when `SKIP_DB_PUSH_ON_START=true` / non-interactive), Drizzle push is **skipped by default**; versioned SQL migrations still run. Use **`npm run start:app`** only if you intentionally skip the whole startup orchestrator (rare; not recommended for production).
 
-Startup mutates schema state before serving traffic. Treat each deploy as a release event with explicit contract evidence (`docs/releases/*.md`) and run `npm run release:check` in CI/PR validation before merge.
+Pending recovery-only SQL on a remote (non-disposable) database fails closed before any migration apply (`RECOVERY_ONLY_MIGRATION_PENDING`). Treat each deploy as a release event with explicit contract evidence (`docs/releases/*.md`) and run `npm run release:check` in CI/PR validation before merge.
 
-[`drizzle-kit`](../package.json) is a **production dependency** so installs that omit devDependencies still have the CLI at runtime.
+[`drizzle-kit`](../package.json) is a **production dependency** so installs that omit devDependencies still have the CLI when an operator deliberately allows startup push (`AXTASK_ALLOW_DB_PUSH_ON_START=true`).
 
-[`render.yaml`](../render.yaml) `startCommand: npm run start` therefore applies schema changes on each deploy restart, given a valid **`DATABASE_URL`**.
+[`render.yaml`](../render.yaml) `startCommand: npm run start` therefore runs the production orchestrator on each deploy restart, given a valid **`DATABASE_URL`**.
 
 ## Path F: CI greenfield bootstrap (`test-and-attest` job)
 
@@ -157,7 +157,7 @@ npm run db:push:ci   (idempotency check — schema must be converged)
 
 Why the flip vs. production:
 
-- Production/Path D/E DBs have had `users` (and the rest of the Drizzle baseline) since long before [`migrations/0001_youtube_probe_tables.sql`](../migrations/0001_youtube_probe_tables.sql) was authored, so `apply-migrations.mjs → drizzle-kit push` is safe there.
+- Production/Path D/E DBs have had `users` (and the rest of the Drizzle baseline) since long before [`migrations/0001_youtube_probe_tables.sql`](../migrations/0001_youtube_probe_tables.sql) was authored, so `apply-migrations.mjs --production-startup` (with Drizzle push skipped by default on Render) is safe there.
 - CI's service container is truly empty, and `0001_youtube_probe_tables.sql` FK-references `users("id")`. Running the SQL replay first on a greenfield DB fails with `relation "users" does not exist`. Drizzle push must go first to create the baseline tables the SQL migrations FK into.
 
 The ordering invariant (drizzle push **before** `apply-migrations.mjs`, plus a second push **after** for idempotency) is guarded statically by [`server/ci-migration-order.contract.test.ts`](../server/ci-migration-order.contract.test.ts); it runs under the normal `vitest` suite and has no DB dependency.

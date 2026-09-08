@@ -5,9 +5,11 @@
  * an `applied_sql_migrations` table, and skips already-applied files.
  *
  * Normal production startup passes --production-startup. In that mode a
- * pending recovery-only migration on a non-loopback database is a hard stop:
- * recovery mutations must be executed deliberately under the recovery runbook,
- * never as a side effect of starting Render/Docker.
+ * pending recovery-only migration on a non-disposable (remote) database is a
+ * hard stop: recovery mutations must be executed deliberately under the
+ * recovery runbook, never as a side effect of starting Render/Docker.
+ * Disposable local targets (loopback + Compose hostname `database`) still
+ * replay the full migration chain.
  *
  * Exits 0 on success, 1 on any failure.
  *
@@ -21,7 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertNoDatabaseTargetOverrides,
-  isLoopbackDatabaseUrl,
+  isDisposableLocalDatabaseUrl,
 } from "./db/pg-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,13 +40,13 @@ async function main() {
   }
 
   const productionStartup = process.argv.includes("--production-startup");
-  let loopbackTarget = false;
+  let disposableLocalTarget = false;
   try {
     // PostgreSQL URI query parameters can override host/port/dbname. Reuse the
     // recovery tooling's canonical target-identity rule so a URL that looks
     // loopback cannot secretly route to a remote production database.
     assertNoDatabaseTargetOverrides(url);
-    loopbackTarget = isLoopbackDatabaseUrl(url);
+    disposableLocalTarget = isDisposableLocalDatabaseUrl(url);
   } catch (error) {
     console.error(
       `[migrate] DATABASE_URL target is invalid or ambiguous: ${error instanceof Error ? error.message : String(error)}`,
@@ -107,9 +109,10 @@ async function main() {
     // A production process restart/deploy is never authorization to perform
     // incident recovery. Refuse before applying *any* pending migration so a
     // schema migration cannot partially advance and then strand the process at
-    // the recovery boundary. Disposable loopback certification remains able to
-    // replay the complete migration set.
-    if (productionStartup && !loopbackTarget && pendingRecoveryOnly.length > 0) {
+    // the recovery boundary. Disposable local targets (loopback certification
+    // and Compose service hostname `database`) remain able to replay the
+    // complete migration set.
+    if (productionStartup && !disposableLocalTarget && pendingRecoveryOnly.length > 0) {
       console.error(
         `[migrate] RECOVERY_ONLY_MIGRATION_PENDING: ${pendingRecoveryOnly.join(", ")}`,
       );
