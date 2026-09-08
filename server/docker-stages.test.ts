@@ -98,7 +98,9 @@ describe("docker-compose deployment chain", () => {
 
   it("migrate service depends on database health and runs apply-migrations then db:push with stdin closed", () => {
     expect(compose).toMatch(/migrate:\s*\n[\s\S]*?condition:\s*service_healthy/);
-    expect(compose).toMatch(/node scripts\/apply-migrations\.mjs\s*&&\s*npm run db:push\s*<\s*\/dev\/null/);
+    expect(compose).toMatch(
+      /node scripts\/apply-migrations\.mjs\s+--production-startup\s*&&\s*npm run db:push\s*<\s*\/dev\/null/,
+    );
   });
 
   it("app service waits for migrate to complete successfully and exposes port 5000", () => {

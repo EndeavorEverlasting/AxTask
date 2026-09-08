@@ -91,7 +91,7 @@ npm run docker:status
 ## What compose now does
 
 - Starts PostgreSQL with persistent volume (`axtask_postgres_data`)
-- Runs the **`migrate`** service once per `up`: **`node scripts/apply-migrations.mjs`** then **`npm run db:push`** (SQL migrations before Drizzle push)
+- Runs the **`migrate`** service once per `up`: **`node scripts/apply-migrations.mjs --production-startup`** then **`npm run db:push`** (SQL migrations before Drizzle push; same recovery-only airlock as Render startup)
 - Starts **app** only after the database is healthy and **`migrate`** has **completed successfully**
 - Persists attachment/object storage in `axtask_storage_data`
 - Exposes app on `http://localhost:5000`
