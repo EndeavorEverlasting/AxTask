@@ -42,6 +42,24 @@ describe("deploy / schema workflow guards", () => {
     );
   });
 
+  it("canonical DEV_DATABASE Path D/E document production-start airlock ordering", () => {
+    const doc = fs.readFileSync(
+      path.join(projectRoot, "docs", "DEV_DATABASE_AND_SCHEMA.md"),
+      "utf8",
+    );
+    const pathD = doc.indexOf("## Path D: Production container CMD");
+    const pathE = doc.indexOf("## Path E: Native Node production");
+    const pathF = doc.indexOf("## Path F: CI greenfield bootstrap");
+    expect(pathD).toBeGreaterThan(-1);
+    expect(pathE).toBeGreaterThan(pathD);
+    expect(pathF).toBeGreaterThan(pathE);
+    const pathDSection = doc.slice(pathD, pathE);
+    const pathESection = doc.slice(pathE, pathF);
+    expect(pathDSection).toContain('CMD ["node", "scripts/production-start.mjs"]');
+    expect(pathESection).toContain("apply-migrations.mjs --production-startup");
+    expect(pathESection).toContain("RECOVERY_ONLY_MIGRATION_PENDING");
+  });
+
   it("production Dockerfile delegates startup ordering to production-start", () => {
     const dockerfile = fs.readFileSync(path.join(projectRoot, "Dockerfile"), "utf8");
     expect(dockerfile).toContain('CMD ["node", "scripts/production-start.mjs"]');

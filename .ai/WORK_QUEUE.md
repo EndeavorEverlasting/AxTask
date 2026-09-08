@@ -66,7 +66,8 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 
 Deployment recovery must not serialize independent preservation and local-proof work behind one operator step. Follow `docs/DB_RECOVERY_SUBPART_WAVE.md`:
 
-- **Wave A current:** AXQ-001 R1 operator evidence and AXQ-003 R3 source-read-only backup/restore may proceed in parallel. AXQ-007 R7 local certification is already `DONE` on the current candidate floor.
+- **Wave A current:** AXQ-001 R1 operator evidence and AXQ-003 R3 source-read-only backup/restore may proceed in parallel. AXQ-007 R7 local certification is already `DONE` on the post-#151 airlock floor (`main` contains PR #150 startup fuse + PR #151 Path C/D/E parity). Do **not** re-launch R7 unless the exact deployment SHA moves past the AXQ-007 last-proof commit.
+- **Startup fuse:** normal production/Compose startup with pending recovery migration `9999` against a remote host fails closed (`RECOVERY_ONLY_MIGRATION_PENDING`). That fuse is **not** a substitute for R3/R1.5 preservation or deliberate recovery apply. See `docs/releases/2026-09-08-production-startup-recovery-migration-airlock.md`.
 - **Naming:** R3 is backup and rollback proof. Physical reclaim is R5/AXQ-008, never R3. Do not describe or execute an "R3 reclaim path."
 - **Wave B after R1:** AXQ-002 R1.5 evidence preservation and AXQ-006 R2 containment assessment proceed in parallel. Any R2 mutation still waits for AXQ-003.
 - **Wave C:** AXQ-004 R4 cleanup only after AXQ-002, AXQ-003, and AXQ-006 satisfy their gates.
@@ -146,12 +147,12 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Scope:** reconcile current Render provider state with exact recovery-certified `main`, perform one controlled deployment, and capture live startup/health proof
 - **Forbidden:** repeated blind resumes/deploys, bypassing recovery gates, assuming `render.yaml` automatically governs existing provider state, exposing secrets
 - **Dependencies:** AXQ-007, AXQ-008
-- **References:** `render.yaml`, `Dockerfile`, `scripts/production-start.mjs`, `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ENVIRONMENT_VARIABLES.md`
-- **Acceptance gate:** R0-R7 proof is recorded; exact intended `main` SHA is deployed once with verified environment/health settings; startup gates and Render health succeed; live proof is recorded without secrets
+- **References:** `render.yaml`, `Dockerfile`, `scripts/production-start.mjs`, `scripts/apply-migrations.mjs`, `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ENVIRONMENT_VARIABLES.md`, `docs/releases/2026-09-08-production-startup-recovery-migration-airlock.md`
+- **Acceptance gate:** R0-R7 proof is recorded; exact intended `main` SHA is deployed once with verified environment/health settings; startup gates and Render health succeed; live proof is recorded without secrets; pending recovery-only SQL was applied deliberately outside app startup before the R8 attempt (or proven already applied)
 - **Gate:** AXQ-007 is satisfied; deployment remains blocked until AXQ-008 capacity convergence is complete and the operator explicitly authorizes the one R8 attempt
-- **Last proof:** workflow:34050440866 proves current-candidate local production certification on merge:69818369c2e9635decd79c658af352e3ecb306ec; historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists; deployment authorization remains NO
-- **Next action:** when AXQ-008 is DONE, operator records exact current `main` SHA/provider settings and explicitly authorizes one R8 resume/deploy attempt
-- **Updated:** 2026-09-06T21:55:00Z
+- **Last proof:** workflow:34279160114 proves post-#151 `test-and-attest` on merge:d7007ee088034fd09463d0653b1430ad24a2209f (PR #151; contains #150 airlock); commit:9f7fe8f62170d8c70100aa97419c46eb0976d6de is the subsequent `[skip ci]` test-attestation update on that floor; historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists; deployment authorization remains NO
+- **Next action:** when AXQ-008 is DONE, operator records exact current `main` SHA/provider settings, confirms recovery migration `9999` is deliberately applied (not via blind Render start), and explicitly authorizes one R8 resume/deploy attempt
+- **Updated:** 2026-09-08T23:20:00Z
 
 ## AXQ-006 — Production R2 containment assessment and repair
 
@@ -179,11 +180,11 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Forbidden:** production credentials, production DB mutation, Render resume/deploy, claiming local proof as live deployment proof
 - **Dependencies:** none
 - **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `.ai/workflows/local-deployment-certification.md`, `scripts/deploy/run-local-cert.mjs`
-- **Acceptance gate:** local production certificate proves launcher start, `/health`, `/ready`, client shell, and fail-closed recovery defaults for the exact candidate SHA; deploy validators/build pass
+- **Acceptance gate:** local production certificate proves launcher start, `/health`, `/ready`, client shell, and fail-closed recovery defaults for the exact candidate SHA; deploy validators/build pass; if the exact R8 deployment SHA later moves past Last proof, re-run local certification on that SHA before AXQ-005
 - **Gate:** none
-- **Last proof:** workflow:34050440866 passed typecheck, full tests, release guardrail, production build, Playwright regression, bundle budget, API latency replay, Drizzle bootstrap/migrations/idempotency, account-backup round trip, TOTP verification, local production certification, Docker build, and attestation on merge:69818369c2e9635decd79c658af352e3ecb306ec (PR #148); commit:cecb0e6c0f2637592bbae203560a4568aaeef63b is the subsequent `[skip ci]` test-attestation update containing that merge
+- **Last proof:** workflow:34279160114 passed typecheck, full tests, release guardrail, production build, Playwright regression, bundle budget, API latency replay, Drizzle bootstrap/migrations/idempotency, account-backup round trip, TOTP verification, local production certification, Docker build, and attestation on merge:d7007ee088034fd09463d0653b1430ad24a2209f (PR #151; includes PR #150 recovery-startup airlock); commit:9f7fe8f62170d8c70100aa97419c46eb0976d6de is the subsequent `[skip ci]` test-attestation update containing that merge
 - **Next action:** none; no safe actionable work remains
-- **Updated:** 2026-09-06T21:55:00Z
+- **Updated:** 2026-09-08T23:20:00Z
 
 ## AXQ-008 — R5/R6 physical reclaim and capacity convergence
 

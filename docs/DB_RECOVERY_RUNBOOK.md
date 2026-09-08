@@ -2,8 +2,8 @@
 
 ## Production database capacity incident
 
-**Incident date:** 2026-08-09  
-**Current provider state:** Render web service suspended by operator  
+**Incident date:** 2026-08-09
+**Current provider state:** Render web service suspended by operator
 **Production mutation status:** none performed by this repository sprint
 
 ## Verified live evidence
@@ -386,11 +386,14 @@ Expected startup order:
 ```text
 Environment gate
 DB capacity gate
-SQL migrations
+SQL migrations via apply-migrations.mjs --production-startup
+  (fails closed with RECOVERY_ONLY_MIGRATION_PENDING if recovery-only SQL such as 9999 is still pending on a remote host)
 Drizzle push skipped on Render/non-interactive startup
 server start
 /health 200
 ```
+
+Before the R8 attempt, recovery migration `9999` must already have been applied deliberately outside app startup (after R3/R1.5/R2/R4 gates), or the deploy will fail closed at the startup fuse instead of recovering the service.
 
 ## R9 — observation window
 
@@ -423,15 +426,15 @@ Repository tests can prove the tools and safety contracts. They cannot prove:
 
 Those require R1/R1.5/R3/R4/R5/R8/R9 evidence respectively.
 
-## Next production actions after this branch is merged
+## Next production actions after the airlock floor is on main
 
-Do not idle all recovery work behind one R1 chat.
+Do not idle all recovery work behind one R1 chat. Repository floor now includes PR #150 (startup recovery airlock) and PR #151 (Path C/D/E + Compose disposable-host parity). That fuse prevents accidental recovery DELETE on Render start; it does **not** replace preservation.
 
 1. Keep Render suspended and run R1 in the protected operator context.
 2. **In parallel now**, run R3 with `npm run db:backup:preflight -- --no-ledger`, preserve the emitted `AXTASK_BACKUP_MANIFEST` path, then restore that exact manifest with `npm run db:restore:test -- --recovery --file="<exact manifest path>"`.
-3. **In parallel now**, run R7 local production certification and deployment/build validators.
+3. R7 local production certification is already proven on the post-#151 floor (AXQ-007 `DONE`); re-run it only if the exact deployment SHA moves past that last proof.
 4. As soon as R1 passes, launch R1.5 evidence preservation and R2 containment assessment as separate sub-parts.
-5. Converge only when R1.5, R3, and R2 are proven; then advance R4.
+5. Converge only when R1.5, R3, and R2 are proven; then advance R4. Apply pending recovery SQL deliberately outside app startup before any R8 attempt.
 
 See `docs/DB_RECOVERY_SUBPART_WAVE.md` for ownership, collision boundaries, exact
 sub-part commands, and convergence gates.
