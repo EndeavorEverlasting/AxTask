@@ -23,6 +23,25 @@ describe("deploy / schema workflow guards", () => {
     expect(cmdIdx).toBeGreaterThan(migrateIdx);
   });
 
+  it("canonical DEV_DATABASE Path C documents the production-startup compose airlock", () => {
+    const doc = fs.readFileSync(
+      path.join(projectRoot, "docs", "DEV_DATABASE_AND_SCHEMA.md"),
+      "utf8",
+    );
+    const pathC = doc.indexOf("## Path C: Docker Compose");
+    const pathD = doc.indexOf("## Path D: Production container CMD");
+    expect(pathC).toBeGreaterThan(-1);
+    expect(pathD).toBeGreaterThan(pathC);
+    const section = doc.slice(pathC, pathD);
+    expect(section).toContain(
+      "node scripts/apply-migrations.mjs --production-startup && npm run db:push",
+    );
+    expect(section).toContain("RECOVERY_ONLY_MIGRATION_PENDING");
+    expect(section).not.toMatch(
+      /node scripts\/apply-migrations\.mjs\s*&&\s*npm run db:push/,
+    );
+  });
+
   it("production Dockerfile delegates startup ordering to production-start", () => {
     const dockerfile = fs.readFileSync(path.join(projectRoot, "Dockerfile"), "utf8");
     expect(dockerfile).toContain('CMD ["node", "scripts/production-start.mjs"]');

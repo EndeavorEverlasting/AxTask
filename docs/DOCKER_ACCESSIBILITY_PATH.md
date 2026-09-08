@@ -19,7 +19,7 @@ Implementation (current):
 - `npm run docker:start|stop|status|logs`
 - Windows one-click scripts: `start-docker.cmd`, `stop-docker.cmd`, `status-docker.cmd`
 - macOS/Linux scripts: `start-docker.sh`, `stop-docker.sh`, `status-docker.sh`
-- compose sequencing: `database` -> `migrate (db:push)` -> `app`
+- compose sequencing: `database` -> `migrate (apply-migrations.mjs --production-startup then db:push)` -> `app`
 - persistent volumes: `axtask_postgres_data`, `axtask_storage_data`
 
 Acceptance criteria:
