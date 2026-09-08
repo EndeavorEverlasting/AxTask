@@ -8,16 +8,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
 describe("deploy / schema workflow guards", () => {
-  it("docker-compose migrate runs SQL migrations before drizzle db:push", () => {
+  it("docker-compose migrate runs guarded SQL migrations before drizzle db:push", () => {
     const composePath = path.join(projectRoot, "docker-compose.yml");
     const compose = fs.readFileSync(composePath, "utf8");
 
     expect(compose).toContain("migrate:");
     expect(compose).toMatch(
-      /command:\s*\[\s*"sh",\s*"-c",\s*"node scripts\/apply-migrations\.mjs && npm run db:push\s*<\s*\/dev\/null"\s*\]/,
+      /command:\s*\[\s*"sh",\s*"-c",\s*"node scripts\/apply-migrations\.mjs --production-startup && npm run db:push\s*<\s*\/dev\/null"\s*\]/,
     );
     const migrateIdx = compose.indexOf("migrate:");
-    const cmdIdx = compose.indexOf("node scripts/apply-migrations.mjs && npm run db:push");
+    const cmdIdx = compose.indexOf(
+      "node scripts/apply-migrations.mjs --production-startup && npm run db:push",
+    );
     expect(cmdIdx).toBeGreaterThan(migrateIdx);
   });
 
