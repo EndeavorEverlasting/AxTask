@@ -12,9 +12,10 @@
  *
  * Database recovery is intentionally NOT a startup mode. A failed capacity gate
  * leaves normal startup fail-closed. Read-only forensics, one-off containment,
- * targeted logical cleanup, and physical reclaim are separate operator commands
- * documented in docs/DB_RECOVERY_RUNBOOK.md. This prevents a Render restart from
- * silently bypassing the migration airlock or performing destructive recovery.
+ * targeted logical cleanup, physical reclaim, and recovery-only SQL are separate
+ * operator actions documented in docs/DB_RECOVERY_RUNBOOK.md. The migration
+ * runner receives --production-startup so a pending recovery-only migration on
+ * a real non-loopback database aborts startup instead of performing recovery.
  *
  * Default production posture:
  *   SKIP_DB_PUSH_ON_START=true, Render detection, or non-interactive terminal → skip drizzle-kit push.
@@ -87,12 +88,16 @@ if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
   }
 }
 
-console.log("[production-start] SQL migrations (apply-migrations.mjs)…");
-const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs")], {
-  cwd: root,
-  stdio: "inherit",
-  env: process.env,
-});
+console.log("[production-start] SQL migrations (apply-migrations.mjs --production-startup)…");
+const m = spawnSync(
+  process.execPath,
+  [join(root, "scripts/apply-migrations.mjs"), "--production-startup"],
+  {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env,
+  },
+);
 if (m.status !== 0) process.exit(m.status ?? 1);
 
 if (shouldSkipDbPush) {

@@ -4,9 +4,14 @@
  * Reads migrations/*.sql in lexicographic order, tracks applied files in
  * an `applied_sql_migrations` table, and skips already-applied files.
  *
+ * Normal production startup passes --production-startup. In that mode a
+ * pending recovery-only migration on a non-loopback database is a hard stop:
+ * recovery mutations must be executed deliberately under the recovery runbook,
+ * never as a side effect of starting Render/Docker.
+ *
  * Exits 0 on success, 1 on any failure.
  *
- * Usage:  node scripts/apply-migrations.mjs
+ * Usage:  node scripts/apply-migrations.mjs [--production-startup]
  * Env:    DATABASE_URL (required)
  */
 import pgModule from "pg";
@@ -14,14 +19,36 @@ const pg = pgModule.default || pgModule;
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertNoDatabaseTargetOverrides,
+  isLoopbackDatabaseUrl,
+} from "./db/pg-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "..", "migrations");
+const RECOVERY_ONLY_MIGRATIONS = new Set([
+  "9999_disable_api_request_security_events.sql",
+]);
 
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) {
     console.error("[migrate] DATABASE_URL is not set.");
+    process.exit(1);
+  }
+
+  const productionStartup = process.argv.includes("--production-startup");
+  let loopbackTarget = false;
+  try {
+    // PostgreSQL URI query parameters can override host/port/dbname. Reuse the
+    // recovery tooling's canonical target-identity rule so a URL that looks
+    // loopback cannot secretly route to a remote production database.
+    assertNoDatabaseTargetOverrides(url);
+    loopbackTarget = isLoopbackDatabaseUrl(url);
+  } catch (error) {
+    console.error(
+      `[migrate] DATABASE_URL target is invalid or ambiguous: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exit(1);
   }
 
@@ -73,6 +100,29 @@ async function main() {
       .filter((f) => f.endsWith(".sql"))
       .sort();
 
+    const pendingRecoveryOnly = files.filter(
+      (file) => RECOVERY_ONLY_MIGRATIONS.has(file) && !appliedSet.has(file),
+    );
+
+    // A production process restart/deploy is never authorization to perform
+    // incident recovery. Refuse before applying *any* pending migration so a
+    // schema migration cannot partially advance and then strand the process at
+    // the recovery boundary. Disposable loopback certification remains able to
+    // replay the complete migration set.
+    if (productionStartup && !loopbackTarget && pendingRecoveryOnly.length > 0) {
+      console.error(
+        `[migrate] RECOVERY_ONLY_MIGRATION_PENDING: ${pendingRecoveryOnly.join(", ")}`,
+      );
+      console.error(
+        "[migrate] Normal production startup will not execute recovery-only SQL.",
+      );
+      console.error(
+        "[migrate] Follow docs/DB_RECOVERY_RUNBOOK.md. After the recovery prerequisites are satisfied, apply the pending migration deliberately outside app startup under the migration airlock, then deploy.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     let appliedCount = 0;
     for (const file of files) {
       if (appliedSet.has(file)) {
@@ -110,4 +160,3 @@ main().catch((err) => {
   console.error("[migrate] fatal:", err);
   process.exit(1);
 });
-
