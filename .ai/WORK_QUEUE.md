@@ -67,10 +67,11 @@ Every `AXQ-*` task block must use the canonical heading `## AXQ-### — Title` a
 Deployment recovery must not serialize independent preservation and local-proof work behind one operator step. Follow `docs/DB_RECOVERY_SUBPART_WAVE.md`:
 
 - **Wave A current:** AXQ-001 R1 operator evidence and AXQ-003 R3 source-read-only backup/restore may proceed in parallel. AXQ-007 R7 local certification is already `DONE` on the current candidate floor.
+- **Naming:** R3 is backup and rollback proof. Physical reclaim is R5/AXQ-008, never R3. Do not describe or execute an "R3 reclaim path."
 - **Wave B after R1:** AXQ-002 R1.5 evidence preservation and AXQ-006 R2 containment assessment proceed in parallel. Any R2 mutation still waits for AXQ-003.
 - **Wave C:** AXQ-004 R4 cleanup only after AXQ-002, AXQ-003, and AXQ-006 satisfy their gates.
 - **Wave D:** AXQ-008 R5/R6 physical-capacity convergence.
-- **Wave E:** AXQ-005 one controlled Render recovery only after AXQ-008; AXQ-007 is already satisfied.
+- **Wave E:** AXQ-005 one controlled Render recovery only after AXQ-008; AXQ-007 is already satisfied. Deployment authorization remains **NO** until that gate.
 
 ## AXQ-001 — Production R1 read-only database forensics
 
@@ -110,15 +111,15 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Priority:** P0
 - **Owner:** operator
 - **Branch / PR:** none
-- **Scope:** create one raw PostgreSQL backup without source-ledger mutation, verify its hash, then restore it into disposable PostgreSQL
+- **Scope:** create one raw PostgreSQL backup without source-ledger mutation, verify its hash, then restore it into disposable PostgreSQL; this is backup and rollback proof, not physical reclaim
 - **Forbidden:** source cleanup, retention deletion, source backup-ledger insertion during recovery, reclaim, Render resume/deploy
 - **Dependencies:** none
 - **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `scripts/db/preflight-backup.mjs`, `scripts/db/backup.mjs`, `scripts/db/restore-test.mjs`
 - **Acceptance gate:** protected dump + manifest exist; `sourceLedgerMode` is `skipped`; SHA-256 verifies; disposable restore succeeds; manifest records non-null `restoreTestedAt`
 - **Gate:** requires operator-controlled production `DATABASE_URL`, `BACKUP_STORAGE_TARGET`, protected storage, PostgreSQL client tools, and a separate disposable `RESTORE_DATABASE_URL`
 - **Last proof:** none
-- **Next action:** Sub-Part A runs `npm run db:backup:preflight -- --no-ledger`, then points `RESTORE_DATABASE_URL` at a disposable database and runs `npm run db:restore:test`; do not run a second `npm run db:backup`
-- **Updated:** 2026-08-11T17:36:00Z
+- **Next action:** operator runs `npm run db:backup:preflight -- --no-ledger`, preserves the printed `AXTASK_BACKUP_MANIFEST` path, then `npm run db:restore:test -- --recovery --file="<exact manifest path>"`; do not run a second `npm run db:backup`; R5/AXQ-008 remains the later physical-shrink lane
+- **Updated:** 2026-09-06T21:55:00Z
 
 ## AXQ-004 — Production R4 targeted logical cleanup
 
@@ -148,9 +149,9 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **References:** `render.yaml`, `Dockerfile`, `scripts/production-start.mjs`, `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ENVIRONMENT_VARIABLES.md`
 - **Acceptance gate:** R0-R7 proof is recorded; exact intended `main` SHA is deployed once with verified environment/health settings; startup gates and Render health succeed; live proof is recorded without secrets
 - **Gate:** AXQ-007 is satisfied; deployment remains blocked until AXQ-008 capacity convergence is complete and the operator explicitly authorizes the one R8 attempt
-- **Last proof:** workflow:34044694367 proves current-candidate local production certification; historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists
+- **Last proof:** workflow:34050440866 proves current-candidate local production certification on merge:69818369c2e9635decd79c658af352e3ecb306ec; historical provider evidence showed suspension during the capacity incident; no current R8 live proof exists; deployment authorization remains NO
 - **Next action:** when AXQ-008 is DONE, operator records exact current `main` SHA/provider settings and explicitly authorizes one R8 resume/deploy attempt
-- **Updated:** 2026-09-06T16:34:00Z
+- **Updated:** 2026-09-06T21:55:00Z
 
 ## AXQ-006 — Production R2 containment assessment and repair
 
@@ -180,9 +181,9 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RECOVERY_SUBPART_WAVE.md`, `.ai/workflows/local-deployment-certification.md`, `scripts/deploy/run-local-cert.mjs`
 - **Acceptance gate:** local production certificate proves launcher start, `/health`, `/ready`, client shell, and fail-closed recovery defaults for the exact candidate SHA; deploy validators/build pass
 - **Gate:** none
-- **Last proof:** workflow:34044694367 passed typecheck, full tests, release guardrail, production build, account backup round-trip, migration/bootstrap verification, and Local production certification on merge:b4d3bdac13e73cb6458b630e0d4dec69fbd4990c; commit:de5dd317ba67320600e5b8428a65565b9077daf0 is the subsequent `[skip ci]` test-attestation update containing that merge
+- **Last proof:** workflow:34050440866 passed typecheck, full tests, release guardrail, production build, Playwright regression, bundle budget, API latency replay, Drizzle bootstrap/migrations/idempotency, account-backup round trip, TOTP verification, local production certification, Docker build, and attestation on merge:69818369c2e9635decd79c658af352e3ecb306ec (PR #148); commit:cecb0e6c0f2637592bbae203560a4568aaeef63b is the subsequent `[skip ci]` test-attestation update containing that merge
 - **Next action:** none; no safe actionable work remains
-- **Updated:** 2026-09-06T16:34:00Z
+- **Updated:** 2026-09-06T21:55:00Z
 
 ## AXQ-008 — R5/R6 physical reclaim and capacity convergence
 
