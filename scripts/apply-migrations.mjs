@@ -19,7 +19,10 @@ const pg = pgModule.default || pgModule;
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isLoopbackDatabaseUrl } from "./db/pg-tools.mjs";
+import {
+  assertNoDatabaseTargetOverrides,
+  isLoopbackDatabaseUrl,
+} from "./db/pg-tools.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "..", "migrations");
@@ -37,9 +40,15 @@ async function main() {
   const productionStartup = process.argv.includes("--production-startup");
   let loopbackTarget = false;
   try {
+    // PostgreSQL URI query parameters can override host/port/dbname. Reuse the
+    // recovery tooling's canonical target-identity rule so a URL that looks
+    // loopback cannot secretly route to a remote production database.
+    assertNoDatabaseTargetOverrides(url);
     loopbackTarget = isLoopbackDatabaseUrl(url);
-  } catch {
-    console.error("[migrate] DATABASE_URL is not a valid PostgreSQL URL.");
+  } catch (error) {
+    console.error(
+      `[migrate] DATABASE_URL target is invalid or ambiguous: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exit(1);
   }
 
