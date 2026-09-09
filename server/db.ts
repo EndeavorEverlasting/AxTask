@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
+import { resolveDbConnectionTimeoutMs } from "./db-runtime";
 
 const { Pool } = pg;
 
@@ -10,7 +11,13 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: resolveDbConnectionTimeoutMs(
+    process.env.AXTASK_DB_CONNECTION_TIMEOUT_MS,
+  ),
+  application_name: "axtask",
+});
 
 pool.on("error", (err) => {
   const code = (err as NodeJS.ErrnoException)?.code;
