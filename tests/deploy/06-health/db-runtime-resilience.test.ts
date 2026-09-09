@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DB_CONNECTION_TIMEOUT_MS,
   resolveDbConnectionTimeoutMs,
+  stripDatabaseUrlApplicationName,
 } from "../../../server/db-runtime";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,8 +26,27 @@ describe("[06-health] runtime DB connection acquisition", () => {
     expect(resolveDbConnectionTimeoutMs("not-a-number")).toBe(5_000);
   });
 
-  it("wires the bounded timeout and AxTask application attribution into the pool", () => {
+  it("removes URL-level application_name without dropping other connection parameters", () => {
+    expect(
+      stripDatabaseUrlApplicationName(
+        "postgresql://user:pass@example.test/db?sslmode=require&application_name=provider-name&connect_timeout=9",
+      ),
+    ).toBe(
+      "postgresql://user:pass@example.test/db?sslmode=require&connect_timeout=9",
+    );
+    expect(
+      stripDatabaseUrlApplicationName(
+        "postgresql://user:pass@example.test/db?application_name=override#anchor",
+      ),
+    ).toBe("postgresql://user:pass@example.test/db#anchor");
+    expect(
+      stripDatabaseUrlApplicationName("postgresql://user:pass@example.test/db"),
+    ).toBe("postgresql://user:pass@example.test/db");
+  });
+
+  it("wires the bounded timeout and enforced AxTask attribution into the pool", () => {
     const dbSource = fs.readFileSync(path.join(repoRoot, "server", "db.ts"), "utf8");
+    expect(dbSource).toMatch(/connectionString:\s*stripDatabaseUrlApplicationName\(/);
     expect(dbSource).toMatch(/connectionTimeoutMillis:\s*resolveDbConnectionTimeoutMs\(/);
     expect(dbSource).toMatch(/AXTASK_DB_CONNECTION_TIMEOUT_MS/);
     expect(dbSource).toMatch(/application_name:\s*["']axtask["']/);
