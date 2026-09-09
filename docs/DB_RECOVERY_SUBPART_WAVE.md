@@ -12,7 +12,7 @@ Run these as separate sub-parts. They do not own each other's files or runtime a
 
 1. **R1 operator evidence** — production SELECT-only forensics. This remains the decision gate for the removable event class.
 2. **R3 raw backup + disposable restore** — may proceed in parallel with R1 because it preserves data and does not depend on the account-evidence export. Use source-read-only backup mode. R3 is backup and rollback proof, not physical reclaim.
-3. **R7 local production certification** — may proceed in parallel because it uses disposable local PostgreSQL and proves only local runtime behavior.
+3. **R7 local production certification** — already `DONE` on the post-#151 airlock floor. Do not re-launch unless the exact deployment SHA moves past the AXQ-007 last-proof commit; then re-certify disposable local PostgreSQL only.
 
 ### Wave B — launch immediately after R1 is accepted
 
