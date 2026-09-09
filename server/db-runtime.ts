@@ -16,3 +16,29 @@ export function resolveDbConnectionTimeoutMs(raw: string | undefined): number {
     Math.min(MAX_DB_CONNECTION_TIMEOUT_MS, Math.round(parsed)),
   );
 }
+
+/**
+ * node-postgres parses connectionString after object options, so a URL-level
+ * application_name would otherwise override the explicit AxTask attribution.
+ * Remove only that query parameter and preserve the rest of the URL verbatim
+ * apart from standard URLSearchParams query serialization.
+ */
+export function stripDatabaseUrlApplicationName(connectionString: string): string {
+  const queryIndex = connectionString.indexOf("?");
+  if (queryIndex < 0) return connectionString;
+
+  const prefix = connectionString.slice(0, queryIndex);
+  const queryAndFragment = connectionString.slice(queryIndex + 1);
+  const fragmentIndex = queryAndFragment.indexOf("#");
+  const query = fragmentIndex < 0
+    ? queryAndFragment
+    : queryAndFragment.slice(0, fragmentIndex);
+  const fragment = fragmentIndex < 0
+    ? ""
+    : queryAndFragment.slice(fragmentIndex);
+
+  const params = new URLSearchParams(query);
+  params.delete("application_name");
+  const serialized = params.toString();
+  return `${prefix}${serialized ? `?${serialized}` : ""}${fragment}`;
+}
