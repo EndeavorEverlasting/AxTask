@@ -20,15 +20,23 @@ services:
         value: 5000
       - key: FORCE_HTTPS
         value: "true"
+      # Canonical auth origin. OAuth state is stored in a host-only session cookie,
+      # so login initiation and callback must stay on the same hostname.
+      - key: CANONICAL_HOST
+        value: axtask.app
+      - key: GOOGLE_REDIRECT_URI
+        value: https://axtask.app/api/auth/google/callback
+      # www may redirect/serve safely; alternate apex domains such as axtask.dev
+      # are deliberately NOT allowlisted so server/index.ts redirects them to
+      # CANONICAL_HOST before OAuth state can be created.
+      - key: ADDITIONAL_ALLOWED_HOSTS
+        value: www.axtask.app
       # Disable Drizzle schema push during production startup. Startup should
       # boot the app or fail on explicit env/migration/readiness gates, not on
       # interactive ORM prompts. Run db:push manually from an interactive shell.
       - key: SKIP_DB_PUSH_ON_START
         value: "true"
-      # Set CANONICAL_HOST to your primary domain (for unknown host redirects).
       # Keep REPLIT_FALLBACK_HOST set so rollback is instant.
-      - key: CANONICAL_HOST
-        sync: false
       - key: REPLIT_FALLBACK_HOST
         sync: false
       - key: DATABASE_URL
