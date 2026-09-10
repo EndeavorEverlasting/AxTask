@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { DndContext } from "@dnd-kit/core";
 import type { Task } from "@shared/schema";
 import { CalendarCell } from "./task-calendar";
@@ -28,7 +28,7 @@ describe("CalendarCell task overflow", () => {
     render(
       <DndContext>
         <CalendarCell
-          date={new Date("2026-09-10T12:00:00Z")}
+          date={new Date(2026, 8, 10)}
           isToday={false}
           isCurrentMonth={true}
           tasks={tasks}
@@ -44,11 +44,32 @@ describe("CalendarCell task overflow", () => {
 
     const hiddenBeforeFix = screen.getByTitle("12:00 — Overflow task 5");
     expect(hiddenBeforeFix).toBeInTheDocument();
+    expect(hiddenBeforeFix).not.toHaveStyle({ touchAction: "none" });
+
+    const dragHandle = within(hiddenBeforeFix).getByRole("button", { name: "Drag Overflow task 5" });
+    expect(dragHandle).toHaveStyle({ touchAction: "none" });
 
     fireEvent.click(hiddenBeforeFix);
 
     expect(onClickTask).toHaveBeenCalledTimes(1);
     expect(onClickTask).toHaveBeenCalledWith(tasks[4]);
     expect(onClickDate).not.toHaveBeenCalled();
+  });
+
+  it("does not create extra region landmarks when a day does not overflow", () => {
+    render(
+      <DndContext>
+        <CalendarCell
+          date={new Date(2026, 8, 11)}
+          isToday={false}
+          isCurrentMonth={true}
+          tasks={[makeTask(0), makeTask(1)]}
+          onClickDate={vi.fn()}
+          onClickTask={vi.fn()}
+        />
+      </DndContext>,
+    );
+
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 });
