@@ -1,5 +1,7 @@
 # AI Intent Eval Report
 
+authorityRef: axtask.agent-authority.v1
+
 - Pack: `{{packId}}`
 - Generated: `{{generatedAt}}`
 - Gating: `{{gatingPassed}}/{{gatingCases}}` (passRate={{gatingPassRate}})
