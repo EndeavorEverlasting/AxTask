@@ -1,0 +1,33 @@
+{
+  "id": "schema-reject-stub",
+  "failureClass": "schema_reject",
+  "layer": "integration",
+  "mode": "interpret",
+  "input": {
+    "message": "Remind me daily at 3pm to stretch"
+  },
+  "context": null,
+  "llmStub": {
+    "error": "schema_invalid",
+    "invalidIntent": {
+      "type": "create_reminder",
+      "payload": {
+        "kind": "time"
+      }
+    }
+  },
+  "expect": {
+    "outcome": "provider_error"
+  },
+  "diagnosis": {
+    "expectedFailureClassification": "schema_reject",
+    "expectedRemediation": "schema_reject"
+  },
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.fail_closed",
+    "correctness.diagnosis_classification",
+    "correctness.diagnosis_remediation"
+  ],
+  "gating": true
+}

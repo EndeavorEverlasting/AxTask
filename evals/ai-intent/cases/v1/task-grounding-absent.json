@@ -1,0 +1,38 @@
+{
+  "id": "task-grounding-absent",
+  "failureClass": "missing_task_id",
+  "layer": "integration",
+  "mode": "interpret",
+  "input": {
+    "message": "Remind me about that task tomorrow at 3pm"
+  },
+  "context": null,
+  "llmStub": {
+    "intent": {
+      "type": "clarification",
+      "payload": {
+        "question": "Which task should I attach this reminder to?",
+        "reason": "No taskId was provided in context for a task-bound reminder.",
+        "missingFields": ["taskId"]
+      }
+    }
+  },
+  "expect": {
+    "outcome": "intent",
+    "intentType": "clarification",
+    "missingFieldsContains": ["taskId"]
+  },
+  "diagnosis": {
+    "expectedFailureClassification": "missing_task_context",
+    "expectedRemediation": "grounding_clarification"
+  },
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.missing_fields",
+    "correctness.diagnosis_classification",
+    "correctness.diagnosis_remediation",
+    "style.clarification_question"
+  ],
+  "gating": true
+}

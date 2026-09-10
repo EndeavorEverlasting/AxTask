@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "packId": "axtask.ai-intent.v1",
+  "rubricRef": "rubrics/v1.json",
+  "casesGlob": "cases/v1/*.json",
+  "baselineRef": "baselines/v1/latest.json",
+  "threshold": {
+    "minGatingPassRate": 1.0,
+    "maxGatingFailures": 0
+  },
+  "caseIds": [
+    "ambiguous-recurrence",
+    "invented-offset-absent",
+    "location-offset-explicit",
+    "location-arrival-home",
+    "daily-location-needs-offset",
+    "create-task-simple",
+    "recurrence-missing-time",
+    "config-missing-key",
+    "schema-reject-stub",
+    "conflicting-home-work",
+    "task-grounding-absent",
+    "task-grounding-ignored",
+    "place-grounding-absent",
+    "place-grounding-ignored",
+    "malformed-place-slug",
+    "regression-invented-offset"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "recurrence-missing-time",
+  "failureClass": "ambiguous_recurrence",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "input": {
+    "message": "Remind me to drink water every day"
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "intent",
+    "intentType": "clarification",
+    "provider": "rule_parser",
+    "missingFieldsContains": ["time"]
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.provider",
+    "correctness.missing_fields",
+    "style.clarification_question"
+  ],
+  "gating": true
+}

@@ -34,6 +34,7 @@
     "security:node-runtime-guard": "node tools/security/check_node_runtime.mjs",
     "security:axios-guard": "node tools/security/check_no_axios.mjs",
     "test": "vitest run",
+    "test:ai-eval": "node ./node_modules/tsx/dist/cli.mjs scripts/ai-eval/run-ai-intent-eval.mjs",
     "test:ui:planner-scroll": "playwright test tests/ui/planner-scroll-visibility.spec.ts",
     "test:ui:auth-surfaces": "playwright test tests/ui/auth-confirmation-surfaces.spec.ts",
     "perf:bundle": "node tools/perf/bundle-budget.mjs",

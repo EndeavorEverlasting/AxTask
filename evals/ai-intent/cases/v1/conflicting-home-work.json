@@ -1,0 +1,21 @@
+{
+  "id": "conflicting-home-work",
+  "failureClass": "conflicting_instructions",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "notes": "parseQuickIntent returns null when both home and work arrival phrases appear (does not clarify or pick one); interpret falls through to the LLM and throws LlmProviderConfigError without a key/stub.",
+  "input": {
+    "message": "Remind me when I get home and when I get to work to call Sam"
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "config_error"
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.fail_closed"
+  ],
+  "gating": true
+}

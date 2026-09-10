@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "id": "axtask.ai-intent.rubric.v1",
+  "criteria": [
+    {
+      "id": "correctness.outcome",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Interpret result matches expect.outcome (intent, config_error, or provider_error).",
+      "fpRisk": "Treating a thrown config/provider error as a successful intent.",
+      "fnRisk": "Failing a valid intent because of non-gating metadata noise."
+    },
+    {
+      "id": "correctness.intent_type",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Returned AiIntentResult.type matches expect.intentType.",
+      "fpRisk": "Accepting create_* when clarification was required.",
+      "fnRisk": "Rejecting a correct create_* because style wording differed."
+    },
+    {
+      "id": "correctness.provider",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Provider id matches expect.provider when asserted (e.g. rule_parser).",
+      "fpRisk": "Crediting rule_parser when the LLM path actually ran.",
+      "fnRisk": "Failing when only model string differs but provider is correct."
+    },
+    {
+      "id": "correctness.missing_fields",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Clarification missingFields contains every entry in expect.missingFieldsContains.",
+      "fpRisk": "Passing vague clarifications that omit the required field id.",
+      "fnRisk": "Failing when extra missingFields are present beyond the required set."
+    },
+    {
+      "id": "correctness.trigger_type",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "create_reminder trigger.type matches expect.triggerType.",
+      "fpRisk": "Accepting invented location_arrival_offset when arrival-only was required.",
+      "fnRisk": "Failing equivalent trigger aliases that the product does not use."
+    },
+    {
+      "id": "correctness.place_slug",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Location trigger placeSlug matches expect.placeSlug / canonical place.",
+      "fpRisk": "Accepting hallucinated or misspelled place slugs.",
+      "fnRisk": "Failing when alias resolution maps an allowed synonym (not in v1)."
+    },
+    {
+      "id": "correctness.offset_minutes",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "location_arrival_offset.offsetMinutes matches expect.offsetMinutes; noInventedOffset forbids fabricated minutes.",
+      "fpRisk": "Passing an invented default offset as if the user stated it.",
+      "fnRisk": "Failing explicit word/digit offsets the parser already supports."
+    },
+    {
+      "id": "correctness.task_id",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Reminder taskId matches expect.taskId / canonical grounded task when asserted.",
+      "fpRisk": "Accepting invented task ids not present in context.",
+      "fnRisk": "Failing optional null taskId when unbound reminders are allowed."
+    },
+    {
+      "id": "correctness.activity",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "create_task activity contains expect.activityContains (case-insensitive).",
+      "fpRisk": "Accepting empty or unrelated activity strings.",
+      "fnRisk": "Failing on minor punctuation the executor would strip."
+    },
+    {
+      "id": "correctness.fail_closed",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Invalid stub/schema/config paths do not emit a successful create_* intent.",
+      "fpRisk": "Silently coercing invalid LLM JSON into a create intent.",
+      "fnRisk": "Over-rejecting valid stub intents that pass Zod."
+    },
+    {
+      "id": "correctness.diagnosis_classification",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Diagnosis expectedFailureClassification matches scorer classification of the stub/actual intent.",
+      "fpRisk": "Labeling ignored_grounding as missing context (wrong remediation).",
+      "fnRisk": "Missing a true grounding failure when ids diverge."
+    },
+    {
+      "id": "correctness.diagnosis_remediation",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Diagnosis expectedRemediation matches the remediation the scorer derives (reanchor vs grounding_clarification vs schema_reject).",
+      "fpRisk": "Suggesting add-more-context when re-anchor to canonical id is required.",
+      "fnRisk": "Demanding re-anchor when context was truly absent."
+    },
+    {
+      "id": "correctness.execute_probe",
+      "layer": "correctness",
+      "weight": 1,
+      "description": "Optional deterministic execute probe matches expect.execute.ok/reason without live DB.",
+      "fpRisk": "Treating missing place/task as a successful write.",
+      "fnRisk": "Failing probes that only check intent shape when execute is null."
+    },
+    {
+      "id": "style.clarification_question",
+      "layer": "style",
+      "weight": 0,
+      "description": "Clarification question is readable and actionable; reported but not CI-gating.",
+      "fpRisk": "Over-weighting polish and masking correctness failures.",
+      "fnRisk": "Noise in reports from wording variance across rule_parser strings."
+    }
+  ]
+}

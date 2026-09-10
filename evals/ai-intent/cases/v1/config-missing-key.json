@@ -1,0 +1,20 @@
+{
+  "id": "config-missing-key",
+  "failureClass": "config_missing_key",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "input": {
+    "message": "Please help me with my schedule soon"
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "config_error"
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.fail_closed"
+  ],
+  "gating": true
+}

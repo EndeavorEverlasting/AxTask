@@ -1,0 +1,26 @@
+{
+  "id": "daily-location-needs-offset",
+  "failureClass": "invented_offset",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "input": {
+    "message": "Remind me every day after I get home to water plants"
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "intent",
+    "intentType": "clarification",
+    "provider": "rule_parser",
+    "missingFieldsContains": ["offset"]
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.provider",
+    "correctness.missing_fields",
+    "style.clarification_question"
+  ],
+  "gating": true
+}

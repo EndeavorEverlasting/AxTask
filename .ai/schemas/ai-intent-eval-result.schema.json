@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axtask.ai-intent-eval-result.v1",
+  "title": "AxTask AI intent eval report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packId",
+    "generatedAt",
+    "packRoot",
+    "liveEnabled",
+    "summary",
+    "cases",
+    "gatingResults"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "packId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "packRoot": { "type": "string", "minLength": 1 },
+    "liveEnabled": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalCases",
+        "ranCases",
+        "skippedCases",
+        "gatingCases",
+        "gatingPassed",
+        "gatingFailures",
+        "gatingPassRate",
+        "thresholdMet"
+      ],
+      "properties": {
+        "totalCases": { "type": "integer", "minimum": 0 },
+        "ranCases": { "type": "integer", "minimum": 0 },
+        "skippedCases": { "type": "integer", "minimum": 0 },
+        "gatingCases": { "type": "integer", "minimum": 0 },
+        "gatingPassed": { "type": "integer", "minimum": 0 },
+        "gatingFailures": { "type": "integer", "minimum": 0 },
+        "gatingPassRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "thresholdMet": { "type": "boolean" }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "gatingResults": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["pass", "outcome", "criterionFailures"],
+        "properties": {
+          "pass": { "type": "boolean" },
+          "outcome": { "type": ["string", "null"] },
+          "criterionFailures": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

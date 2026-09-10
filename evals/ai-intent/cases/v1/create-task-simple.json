@@ -1,0 +1,25 @@
+{
+  "id": "create-task-simple",
+  "failureClass": "none",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "input": {
+    "message": "Make a task to vacuum the hallway"
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "intent",
+    "intentType": "create_task",
+    "provider": "rule_parser",
+    "activityContains": "vacuum"
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.provider",
+    "correctness.activity"
+  ],
+  "gating": true
+}

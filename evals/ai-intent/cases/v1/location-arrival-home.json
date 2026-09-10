@@ -1,0 +1,29 @@
+{
+  "id": "location-arrival-home",
+  "failureClass": "none",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "input": {
+    "message": "Remind me when I get home."
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "intent",
+    "intentType": "create_reminder",
+    "provider": "rule_parser",
+    "triggerType": "location_arrival",
+    "placeSlug": "home",
+    "noInventedOffset": true
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.provider",
+    "correctness.trigger_type",
+    "correctness.place_slug",
+    "correctness.offset_minutes"
+  ],
+  "gating": true
+}

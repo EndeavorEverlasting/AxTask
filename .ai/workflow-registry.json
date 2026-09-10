@@ -14,6 +14,7 @@
     {"id":"axtask.predeploy-cost-readiness.v1","path":".ai/workflows/predeploy-cost-readiness.md","description":"Repository-only deployment necessity, readiness-gate, and qualitative cost-exposure evaluation."},
     {"id":"axtask.stateful-architecture-migration.v1","path":".ai/workflows/stateful-architecture-migration.md","description":"Evidence-first factoring for serverless/stateless migration with one owned seam, fail-closed KEEP defaults, and explicit proof ceilings."},
     {"id":"axtask.log-retention-capacity-defense.v1","path":".ai/workflows/log-retention-capacity-defense.md","description":"Keep append-only/log retention policy, runner, scheduler wiring, proof artifacts, and live-proof boundaries synchronized before storage accumulates."},
-    {"id":"axtask.agent-workspace-lifecycle.v1","path":".ai/workflows/agent-workspace-lifecycle.md","description":"Create, inventory, classify, preserve, and safely retire agent-owned Git worktrees under one human-visible managed root without scattering durable repository state."}
+    {"id":"axtask.agent-workspace-lifecycle.v1","path":".ai/workflows/agent-workspace-lifecycle.md","description":"Create, inventory, classify, preserve, and safely retire agent-owned Git worktrees under one human-visible managed root without scattering durable repository state."},
+    {"id":"axtask.ai-intent-eval.v1","path":".ai/workflows/ai-intent-eval.md","description":"Offline AI intent eval pack with deterministic oracles, fixture LLM stubs, baseline compare, and fail-closed CI gate."}
   ]
 }

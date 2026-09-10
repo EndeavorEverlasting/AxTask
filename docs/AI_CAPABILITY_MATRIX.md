@@ -48,10 +48,15 @@ This baseline maps current AI capabilities to concrete code paths so modernizati
 ## 5) Evaluation Frameworks
 - `Implemented`:
   - Unit/contract tests for classifier fallback and route wiring.
+  - Offline AI intent eval pack (`evals/ai-intent/`) with versioned fixtures/rubric/baseline.
+  - Deterministic scorers + fixture LLM provider (`server/ai-eval/`).
+  - Fail-closed runner + baseline compare (`npm run test:ai-eval`, validator `ai-intent-eval`).
+  - CI gate in `.github/workflows/test-and-attest.yml`.
 - `Partial`:
-  - Route behavior coverage exists, but quality metrics are not CI-gated.
+  - Live-model cases exist only behind `AXTASK_AI_EVAL_LIVE=1` (not CI-gated).
+  - Planner/voice/classifier heuristic engines are not yet full case packs.
 - `Missing`:
-  - Offline AI eval dataset runner, regression score thresholds, and non-regression quality gate script.
+  - Sanitized `ai_interactions` export → fixture import pipeline.
 
 ## 6) Fine-Tuning
 - `Implemented`:
@@ -66,5 +71,5 @@ This baseline maps current AI capabilities to concrete code paths so modernizati
 2. PromptOps centralization + regression tests.
 3. RAG runtime with grounding/citations.
 4. Shared assistant runtime + safe action thresholds.
-5. Offline eval harness + CI quality gates.
+5. Offline eval harness + CI quality gates (intent pack shipped; expand engines + live lane).
 6. Fine-tuning decision framework (only if evidence supports it).

@@ -1,0 +1,46 @@
+{
+  "id": "place-grounding-ignored",
+  "failureClass": "missing_place_alias",
+  "layer": "integration",
+  "mode": "score_stub_diagnosis",
+  "expectDiagnosisOnly": true,
+  "notes": "Simulates bad model output that ignores context.placeSlug. Scorer classifies ignored_grounding + reanchor_context against the stub.",
+  "input": {
+    "message": "Remind me when I get to my place to stretch"
+  },
+  "context": {
+    "placeSlug": "home"
+  },
+  "llmStub": {
+    "intent": {
+      "type": "create_reminder",
+      "payload": {
+        "kind": "location_event",
+        "title": "Stretch",
+        "body": null,
+        "enabled": true,
+        "trigger": {
+          "type": "location_arrival",
+          "placeSlug": "homee"
+        }
+      }
+    }
+  },
+  "expect": {
+    "outcome": "intent",
+    "intentType": "create_reminder",
+    "triggerType": "location_arrival",
+    "placeSlug": "home"
+  },
+  "diagnosis": {
+    "expectedFailureClassification": "ignored_grounding",
+    "expectedRemediation": "reanchor_context",
+    "canonicalPlaceSlug": "home"
+  },
+  "rubricCriteria": [
+    "correctness.diagnosis_classification",
+    "correctness.diagnosis_remediation",
+    "correctness.place_slug"
+  ],
+  "gating": true
+}

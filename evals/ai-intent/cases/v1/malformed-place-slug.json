@@ -1,0 +1,52 @@
+{
+  "id": "malformed-place-slug",
+  "failureClass": "malformed_tool_params",
+  "layer": "integration",
+  "mode": "score_stub_diagnosis",
+  "expectDiagnosisOnly": true,
+  "notes": "Empty placeSlug is accepted by reminderTriggerSchema (z.string) but must fail-closed at diagnosis/execute probe as malformed.",
+  "input": {
+    "message": "Remind me when I arrive somewhere important at 4pm"
+  },
+  "context": {
+    "placeSlug": "home"
+  },
+  "llmStub": {
+    "intent": {
+      "type": "create_reminder",
+      "payload": {
+        "kind": "location_event",
+        "title": "Reminder",
+        "body": null,
+        "enabled": true,
+        "trigger": {
+          "type": "location_arrival",
+          "placeSlug": ""
+        }
+      }
+    }
+  },
+  "expect": {
+    "outcome": "intent",
+    "intentType": "create_reminder",
+    "triggerType": "location_arrival",
+    "placeSlug": "home",
+    "execute": {
+      "ok": false,
+      "reason": "missing_place_alias"
+    }
+  },
+  "diagnosis": {
+    "expectedFailureClassification": "malformed_tool_params",
+    "expectedRemediation": "schema_reject",
+    "canonicalPlaceSlug": "home"
+  },
+  "rubricCriteria": [
+    "correctness.diagnosis_classification",
+    "correctness.diagnosis_remediation",
+    "correctness.place_slug",
+    "correctness.execute_probe",
+    "correctness.fail_closed"
+  ],
+  "gating": true
+}

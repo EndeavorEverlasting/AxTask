@@ -1,0 +1,31 @@
+{
+  "id": "regression-invented-offset",
+  "failureClass": "invented_offset",
+  "layer": "deterministic",
+  "mode": "interpret",
+  "tags": ["regression"],
+  "notes": "Regression oracle twin of invented-offset-absent; gating must stay true so relaxing the no-invented-offset rule fails CI.",
+  "input": {
+    "message": "Set a reminder after I get home to stretch"
+  },
+  "context": null,
+  "llmStub": null,
+  "expect": {
+    "outcome": "intent",
+    "intentType": "create_reminder",
+    "provider": "rule_parser",
+    "triggerType": "location_arrival",
+    "placeSlug": "home",
+    "noInventedOffset": true
+  },
+  "diagnosis": null,
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.provider",
+    "correctness.trigger_type",
+    "correctness.place_slug",
+    "correctness.offset_minutes"
+  ],
+  "gating": true
+}

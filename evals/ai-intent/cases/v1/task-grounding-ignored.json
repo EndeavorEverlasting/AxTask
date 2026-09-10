@@ -1,0 +1,46 @@
+{
+  "id": "task-grounding-ignored",
+  "failureClass": "missing_task_id",
+  "layer": "integration",
+  "mode": "score_stub_diagnosis",
+  "expectDiagnosisOnly": true,
+  "notes": "Simulates bad model output that ignores context.taskId. Scorer classifies ignored_grounding + reanchor_context against the stub; interpret is not required to rewrite the hallucinated id.",
+  "input": {
+    "message": "Remind me about this task tomorrow at 3pm"
+  },
+  "context": {
+    "taskId": "task_eval_001"
+  },
+  "llmStub": {
+    "intent": {
+      "type": "create_reminder",
+      "payload": {
+        "kind": "time",
+        "taskId": "task_hallucinated_999",
+        "title": "Follow up on task",
+        "body": null,
+        "enabled": true,
+        "trigger": {
+          "type": "datetime",
+          "atIso": "2030-01-15T15:00:00.000Z"
+        }
+      }
+    }
+  },
+  "expect": {
+    "outcome": "intent",
+    "intentType": "create_reminder",
+    "taskId": "task_eval_001"
+  },
+  "diagnosis": {
+    "expectedFailureClassification": "ignored_grounding",
+    "expectedRemediation": "reanchor_context",
+    "canonicalTaskId": "task_eval_001"
+  },
+  "rubricCriteria": [
+    "correctness.diagnosis_classification",
+    "correctness.diagnosis_remediation",
+    "correctness.task_id"
+  ],
+  "gating": true
+}

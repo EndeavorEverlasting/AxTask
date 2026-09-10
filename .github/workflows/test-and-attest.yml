@@ -66,6 +66,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Offline AI intent eval gate
+        run: npm run test:ai-eval
+
       - name: Release contract guardrail
         run: npm run release:check
 

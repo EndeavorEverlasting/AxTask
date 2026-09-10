@@ -1,0 +1,38 @@
+{
+  "id": "place-grounding-absent",
+  "failureClass": "missing_place_alias",
+  "layer": "integration",
+  "mode": "interpret",
+  "input": {
+    "message": "Remind me when I arrive at my usual spot tomorrow at noon"
+  },
+  "context": null,
+  "llmStub": {
+    "intent": {
+      "type": "clarification",
+      "payload": {
+        "question": "Which place should I use for this reminder (for example: home or work)?",
+        "reason": "No placeSlug was provided in context for a location reminder.",
+        "missingFields": ["placeSlug"]
+      }
+    }
+  },
+  "expect": {
+    "outcome": "intent",
+    "intentType": "clarification",
+    "missingFieldsContains": ["placeSlug"]
+  },
+  "diagnosis": {
+    "expectedFailureClassification": "missing_place_alias",
+    "expectedRemediation": "grounding_clarification"
+  },
+  "rubricCriteria": [
+    "correctness.outcome",
+    "correctness.intent_type",
+    "correctness.missing_fields",
+    "correctness.diagnosis_classification",
+    "correctness.diagnosis_remediation",
+    "style.clarification_question"
+  ],
+  "gating": true
+}

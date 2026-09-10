@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "packId": "axtask.ai-intent.v1",
+  "generatedAt": "2026-09-10T14:44:47.085Z",
+  "note": "written by scripts/ai-eval/run-ai-intent-eval.mjs --write-baseline",
+  "threshold": {
+    "minGatingPassRate": 1,
+    "maxGatingFailures": 0
+  },
+  "gatingResults": {
+    "ambiguous-recurrence": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "invented-offset-absent": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "location-offset-explicit": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "location-arrival-home": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "daily-location-needs-offset": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "create-task-simple": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "recurrence-missing-time": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "config-missing-key": {
+      "pass": true,
+      "outcome": "config_error",
+      "criterionFailures": []
+    },
+    "schema-reject-stub": {
+      "pass": true,
+      "outcome": "provider_error",
+      "criterionFailures": []
+    },
+    "conflicting-home-work": {
+      "pass": true,
+      "outcome": "config_error",
+      "criterionFailures": []
+    },
+    "task-grounding-absent": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "task-grounding-ignored": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "place-grounding-absent": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "place-grounding-ignored": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "malformed-place-slug": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    },
+    "regression-invented-offset": {
+      "pass": true,
+      "outcome": "intent",
+      "criterionFailures": []
+    }
+  },
+  "summary": {
+    "totalCases": 16,
+    "ranCases": 16,
+    "skippedCases": 0,
+    "gatingCases": 16,
+    "gatingPassed": 16,
+    "gatingFailures": 0,
+    "gatingPassRate": 1,
+    "thresholdMet": true
+  }
+}
