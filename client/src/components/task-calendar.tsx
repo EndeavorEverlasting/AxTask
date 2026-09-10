@@ -373,6 +373,7 @@ export function TaskCalendar() {
   const showHolidays = calendarPrefs?.showHolidays ?? true;
   const effectiveCountry =
     calendarPrefs?.holidayCountryCode ?? inferHolidayCountryFromNavigator();
+
   const patchCalendarPrefs = useMutation({
     mutationFn: async (body: { showHolidays?: boolean; holidayCountryCode?: string | null }) => {
       const res = await apiRequest("PATCH", "/api/calendar/preferences", body);
