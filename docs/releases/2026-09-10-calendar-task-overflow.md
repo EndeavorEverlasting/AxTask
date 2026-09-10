@@ -10,8 +10,10 @@ Month and week calendar cells previously rendered only the first three tasks for
 
 ## Change
 
-- `client/src/components/task-calendar.tsx`: retain the compact day-cell height while rendering every task inside a bounded vertical scroll region; overflowing regions are keyboard-focusable and expose a task-count/date label.
-- `client/src/components/task-calendar-overflow.test.tsx`: render five tasks and prove the fifth remains present and clickable without triggering the day-cell create action.
+- `client/src/components/task-calendar.tsx`: retain the compact day-cell height while rendering every task inside a bounded vertical scroll region.
+- Move drag activation to a dedicated task handle so touch swipes over the task body remain available for vertical scrolling while drag-and-drop remains available from the handle.
+- Limit the named/focusable overflow region to dates with more than three tasks and derive its announced date from local calendar fields rather than UTC conversion.
+- `client/src/components/task-calendar-overflow.test.tsx`: render five tasks and prove the fifth remains present and clickable, verify drag activation is isolated from the scrollable task body, and ensure non-overflowing cells do not add region landmarks.
 
 ## Scope
 
@@ -24,7 +26,7 @@ Month and week calendar cells previously rendered only the first three tasks for
 - `npm run check`
 - `npm test` — includes `client/src/components/task-calendar-overflow.test.tsx`.
 - `npm run release:check`
-- Standard PR CI, including production build and repository browser regression gates when the release contract permits the workflow to proceed.
+- Standard PR CI, including production build and repository browser regression gates.
 
 ## Rollback
 
