@@ -71,6 +71,22 @@ describe("activity ledger contract", () => {
     expect(normalized.temporalConfidence).toBe("observed");
   });
 
+  it("rejects impossible dates and timezone-ambiguous datetimes", () => {
+    const base = {
+      schemaVersion: ACTIVITY_LEDGER_CONTRACT_VERSION,
+      entryId: "row-43",
+      sourceSystem: "drive",
+      sourceLedger: "client-ledger",
+      title: "Impossible timestamp",
+      status: "observed" as const,
+      updatedAt: "2026-02-28",
+    };
+
+    expect(() => normalizeLedgerActivity({ ...base, createdAt: "2026-02-31" })).toThrow();
+    expect(() => normalizeLedgerActivity({ ...base, createdAt: "2026-02-28T09:00:00" })).toThrow();
+    expect(() => normalizeLedgerActivity({ ...base, createdAt: "2026-02-28T09:00:00Z" })).not.toThrow();
+  });
+
   it("labels the current task projection as declared task-date evidence", () => {
     const record = projectTaskToActivity(task({
       id: "task-1",
@@ -136,7 +152,7 @@ describe("activity report", () => {
     ]);
   });
 
-  it("redacts private detail from showcase output without hiding aggregate work", () => {
+  it("redacts private titles, notes, and classification labels from showcase output", () => {
     const report = buildTaskActivityReport(
       tasks,
       { from: "2026-01-01", to: "2026-05-31" },
@@ -148,14 +164,23 @@ describe("activity report", () => {
     expect(report.totals.completed).toBe(2);
     expect(report.highlights.map((item) => item.title)).toEqual(["Published client rollout"]);
     expect(report.privateHighlightsWithheld).toBe(1);
+    expect(report.byClassification).toEqual([
+      { classification: "Private work", total: 2, completed: 1 },
+      { classification: "Client", total: 1, completed: 1 },
+    ]);
     expect(html).toContain("Published client rollout");
+    expect(html).toContain("Private work");
     expect(html).not.toContain("Confidential director work");
+    expect(html).not.toContain("Infrastructure");
     expect(html).not.toContain("private notes must never enter the showcase report");
   });
 
-  it("rejects reversed ranges instead of silently changing the user's question", () => {
+  it("rejects reversed and impossible ranges instead of silently changing the user's question", () => {
     expect(() => buildTaskActivityReport(tasks, { from: "2026-05-31", to: "2026-01-01" })).toThrow(
       "from must be on or before to",
+    );
+    expect(() => buildTaskActivityReport(tasks, { from: "2026-02-31", to: "2026-05-31" })).toThrow(
+      "from must be a valid YYYY-MM-DD calendar date",
     );
   });
 });

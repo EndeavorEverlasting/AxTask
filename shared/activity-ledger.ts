@@ -7,12 +7,29 @@ import type { Task } from "./schema";
  */
 export const ACTIVITY_LEDGER_CONTRACT_VERSION = "ledger/v1" as const;
 
+export function isIsoCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function isOffsetIsoDateTime(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    return false;
+  }
+  if (!isIsoCalendarDate(value.slice(0, 10))) return false;
+  return !Number.isNaN(Date.parse(value));
+}
+
 const temporalValueSchema = z
   .string()
   .min(10)
   .max(64)
-  .refine((value) => /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value), {
-    message: "Use an ISO date or ISO datetime",
+  .refine((value) => isIsoCalendarDate(value) || isOffsetIsoDateTime(value), {
+    message: "Use an ISO date or ISO datetime with Z/UTC offset",
   });
 
 export const ledgerEvidenceSchema = z
@@ -85,7 +102,7 @@ function normalizeIdentityPart(value: string): string {
 }
 
 /**
- * Stable, lossless identity tuple. Persistence adapters may hash this string, but must
+ * Stable canonical identity tuple. Persistence adapters may hash this string, but must
  * not include mutable prose such as title/description/status in identity generation.
  */
 export function buildActivityKey(
@@ -102,11 +119,7 @@ export function buildActivityKey(
 
 function datePart(value: string): string {
   const candidate = value.slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) {
-    throw new Error(`Invalid temporal value: ${value}`);
-  }
-  const parsed = Date.parse(`${candidate}T00:00:00Z`);
-  if (Number.isNaN(parsed)) {
+  if (!isIsoCalendarDate(candidate)) {
     throw new Error(`Invalid temporal value: ${value}`);
   }
   return candidate;

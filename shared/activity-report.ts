@@ -1,5 +1,5 @@
 import type { Task } from "./schema";
-import { projectTaskToActivity, type ActivityRecord } from "./activity-ledger";
+import { isIsoCalendarDate, projectTaskToActivity, type ActivityRecord } from "./activity-ledger";
 
 export type ActivityReportMode = "private" | "showcase";
 
@@ -40,11 +40,9 @@ export type ActivityReport = {
 };
 
 function assertIsoDate(value: string, field: string): void {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`${field} must be YYYY-MM-DD`);
+  if (!isIsoCalendarDate(value)) {
+    throw new Error(`${field} must be a valid YYYY-MM-DD calendar date`);
   }
-  const parsed = Date.parse(`${value}T00:00:00Z`);
-  if (Number.isNaN(parsed)) throw new Error(`${field} is not a valid date`);
 }
 
 function utcDay(value: string): number {
@@ -59,7 +57,8 @@ function monthLabel(month: string): string {
   );
 }
 
-function normalizedClassification(record: ActivityRecord): string {
+function normalizedClassification(record: ActivityRecord, mode: ActivityReportMode): string {
+  if (mode === "showcase" && record.visibility !== "public") return "Private work";
   return record.classification?.trim() || "Unclassified";
 }
 
@@ -102,7 +101,7 @@ export function buildActivityReport(
     if (record.status === "completed") monthCount.completed += 1;
     monthCounts.set(month, monthCount);
 
-    const classification = normalizedClassification(record);
+    const classification = normalizedClassification(record, mode);
     const classificationCount = classificationCounts.get(classification) ?? { total: 0, completed: 0 };
     classificationCount.total += 1;
     if (record.status === "completed") classificationCount.completed += 1;
@@ -166,8 +165,8 @@ export function buildActivityReport(
     methodology: {
       aggregateScope: "all matching activities",
       detailPolicy: mode === "showcase"
-        ? "Detailed task titles are included only when the source activity is public; notes and evidence are never exported."
-        : "Detailed completed task titles are visible to the authenticated user; notes and evidence are not included in this report model.",
+        ? "Detailed task titles and classification labels are included only when the source activity is public; private classifications collapse into Private work, and notes/evidence are never exported."
+        : "Detailed completed task titles and classifications are visible to the authenticated user; notes and evidence are not included in this report model.",
       temporalBasis: "Each activity carries an explicit temporal basis/confidence. Current AxTask tasks project from their declared task date until immutable completion events are available.",
     },
   };

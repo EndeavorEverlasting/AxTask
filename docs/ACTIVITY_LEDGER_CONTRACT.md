@@ -51,6 +51,8 @@ Optional temporal fields strengthen retrospective truth:
 - `dueAt`
 - `completedAt`
 
+Temporal values must be a real ISO calendar date (`YYYY-MM-DD`) or an ISO datetime with an explicit `Z`/UTC offset. Timezone-less datetimes are rejected so two consumers cannot silently interpret the same ledger row differently.
+
 Optional domain/provenance fields include `description`, `project`, `activityType`, `classification`, `sourceUrl`, `visibility`, and bounded evidence references.
 
 Example:
@@ -95,7 +97,7 @@ When source ledgers begin supplying `completedAt` or `occurredAt`, the same repo
 
 ## Retrospective report contract
 
-`buildActivityReport()` accepts normalized activities plus an inclusive `YYYY-MM-DD` range. It deterministically returns:
+`buildActivityReport()` accepts normalized activities plus an inclusive valid `YYYY-MM-DD` calendar range. It deterministically returns:
 
 - total activities;
 - completed, in-progress, planned, observed, and cancelled counts;
@@ -108,18 +110,18 @@ When source ledgers begin supplying `completedAt` or `occurredAt`, the same repo
 
 Input order does not control report ordering. Month groups, classifications, and highlights use explicit deterministic sort rules.
 
-A reversed or malformed date range fails closed. The report engine does not silently reinterpret the user's question.
+A reversed, malformed, or impossible date range fails closed. The report engine does not silently reinterpret the user's question.
 
 ## Showcase privacy contract
 
 Two report modes exist:
 
-- `private`: authenticated on-screen analysis may show completed task titles.
-- `showcase`: aggregate metrics include all matching activities, but detailed completed titles are emitted only from activities marked `public`.
+- `private`: authenticated on-screen analysis may show completed task titles and classification labels.
+- `showcase`: aggregate totals/cadence include all matching activities, but detailed completed titles are emitted only from activities marked `public`; classification labels from private activities collapse into the neutral `Private work` bucket.
 
 Showcase HTML never exports task notes or evidence payloads. Private completed titles withheld from the showcase are counted so the report can explain why its detail list may be shorter than the aggregate completion count.
 
-This makes a brief suitable for a PM/director/client conversation without treating every private ledger detail as presentation-safe.
+This makes a brief suitable for a PM/director/client conversation without treating every private ledger detail or custom classification name as presentation-safe.
 
 ## Prompt Kit producer guidance
 
@@ -129,7 +131,7 @@ Producer rules:
 
 1. Generate and preserve a stable `entryId` for every durable row.
 2. Preserve source-ledger identity across edits and exports.
-3. Emit ISO temporal fields rather than ambiguous phrases such as `this morning`.
+3. Emit real ISO dates or offset-bearing ISO datetimes rather than ambiguous phrases such as `this morning`.
 4. Prefer observed `completedAt` / `occurredAt` evidence when the source can prove it.
 5. Keep mutable prose out of deterministic identity.
 6. Default `visibility` to `private`; public showcase detail must be intentional.
