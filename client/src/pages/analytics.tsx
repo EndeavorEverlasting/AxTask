@@ -4,6 +4,7 @@ import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { TaskGantt } from "@/components/task-gantt";
+import { ActivityBrief } from "@/components/activity-brief";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
 import { Link } from "wouter";
 import { Lock, Sparkles } from "lucide-react";
@@ -147,6 +148,10 @@ export default function Analytics() {
         />
       </div>
 
+      <div className="relative">
+        <ActivityBrief tasks={allTasks} />
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <Card className="glass-panel-glossy">
           <CardHeader className="pb-2">
@@ -281,4 +286,3 @@ export default function Analytics() {
     </div>
   );
 }
-
