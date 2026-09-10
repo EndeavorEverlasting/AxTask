@@ -43,6 +43,8 @@
     {"id":"stateful-architecture-skill","type":"skill","path":".ai/skills/stateful-architecture-migration.md"},
     {"id":"log-retention-skill","type":"skill","path":".ai/skills/log-retention-capacity-defense.md"},
     {"id":"agent-workspace-skill","type":"skill","path":".ai/skills/agent-workspace-lifecycle.md"},
+    {"id":"ai-intent-eval-skill","type":"skill","path":".ai/skills/ai-intent-eval.md"},
+    {"id":"ai-intent-eval-workflow","type":"workflow","path":".ai/workflows/ai-intent-eval.md"},
     {"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},
     {"id":"local-cert-harness-validator","type":"validator","path":"scripts/ai-harness/validate-local-cert-harness.mjs"},
     {"id":"r7-session-safe-runner","type":"operator-runner","path":"scripts/ai-harness/run-r7-local-cert.ps1"},
@@ -93,7 +95,8 @@
     "axtask.skill.operator-preflight-bootstrap.v1",
     "axtask.skill.stateful-architecture-migration.v1",
     "axtask.skill.log-retention-capacity-defense.v1",
-    "axtask.skill.agent-workspace-lifecycle.v1"
+    "axtask.skill.agent-workspace-lifecycle.v1",
+    "axtask.skill.ai-intent-eval.v1"
   ],
   "readOnlyIntelligence": {
     "id": "axtask.read-only-repo-inspector.v1",

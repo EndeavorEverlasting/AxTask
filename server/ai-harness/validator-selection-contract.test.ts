@@ -62,6 +62,7 @@ describe("AI harness validator selection", () => {
       "agent-workspaces",
       "harness-tests",
       "release",
+      "ai-intent-eval",
       "tests",
     ]);
     expect(plan.executionPolicy).toContain("not executed");

@@ -33,9 +33,9 @@
         {"loadWhen":"bundle/API performance budget","path":"docs/PERF_PERFORMANCE_BUDGETS.md"},
         {"loadWhen":"module extraction","path":"docs/MODULE_LAYOUT.md"}
       ],
-      "workflowIds": [],
-      "validatorIds": ["typecheck","tests","build"],
-      "artifactIds": ["operator-report","final-handoff"]
+      "workflowIds": ["axtask.ai-intent-eval.v1"],
+      "validatorIds": ["typecheck","tests","build","ai-intent-eval"],
+      "artifactIds": ["ai-intent-eval","ai-intent-eval-baseline","operator-report","final-handoff"]
     },
     {
       "id": "security-identity",
@@ -114,7 +114,8 @@
     {"workflowId":"axtask.predeploy-cost-readiness.v1","domainId":"deployment-runtime","skillPaths":[],"schemaPaths":[".ai/schemas/predeploy-readiness-result.schema.json"],"contractPaths":[],"validatorIds":["predeploy-readiness","authority","harness"],"artifactIds":["predeploy-readiness","operator-report","final-handoff"]},
     {"workflowId":"axtask.stateful-architecture-migration.v1","domainId":"data-state","skillPaths":[".ai/skills/stateful-architecture-migration.md"],"schemaPaths":[".ai/stateful-surface-ledger.schema.json"],"contractPaths":[],"validatorIds":["stateful-architecture","authority","harness"],"artifactIds":["stateful-surface-ledger","stateful-architecture-report","operator-report","final-handoff"],"conditionalLoads":[{"when":"Changing a specific ledger surface or migration decision.","paths":[".ai/stateful-surface-ledger.json","docs/architecture/STATEFUL_SURFACE_LEDGER.md"]}]},
     {"workflowId":"axtask.log-retention-capacity-defense.v1","domainId":"data-state","skillPaths":[".ai/skills/log-retention-capacity-defense.md"],"schemaPaths":[],"contractPaths":[".ai/log-retention-contract.json"],"validatorIds":["log-retention","authority","harness"],"artifactIds":["log-retention-proof","log-retention-report","operator-report","final-handoff"]},
-    {"workflowId":"axtask.agent-workspace-lifecycle.v1","domainId":"repository-harness","skillPaths":[".ai/skills/agent-workspace-lifecycle.md"],"schemaPaths":[],"contractPaths":[".ai/agent-workspace-contract.json"],"validatorIds":["agent-workspaces","authority","harness"],"artifactIds":["agent-workspace-contract","agent-workspace-report","operator-report","final-handoff"],"conditionalLoads":[{"when":"Changing the workspace contract structure rather than executing lifecycle operations.","paths":[".ai/agent-workspace-contract.schema.json"]}]}
+    {"workflowId":"axtask.agent-workspace-lifecycle.v1","domainId":"repository-harness","skillPaths":[".ai/skills/agent-workspace-lifecycle.md"],"schemaPaths":[],"contractPaths":[".ai/agent-workspace-contract.json"],"validatorIds":["agent-workspaces","authority","harness"],"artifactIds":["agent-workspace-contract","agent-workspace-report","operator-report","final-handoff"],"conditionalLoads":[{"when":"Changing the workspace contract structure rather than executing lifecycle operations.","paths":[".ai/agent-workspace-contract.schema.json"]}]},
+    {"workflowId":"axtask.ai-intent-eval.v1","domainId":"application-experience","skillPaths":[".ai/skills/ai-intent-eval.md"],"schemaPaths":[".ai/schemas/ai-intent-eval-result.schema.json"],"contractPaths":[],"validatorIds":["ai-intent-eval","authority","harness"],"artifactIds":["ai-intent-eval","ai-intent-eval-baseline","operator-report","final-handoff"]}
   ],
   "sharedWorkflowContracts": {"failurePolicy":".ai/contracts/workflow-failure-policy.md","handoff":".ai/contracts/workflow-handoff.md"},
   "onDemandOnlyPrefixes": [".ai/workflows/",".ai/skills/",".ai/reports/",".ai/handoff/",".ai/schemas/","docs/releases/","docs/closed/","client/","server/","shared/","scripts/","migrations/"],

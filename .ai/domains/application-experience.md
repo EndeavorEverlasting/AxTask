@@ -10,6 +10,7 @@ authorityRef: axtask.agent-authority.v1
 - Canonical entrypoints: `client/src/main.tsx`, `server/index.ts`, `shared/schema.ts`.
 - Preserve existing product behavior while factoring structure; physical module splits follow `docs/MODULE_LAYOUT.md`.
 - Cross-domain handoff: auth/privacy/user-content security → `security-identity`; schema/persistence → `data-state`; startup/runtime → `deployment-runtime`.
+- Offline AI intent quality gate: workflow `axtask.ai-intent-eval.v1` (`npm run test:ai-eval`).
 
 ## Demand-loaded owners
 
