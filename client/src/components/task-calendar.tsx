@@ -113,7 +113,7 @@ function DraggableTaskPill({ task, onClick }: { task: Task; onClick: () => void 
 }
 
 // ── Droppable calendar cell ────────────────────────────────────
-function CalendarCell({
+export function CalendarCell({
   date,
   isToday,
   isCurrentMonth,
@@ -170,13 +170,15 @@ function CalendarCell({
           {holidayLines.length > 1 ? ` +${holidayLines.length - 1}` : ""}
         </div>
       )}
-      <div className="space-y-0.5 overflow-hidden max-h-[72px]">
-        {tasks.slice(0, 3).map((task) => (
+      <div
+        className="space-y-0.5 overflow-y-auto overscroll-contain max-h-[72px] pr-0.5"
+        role="region"
+        tabIndex={tasks.length > 3 ? 0 : undefined}
+        aria-label={`${tasks.length} task${tasks.length === 1 ? "" : "s"} on ${dateKey}`}
+      >
+        {tasks.map((task) => (
           <DraggableTaskPill key={task.id} task={task} onClick={() => onClickTask(task)} />
         ))}
-        {tasks.length > 3 && (
-          <div className="text-[10px] text-gray-400 text-center">+{tasks.length - 3} more</div>
-        )}
       </div>
     </div>
   );
@@ -357,7 +359,6 @@ export function TaskCalendar() {
   const showHolidays = calendarPrefs?.showHolidays ?? true;
   const effectiveCountry =
     calendarPrefs?.holidayCountryCode ?? inferHolidayCountryFromNavigator();
-
   const patchCalendarPrefs = useMutation({
     mutationFn: async (body: { showHolidays?: boolean; holidayCountryCode?: string | null }) => {
       const res = await apiRequest("PATCH", "/api/calendar/preferences", body);
