@@ -28,6 +28,7 @@ import {
   Sparkles,
   AlertTriangle,
   CalendarDays,
+  GripVertical,
   LayoutGrid,
   List,
 } from "lucide-react";
@@ -75,7 +76,7 @@ function inferHolidayCountryFromNavigator(): string {
 
 // ── Draggable task pill ────────────────────────────────────────
 function DraggableTaskPill({ task, onClick }: { task: Task; onClick: () => void }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
     id: task.id,
     data: { task },
   });
@@ -91,23 +92,34 @@ function DraggableTaskPill({ task, onClick }: { task: Task; onClick: () => void 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
       onClick={(e) => {
         e.stopPropagation();
         if (!isDragging) onClick();
       }}
-      style={{ touchAction: "none" }}
       className={cn(
-        "text-xs px-1.5 py-0.5 rounded border cursor-grab active:cursor-grabbing truncate mb-0.5 transition-opacity",
+        "flex items-center text-xs px-1 py-0.5 rounded border cursor-pointer mb-0.5 transition-opacity",
         priorityColor[task.priority] || priorityColor.Low,
         isDragging && "opacity-40",
         task.status === "completed" && "line-through opacity-60"
       )}
       title={task.time ? `${task.time} — ${task.activity}` : task.activity}
     >
-      {task.time && <span className="font-semibold mr-0.5">{task.time}</span>}
-      {task.activity}
+      <span
+        ref={setActivatorNodeRef}
+        {...listeners}
+        {...attributes}
+        onClick={(e) => e.stopPropagation()}
+        style={{ touchAction: "none" }}
+        className="mr-0.5 inline-flex shrink-0 cursor-grab active:cursor-grabbing"
+        aria-label={`Drag ${task.activity}`}
+        title={`Drag ${task.activity}`}
+      >
+        <GripVertical className="h-3 w-3" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        {task.time && <span className="font-semibold mr-0.5">{task.time}</span>}
+        {task.activity}
+      </span>
     </div>
   );
 }
@@ -133,6 +145,8 @@ export function CalendarCell({
   onClickTask: (task: Task) => void;
 }) {
   const dateKey = date.toISOString().split("T")[0];
+  const accessibleDateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const hasTaskOverflow = tasks.length > 3;
   const { setNodeRef, isOver } = useDroppable({ id: `date-${dateKey}` });
 
   return (
@@ -172,9 +186,9 @@ export function CalendarCell({
       )}
       <div
         className="space-y-0.5 overflow-y-auto overscroll-contain max-h-[72px] pr-0.5"
-        role="region"
-        tabIndex={tasks.length > 3 ? 0 : undefined}
-        aria-label={`${tasks.length} task${tasks.length === 1 ? "" : "s"} on ${dateKey}`}
+        role={hasTaskOverflow ? "region" : undefined}
+        tabIndex={hasTaskOverflow ? 0 : undefined}
+        aria-label={hasTaskOverflow ? `${tasks.length} tasks on ${accessibleDateKey}` : undefined}
       >
         {tasks.map((task) => (
           <DraggableTaskPill key={task.id} task={task} onClick={() => onClickTask(task)} />
