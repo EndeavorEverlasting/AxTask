@@ -24,7 +24,7 @@ This plan is reference-architecture research plus a bounded successor map. It do
 
 ### OBSERVED_IMPLEMENTED
 
-Current `main` already contains much of the semantic foundation:
+Current `main` already contains much of the semantic and persistence foundation:
 
 | Capability | Current owner/evidence | Observation |
 | --- | --- | --- |
@@ -33,8 +33,9 @@ Current `main` already contains much of the semantic foundation:
 | Deterministic execution policy | `shared/intent/execution-policy.ts` | Produces `autoRun`, `review`, or `block`; creation/planning/review commands require review and low-confidence parsed commands do not silently execute. |
 | Dispatcher mapping | `shared/intent/map-to-dispatcher.ts`, `server/engines/dispatcher.ts` | Maps parsed commands into task, calendar, reminder, search, planning, and review engine buckets. |
 | Calendar language | `server/engines/calendar-engine.ts` | Resolves reschedule, date query, and create-on-date phrases into structured action envelopes. |
-| Canonical task persistence | `server/storage.ts`, `/api/tasks` routes | Task CRUD and business rules already exist. |
-| Server-side AI task creation | `server/ai/tools/create-task.ts` | Uses quota enforcement plus `storage.createTask`; this is already a server-side domain mutation. |
+| Task storage primitives | `server/storage.ts`, task schema | Canonical database CRUD exists. |
+| Full normal task-create workflow | `POST /api/tasks` in `server/routes.ts` | Validates input, enforces quota, rejects duplicate fingerprints, creates the task, calculates priority, classifies, learns patterns, awards capped creation rewards, and returns task plus derived results. |
+| Server-side AI task creation | `server/ai/tools/create-task.ts` | Uses quota enforcement plus `storage.createTask`, but bypasses several behaviors in the normal REST task-create workflow and forces `recurrence: "none"`. |
 | Server-side AI reminder creation | `server/ai/tools/create-reminder.ts` | Existing provider-facing tool path persists reminders server-side. |
 | Browser voice execution | `client/src/hooks/use-voice.tsx` | Consumes dispatcher actions and performs some mutations through normal task APIs. |
 
@@ -47,16 +48,20 @@ The current implementation has multiple execution and normalization shapes that 
 3. `create_recurring_task` parsing does not currently prove a canonical server mutation path. The dispatcher produces a task prefill action, while `server/ai/tools/create-task.ts` explicitly persists `recurrence: "none"`. Recurrence parsing/model representation is therefore solved more strongly than recurring-task execution.
 4. Date handling is not yet a single proven contract. `calendar-engine.ts` resolves relative/local days with `Date` operations and then serializes through UTC `toISOString()`, which can shift a date-only value near midnight in non-UTC time zones. Phase 1 must choose and test an explicit timezone/date-only normalization rule before treating schedule dates as canonical.
 5. The shared execution policy covers parsed command kinds, but calendar rescheduling is classified through a separate calendar path. The current voice path can apply a resolved `reschedule_task`; Phase 1 must define an explicit review/authorization rule for reschedule mutations instead of assuming create-task review policy covers them.
+6. `storage.createTask` is not the complete task-create business-rule owner. The normal `/api/tasks` route additionally owns validation, quota, duplicate-fingerprint handling, priority calculation, classification/associations, pattern learning, and creation rewards. A new assistant executor that calls storage directly would preserve the current behavioral split rather than close it.
+7. The advertised raw utterances are not yet a proven input contract. On the inspected floor, parser/calendar detector precedence can classify or miss them differently than the desired user experience. Phase 1 must start its acceptance tests from the raw sentences, not only from already-normalized intents.
 
-That split is the local seam worth closing. The missing capability is not “natural-language scheduling”; it is a transport-neutral, server-side domain action executor plus one explicit mutation/date policy that every channel can call without duplicating business logic.
+That split is the local seam worth closing. The missing capability is not “natural-language scheduling”; it is a provider-neutral, server-side domain action contract backed by the same task business rules as normal REST creation, plus explicit mutation/date semantics and raw-utterance acceptance proof.
 
 ### ABSENT IN INSPECTED CURRENT MAIN
 
 - A machine-to-machine assistant authentication/capability mechanism distinct from the browser session cookie.
 - One provider-neutral external action contract covering the richer shared command set.
 - A connector/MCP/plugin adapter registered as a thin client of AxTask domain actions.
+- A shared task-domain service that both REST creation and assistant creation call for the full normal task-create business-rule pipeline.
 - A canonical server mutation path for recurring-task creation that reuses the shared recurrence semantics.
 - A single explicit date-only/timezone contract shared by calendar resolution and external action execution.
+- End-to-end acceptance fixtures for the four target dictated utterances.
 - A merged ledger-to-AxTask interoperability contract from PR #156; that PR remains a separate activity-history/reporting lane.
 
 ### AUTHORITY BOUNDARY
@@ -90,9 +95,9 @@ No direct source copying is planned. AGPL projects are mechanism references only
 
 Mechanism:
 
-`assistant tool -> typed domain intent -> permission/exposure check -> canonical domain entity/service -> structured response`
+`assistant tool -> typed domain intent -> permission/exposure check -> canonical domain service -> structured response`
 
-**Disposition: ADOPT.** AxTask should expose domain actions to an assistant rather than teaching an assistant adapter to mutate tasks independently.
+**Disposition: ADOPT.** AxTask should expose domain actions to an assistant rather than teaching an assistant adapter to mutate tasks independently. The AxTask adaptation is to extract the real task-create domain workflow out of the HTTP route before making it an assistant tool.
 
 ### Vikunja — rich input parser, ordinary task service
 
@@ -104,7 +109,7 @@ Mechanism:
 
 `free text -> independent parsers -> normalized task fields -> canonical task service`
 
-**Disposition: ADOPT/ADAPT.** AxTask already has much of this parser layer; reuse the principle and existing AxTask parser rather than adding another natural-language grammar. Phase 1 still has to close AxTask’s own recurring-mutation and date/timezone execution gaps. Do not copy AGPL code.
+**Disposition: ADOPT/ADAPT.** AxTask already has much of this parser layer; reuse the principle and existing AxTask parser rather than adding another natural-language grammar. Phase 1 still has to close AxTask’s own recurring-mutation, raw-utterance, and date/timezone execution gaps. Do not copy AGPL code.
 
 ### Taskwarrior — machine-readable extension seam
 
@@ -148,9 +153,9 @@ Mechanism:
 
 | Pattern | Disposition | AxTask consequence |
 | --- | --- | --- |
-| Domain-owned mutation with thin assistant tool adapter | **ADOPT** | Build one server action owner; adapters delegate to it. |
+| Domain-owned mutation with thin assistant tool adapter | **ADOPT** | Extract the full normal task-create workflow into one domain service; adapters delegate to it. |
 | Capability/auth filtering before tools are exposed | **ADOPT** | External adapters publish only actions allowed by their credential/capability. |
-| Natural language -> typed command -> normal task service | **ADOPT** | Keep `shared/intent/*` as parsing/policy authority; do not create a second parser. |
+| Natural language -> typed command -> normal task service | **ADOPT** | Keep `shared/intent/*` as parsing/policy authority, repair target utterances there, and do not create a second parser. |
 | Structured clarification/failure instead of model guessing | **ADOPT** | Ambiguous/review-required commands return typed clarification/review state. |
 | Transport-neutral machine-readable action/result envelope | **ADAPT** | Stable contract first; REST/plugin/MCP are replaceable adapters. |
 | MCP wrapper | **ADAPT** | Useful adapter after the action contract; never canonical task authority. |
@@ -167,11 +172,12 @@ Mechanism:
 
 ### ALREADY_SOLVED_INTERNALLY
 
-- natural-language task/reminder/recurrence parsing;
+- natural-language task/reminder/recurrence parser foundation;
 - typed command kinds;
 - confidence/review/block policy for the shared parsed-command path;
-- canonical task storage and HTTP CRUD;
-- server-side AI creation of non-recurring tasks/reminders;
+- task storage primitives;
+- the full normal REST task-create business workflow, though currently embedded in `server/routes.ts`;
+- server-side AI creation of non-recurring tasks/reminders, though task creation does not reuse the full normal REST workflow;
 - calendar query/reschedule intent resolution;
 - voice UX and client-side execution of resolved actions;
 - recurrence fields/model semantics already represented in product contracts.
@@ -186,12 +192,14 @@ Mechanism:
 
 ### PROJECT_SPECIFIC_GAP
 
-1. **Assistant Action Contract v1:** one canonical server-side action executor for supported AxTask task/schedule mutations.
-2. **Recurring-task execution:** carry already-parsed recurrence into canonical server persistence rather than stopping at prefill or forcing `recurrence: "none"`.
-3. **Date-only/timezone semantics:** define one deterministic schedule-date rule that cannot shift across UTC/local conversion near midnight.
-4. **Mutation review policy:** explicitly cover reschedule and every other action-contract mutation; no transport may bypass review merely because it arrived through the calendar/voice path.
-5. **External assistant auth/capability scope:** a dedicated later security sprint; current `requireAuth` is browser-session oriented.
-6. **Authority contract:** preserve the rule that ledgers are evidence/history, AxTask is operational schedule/task state, adapters are transports, and calendars are projections unless explicitly promoted by a later product decision.
+1. **Shared task-domain service:** extract the full `/api/tasks` task-create workflow out of the HTTP route so REST and assistant creation share validation, quotas, duplicate prevention, priority/classification enrichment, pattern learning, and rewards.
+2. **Assistant Action Contract v1:** one canonical server-side executor for supported AxTask task/schedule actions over that domain service and existing reminder/update services.
+3. **Raw-utterance semantics:** make the four target dictated sentences deterministic end to end instead of testing only normalized commands.
+4. **Recurring-task execution:** carry already-parsed recurrence into canonical server persistence rather than stopping at prefill or forcing `recurrence: "none"`.
+5. **Date-only/timezone semantics:** define one deterministic schedule-date rule that cannot shift across UTC/local conversion near midnight.
+6. **Mutation review policy:** explicitly cover reschedule and every other action-contract mutation; no transport may bypass review merely because it arrived through the calendar/voice path.
+7. **External assistant auth/capability scope:** a dedicated later security sprint; current `requireAuth` is browser-session oriented.
+8. **Authority contract:** preserve the rule that ledgers are evidence/history, AxTask is operational schedule/task state, adapters are transports, and calendars are projections unless explicitly promoted by a later product decision.
 
 ### EVIDENCE GAP
 
@@ -200,23 +208,50 @@ Mechanism:
 - Calendar projection field mapping/conflict semantics and user acceptance remain untested.
 - The optimal first adapter transport is intentionally not selected before the provider-neutral contract exists.
 - The correct application timezone source for date-only scheduling must be resolved from current user/account/runtime contracts during Phase 1 rather than guessed in this plan.
+- The desired product meaning of “Remind me every Thursday…” must be fixed in an acceptance fixture: recurring task with reminder behavior versus a distinct recurring-reminder action. The phrase itself, not current parser precedence, decides the product question.
 
 ## Prioritized development gap: Assistant Action Contract v1
 
 ### Exact local owner/seam
 
-The canonical owner should be the **server task-domain execution seam backed by existing `server/storage` task/reminder business rules and `shared/intent` contracts**. Resolve the exact physical module path at implementation time from the current module-split state; do not make `server/ai` or a future MCP/plugin directory the domain owner.
+The canonical owner should be a **shared task-domain application service extracted from the current `POST /api/tasks` workflow**, backed by existing storage primitives and shared schemas. `server/routes.ts` should become an adapter to that service; the assistant action executor should be another adapter/client of the same service. Do not make `server/storage`, `server/ai`, or a future MCP/plugin directory the complete business-rule owner.
 
-The immediate structural debt to close is:
+Current task-create behavior that must be preserved while extracting the service includes:
 
+- `insertTaskSchema` validation;
+- task quota enforcement;
+- duplicate fingerprint calculation/check/recording;
+- canonical task creation;
+- priority calculation and derived score/repetition metadata;
+- classification, associations, and shopping detection;
+- task update with derived fields;
+- pattern learning;
+- capped unique-task creation reward;
+- the normal returned task/result data required by current callers.
+
+The immediate structural debt to close is therefore:
+
+- normal REST task creation owns domain logic inside a route registrar;
+- AI task creation bypasses much of that logic and forces non-recurring persistence;
 - `calendar-engine.ts` can resolve `reschedule_task`, but `use-voice.tsx` performs the mutation;
-- `server/ai/tools/create-task.ts` performs a direct server-side mutation through storage but forces non-recurring persistence;
 - `create_recurring_task` resolves to prefill rather than one canonical server mutation;
 - calendar date-only resolution can cross a UTC/local date boundary;
 - reschedule mutation is not covered by the same explicit review policy as the shared creation path;
+- raw target utterances are not all classified as the intended action today;
 - provider AI intent schemas cover a smaller command set than the shared parser.
 
-The action contract should make those channels converge on one server-owned mutation path and one explicit review/date-normalization policy.
+The action contract should make those channels converge on one server-owned domain path and one explicit review/date-normalization policy.
+
+### Raw-utterance acceptance contract
+
+Phase 1 may not claim completion by injecting already-parsed intents. Its tests must start from these exact user-level phrases (plus deterministic fixture date/time/timezone and fixture tasks) and prove the agreed result through parsing, policy, action execution, and receipt:
+
+1. `Schedule dentist Friday at 3.` → a scheduled AxTask task/action with the intended Friday and 3:00 time; it must not become a reminder solely because the text contains `at <number>`.
+2. `Move the Northwell follow-up to Tuesday.` → resolve the intended existing task, produce an explicit reschedule review decision, and mutate only after that policy allows execution.
+3. `Remind me every Thursday to refresh the PM ledger.` → preserve both the reminder intent and recurrence semantics according to one documented product rule; current recurrence-precedence behavior is not automatically accepted as correct.
+4. `What do I have tomorrow?` → query tomorrow directly; the user must not be forced to say `on tomorrow` or `for tomorrow`.
+
+If implementation evidence shows one phrase is inherently ambiguous, the passing behavior is a structured clarification—not silently choosing a different intent.
 
 ### Reference mechanisms to emulate
 
@@ -230,19 +265,22 @@ The action contract should make those channels converge on one server-owned muta
 
 Start with the smallest set that proves the seam:
 
-- create task;
+- extract shared normal task creation service and keep current REST behavior compatible;
+- create task through that shared service;
 - create recurring task with recurrence persisted through canonical task rules;
 - create reminder;
 - reschedule task under an explicit mutation-review rule;
-- read-only schedule/date query when it falls naturally through the same contract.
+- read-only schedule/date query;
+- exercise the four target raw utterances end to end.
 
 The result must return canonical task/reminder IDs when applicable, normalized schedule fields, execution/review state, and structured clarification/failure information.
 
 ### Phase 1 local adaptations
 
-- Reuse `shared/intent` parsing and execution policy rather than inventing a connector grammar.
+- Reuse `shared/intent` parsing and execution policy rather than inventing a connector grammar; change their behavior only where raw-utterance acceptance proves the current contract wrong or incomplete.
+- Extract the current normal task-create business workflow from `POST /api/tasks` into a reusable task-domain service; route the REST endpoint through it before claiming assistant creation parity.
+- Make the assistant action executor call that domain service rather than `storage.createTask` directly.
 - Extend or wrap the policy so **every mutation in the new action contract**, including reschedule, has an explicit `autoRun`/`review`/`block` outcome; default to review where the current contract is silent.
-- Reuse task/reminder storage, quotas, and domain validation.
 - Carry recurrence from the parsed command into canonical task creation instead of mapping recurring creation to a UI-only prefill or silently coercing it to `none`.
 - Define date-only values independently from UTC instants, using the application/user timezone contract resolved from current source; add boundary fixtures around local midnight and DST transitions before claiming date normalization solved.
 - Keep low-confidence/review-required behavior fail-closed; an external model may not silently promote a review action into mutation.
@@ -264,16 +302,18 @@ The result must return canonical task/reminder IDs when applicable, normalized s
 
 A bounded implementation sprint must prove, with deterministic tests:
 
-1. supported parsed commands map to one server action contract;
-2. create/reschedule/recurrence/reminder mutations use canonical domain persistence/business rules;
-3. recurring-task creation persists the requested supported recurrence rather than falling back to prefill or `none`;
-4. reschedule and every other mutation has an explicit review/authorization outcome, with ambiguous or policy-silent cases failing closed;
-5. date-only normalization is deterministic in the configured application/user timezone and has regression fixtures around UTC/local midnight and DST boundaries;
-6. ambiguous, blocked, or review-required input does not silently mutate;
-7. structured action receipts expose canonical IDs/result state without provider-specific response types;
-8. retries/idempotency have an explicit tested policy before an external adapter is allowed to mutate;
-9. existing voice/AI/task contracts remain green;
-10. no auth, migration, scheduled-resource, or production deployment surface changed.
+1. the four raw dictation utterances above pass from text through parser/classifier, policy, domain execution/query, and structured receipt or clarification;
+2. `POST /api/tasks` and assistant task creation call the same extracted task-domain creation service and preserve the normal REST business effects listed above;
+3. supported parsed commands map to one provider-neutral server action contract after raw-text classification;
+4. create/reschedule/recurrence/reminder mutations use canonical domain persistence/business rules;
+5. recurring-task creation persists the requested supported recurrence rather than falling back to prefill or `none`;
+6. reschedule and every other mutation has an explicit review/authorization outcome, with ambiguous or policy-silent cases failing closed;
+7. date-only normalization is deterministic in the configured application/user timezone and has regression fixtures around UTC/local midnight and DST boundaries;
+8. ambiguous, blocked, or review-required input does not silently mutate;
+9. structured action receipts expose canonical IDs/result state without provider-specific response types;
+10. retries/idempotency have an explicit tested policy before an external adapter is allowed to mutate;
+11. existing REST task-create, voice, AI, task, reward/classification, and relevant intent contracts remain green;
+12. no auth, migration, scheduled-resource, or production deployment surface changed.
 
 The proof ceiling is repository behavior only. It does not prove assistant-provider connectivity, production authentication, deployed runtime behavior, or user acceptance.
 
@@ -282,6 +322,7 @@ The proof ceiling is repository behavior only. It does not prove assistant-provi
 Re-open the design if refreshed current `main` proves that:
 
 - a provider-neutral server-side action executor already owns all of the above mutations;
+- a reusable task-domain service already owns the complete normal `/api/tasks` creation workflow;
 - a current canonical product contract deliberately makes an external calendar the operational source of truth;
 - the task-domain module split materially changes the safe owner before implementation starts;
 - the application intentionally models schedule dates only as UTC instants and has a separate proven user-facing date contract that invalidates the identified date-only seam;
@@ -289,11 +330,13 @@ Re-open the design if refreshed current `main` proves that:
 
 ## Review reconciliation
 
-PR #157 review sharpened three claims before this plan became an execution dependency:
+PR #157 review sharpened five claims before this plan became an execution dependency:
 
 1. **Date normalization finding:** accepted. The earlier wording over-promoted date/time parsing into solved canonical date normalization. Phase 1 now owns a tested date-only/timezone rule and boundary fixtures.
 2. **Recurring-task execution finding:** accepted. Parsing/model support is retained as solved baseline, but canonical server-side recurring creation is explicitly a Phase 1 gap.
 3. **Reschedule review-policy finding:** accepted. Calendar reschedule currently travels outside the shared parsed-command creation policy, so Phase 1 must give every mutation an explicit execution-policy outcome and fail closed when policy is silent.
+4. **Raw-utterance coverage finding:** accepted. Phase 1 cannot prove the goal from normalized intents alone; the four advertised sentences are now required end-to-end acceptance fixtures.
+5. **Task business-rule owner finding:** accepted. `storage.createTask` is only a primitive; the current REST route owns important creation behavior. Phase 1 must extract that full workflow into a shared domain service and route both REST and assistant creation through it.
 
 No code mutation is authorized by these findings in the reference-architecture sprint; they change the implementation acceptance contract.
 
@@ -307,10 +350,10 @@ No code mutation is authorized by these findings in the reference-architecture s
 
 ### Phase 1 — Assistant Action Contract v1
 
-**Owner:** server task-domain execution seam + `shared/intent` contracts.
-**Artifacts:** provider-neutral action/result types, server executor, focused tests, compatibility wiring for existing channels as appropriate.
+**Owner:** extracted shared task-domain service + provider-neutral action executor + `shared/intent` contracts.
+**Artifacts:** shared task-create service, provider-neutral action/result types, server executor, raw-utterance fixtures, focused tests, compatibility wiring for existing channels as appropriate.
 **Forbidden:** auth changes, production deploy, external calendar sync, MCP as domain owner.
-**Gate:** proof criteria above pass, including recurring persistence, explicit reschedule review policy, and timezone/date-only boundary tests.
+**Gate:** proof criteria above pass, including REST/assistant task-create parity, target raw utterances, recurring persistence, explicit reschedule review policy, and timezone/date-only boundary tests.
 
 ### Phase 2 — External assistant adapter and scoped authentication
 
@@ -346,6 +389,6 @@ No code mutation is authorized by these findings in the reference-architecture s
 
 **Owner:** next bounded AxTask implementation agent.
 **Dependency:** this plan merged on current `main`; no dependency on calendar integration or PR #156.
-**Action:** create the Phase 1 implementation sprint by reconciling the current `shared/intent` parser/policy, `calendar-engine.ts`, provider AI tools, task/reminder storage, application timezone/date contracts, and existing tests; implement the smallest provider-neutral server action executor covering create task, create recurring task, create reminder, and reschedule task, with explicit mutation review policy and date-only boundary fixtures; then run its focused contracts plus affected existing suites.
-**Expected proof:** one merged server-owned action path with deterministic mutation/clarification receipts, recurring persistence, explicit reschedule policy, timezone-safe date-only behavior, and no auth/calendar/production-surface changes.
+**Action:** create the Phase 1 implementation sprint by reconciling the current raw utterance parser/classifier, execution policy, `POST /api/tasks` business workflow, `calendar-engine.ts`, provider AI tools, reminder/update services, application timezone/date contracts, and affected tests; first extract the full normal task-create workflow into a shared domain service, then implement the smallest provider-neutral server action executor covering create task, create recurring task, create reminder, reschedule task, and schedule query; wire raw-utterance fixtures through the entire path and run focused plus affected existing suites.
+**Expected proof:** one merged shared task-domain creation service and server-owned action path with REST/assistant parity, deterministic receipts, target dictation fixtures, recurring persistence, explicit reschedule policy, timezone-safe date-only behavior, and no auth/calendar/production-surface changes.
 **Completion gate:** all Phase 1 proof criteria above are satisfied on the exact integrated default-branch head.
