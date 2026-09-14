@@ -1,8 +1,8 @@
 # Assistant Action Reference Architecture
 
-**Status:** ACTIVE PLAN  
-**Date:** 2026-09-13  
-**Evidence floor:** `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`  
+**Status:** ACTIVE PLAN
+**Date:** 2026-09-13
+**Evidence floor:** `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`
 **Continuity index:** `.ai/WORK_QUEUE.md` → `AXQ-009`
 
 ## Outcome
@@ -272,37 +272,37 @@ Re-open the design if refreshed current `main` proves that:
 
 ### Phase 0 — Reference architecture and authority boundary
 
-**Status:** this document.  
-**Artifact:** `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`  
+**Status:** this document.
+**Artifact:** `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`
 **Gate:** external mechanisms and local gap are evidence-backed; continuity indexed by `AXQ-009`.
 
 ### Phase 1 — Assistant Action Contract v1
 
-**Owner:** server task-domain execution seam + `shared/intent` contracts.  
-**Artifacts:** provider-neutral action/result types, server executor, focused tests, compatibility wiring for existing channels as appropriate.  
-**Forbidden:** auth changes, production deploy, external calendar sync, MCP as domain owner.  
+**Owner:** server task-domain execution seam + `shared/intent` contracts.
+**Artifacts:** provider-neutral action/result types, server executor, focused tests, compatibility wiring for existing channels as appropriate.
+**Forbidden:** auth changes, production deploy, external calendar sync, MCP as domain owner.
 **Gate:** proof criteria above pass.
 
 ### Phase 2 — External assistant adapter and scoped authentication
 
-**Dependency:** Phase 1 stable action contract.  
-**Owner:** dedicated adapter plus dedicated auth/security sprint.  
-**Reference:** Home Assistant/Vikunja MCP capability-aware tool exposure.  
-**Gate:** an external assistant credential can expose only permitted actions and execute against the same domain contract with audit/receipt evidence.  
+**Dependency:** Phase 1 stable action contract.
+**Owner:** dedicated adapter plus dedicated auth/security sprint.
+**Reference:** Home Assistant/Vikunja MCP capability-aware tool exposure.
+**Gate:** an external assistant credential can expose only permitted actions and execute against the same domain contract with audit/receipt evidence.
 **Proof ceiling:** external/provider connectivity requires protected runtime evidence.
 
 ### Phase 3 — Optional calendar projection/interoperability
 
-**Dependency:** stable AxTask action identity plus explicit user need.  
-**Owner:** separate interoperability adapter.  
-**Reference:** Nextcloud Tasks/CalDAV.  
-**Default authority:** AxTask remains canonical; calendar is projection.  
+**Dependency:** stable AxTask action identity plus explicit user need.
+**Owner:** separate interoperability adapter.
+**Reference:** Nextcloud Tasks/CalDAV.
+**Default authority:** AxTask remains canonical; calendar is projection.
 **Gate:** field mapping, identity, recurrence/timezone handling, conflict policy, retry behavior, and rollback are tested before writable synchronization.
 
 ### Phase 4 — Ledger provenance bridge
 
-**Dependency:** PR #156 or its successor establishes the accepted `ledger/v1` producer contract.  
-**Owner:** activity/provenance projection, not schedule mutation.  
+**Dependency:** PR #156 or its successor establishes the accepted `ledger/v1` producer contract.
+**Owner:** activity/provenance projection, not schedule mutation.
 **Rule:** project ledgers may point to or summarize AxTask schedule/task identities; they do not become an execution queue for schedule mutation.
 
 ## Collision and safety notes
@@ -315,8 +315,8 @@ Re-open the design if refreshed current `main` proves that:
 
 ## Next executable action
 
-**Owner:** next bounded AxTask implementation agent.  
-**Dependency:** this plan merged on current `main`; no dependency on calendar integration or PR #156.  
-**Action:** create the Phase 1 implementation sprint by reconciling the current `shared/intent` parser/policy, `calendar-engine.ts`, provider AI tools, task/reminder storage, and existing tests; implement the smallest provider-neutral server action executor covering create task, create recurring task, create reminder, and reschedule task; then run its focused contracts plus affected existing suites.  
-**Expected proof:** one merged server-owned action path with deterministic mutation/clarification receipts and no auth/calendar/production-surface changes.  
+**Owner:** next bounded AxTask implementation agent.
+**Dependency:** this plan merged on current `main`; no dependency on calendar integration or PR #156.
+**Action:** create the Phase 1 implementation sprint by reconciling the current `shared/intent` parser/policy, `calendar-engine.ts`, provider AI tools, task/reminder storage, and existing tests; implement the smallest provider-neutral server action executor covering create task, create recurring task, create reminder, and reschedule task; then run its focused contracts plus affected existing suites.
+**Expected proof:** one merged server-owned action path with deterministic mutation/clarification receipts and no auth/calendar/production-surface changes.
 **Completion gate:** all Phase 1 proof criteria above are satisfied on the exact integrated default-branch head.
