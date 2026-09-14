@@ -207,7 +207,7 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Status:** READY
 - **Priority:** P1
 - **Owner:** unclaimed
-- **Branch / PR:** `docs/assistant-action-reference-architecture-20260913` / planning PR pending
+- **Branch / PR:** `docs/assistant-action-reference-architecture-20260913` / #157
 - **Scope:** implement the bounded Phase 1 Assistant Action Contract v1 from the reference architecture so task/reminder/schedule dictation resolves through one provider-neutral server-side AxTask action executor backed by shared intent contracts and canonical task/reminder persistence
 - **Forbidden:** standalone assistant scheduler/database; treating project ledgers or an external calendar as peer operational schedule authority; authentication/session changes in Phase 1; production deploy; scheduled-worker enablement; Google Calendar/CalDAV sync; MCP/plugin code as the domain owner; modifying PR #156 activity-history ownership
 - **Dependencies:** none for Phase 1 repository design; external assistant exposure later requires a dedicated auth/security successor sprint
