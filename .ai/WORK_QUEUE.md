@@ -201,3 +201,19 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Last proof:** none
 - **Next action:** after AXQ-004, run the R5 dry run and post-cleanup size audit; if physical reclaim is unnecessary, skip it explicitly, then run `node scripts/deploy/check-db-capacity.mjs` under the chosen R6 policy
 - **Updated:** 2026-08-11T17:36:00Z
+
+## AXQ-009 — Assistant action contract and schedule-dictation convergence
+
+- **Status:** READY
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** `docs/assistant-action-reference-architecture-20260913` / planning PR pending
+- **Scope:** implement the bounded Phase 1 Assistant Action Contract v1 from the reference architecture so task/reminder/schedule dictation resolves through one provider-neutral server-side AxTask action executor backed by shared intent contracts and canonical task/reminder persistence
+- **Forbidden:** standalone assistant scheduler/database; treating project ledgers or an external calendar as peer operational schedule authority; authentication/session changes in Phase 1; production deploy; scheduled-worker enablement; Google Calendar/CalDAV sync; MCP/plugin code as the domain owner; modifying PR #156 activity-history ownership
+- **Dependencies:** none for Phase 1 repository design; external assistant exposure later requires a dedicated auth/security successor sprint
+- **References:** `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`, `shared/intent/parse-natural-command.ts`, `shared/intent/execution-policy.ts`, `shared/intent/map-to-dispatcher.ts`, `server/engines/calendar-engine.ts`, `server/ai/tools/create-task.ts`, `client/src/hooks/use-voice.tsx`, PR #156 as a separate ledger/reporting projection lane
+- **Acceptance gate:** Phase 1 is merged with one canonical server action path for create task, create recurring task, create reminder, and reschedule task; ambiguous/review-required input fails closed; structured mutation/clarification receipts are provider-neutral; retry/idempotency policy is explicit and tested before external mutation adapters; affected existing contracts pass; no auth/calendar-sync/production surface changes
+- **Gate:** none
+- **Last proof:** artifact:docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md records the repository-derived external reference analysis and phase map from `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`
+- **Next action:** create a bounded Phase 1 implementation sprint that reconciles the current shared intent parser/policy, calendar engine, provider AI tools, task/reminder storage, and affected tests, then factors create-task/create-recurring-task/create-reminder/reschedule-task mutation into one provider-neutral server action executor without changing auth or calendar sync
+- **Updated:** 2026-09-14
