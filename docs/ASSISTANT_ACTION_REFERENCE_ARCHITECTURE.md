@@ -1,8 +1,8 @@
 # Assistant Action Reference Architecture
 
-**Status:** ACTIVE PLAN
-**Date:** 2026-09-13
-**Evidence floor:** `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`
+**Status:** ACTIVE PLAN — extended with legacy Google Sheets producer convergence
+**Date:** 2026-09-26
+**Evidence floor:** `main@375bda1d9819bfeff3c9a1a396f81a72f5f1fb6d`
 **Continuity index:** `.ai/WORK_QUEUE.md` → `AXQ-009`
 
 ## Outcome
@@ -416,3 +416,108 @@ The execution map does **not** weaken the existing Phase 1 gate. AXQ-009 is
 `80c2629fd6c7602d21d399a92ca6338925e5d4c5`. Phase 1 application implementation
 may begin from that mainline floor as H0 ∥ A1 ∥ A2 per
 `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`.
+
+
+## Legacy Google Sheets producer bridge
+
+### Why this is a bridge, not another scheduler
+
+The operator-owned Shared Task Tracker predates the current AxTask assistant-action architecture and remains useful as a manual activity/task entry surface. It should be treated as an **external producer/migration source**, not as a peer task database once AxTask cutover is complete.
+
+The live tracker prototype established these invariants without copying private task contents into Git:
+
+- top-entry is a staging interaction that appends to the canonical active region;
+- physically inserting a row at the top is rejected because it shifts formula input ranges and the active/legacy boundary;
+- Priority and Score are formula-owned projections and must not be written by the top-entry submit path;
+- source TaskID is immutable and independent of row position;
+- validation, filters, and conditional-format ranges are protected behavioral contracts;
+- the legacy region has a deliberate boundary and is not part of default active ingestion.
+
+### Existing AxTask Google Sheets evidence
+
+AxTask already has an implementation surface:
+
+- `server/google-sheets-api.ts`
+- Google Sheets routes in `server/routes.ts`
+- `client/src/lib/google-api.ts`
+- `client/src/pages/google-sheets-sync.tsx`
+- `docs/GOOGLE_SHEETS_SETUP.md`
+
+That implementation cannot be adopted unchanged for the operator tracker:
+
+1. export clears and rewrites `A2:L`, which would be destructive to a richer workbook;
+2. the legacy parser manufactures temporary IDs from row position;
+3. the legacy merge key is not the tracker's immutable TaskID;
+4. imported rows receive fresh runtime timestamps, so the old in-memory conflict heuristic is not reliable source-history evidence;
+5. the `/api/google-sheets/import` route performs direct storage creation plus its own derived-field repair instead of delegating to the future shared task-domain service;
+6. the `/api/google-sheets/sync` route merges in memory and exports the result back to Sheets; it is not an approved stable-identity ingestion contract.
+
+Therefore the old bidirectional sync path is **quarantined for the Shared Task Tracker** until Phase 3 explicitly replaces it.
+
+### Canonical ownership
+
+```text
+human / bound Apps Script
+        │
+        ▼
+Shared Task Tracker
+  source TaskID owner
+        │  read-only ingestion
+        ▼
+Google Sheets source adapter
+        │  typed source record
+        ▼
+review / apply
+        │
+        ▼
+A1 shared task-domain service
+        │
+        ▼
+AxTask canonical task + canonical AxTask ID
+```
+
+The spreadsheet adapter owns transport and parsing only. It never owns AxTask task rules. The bound Apps Script owns only the spreadsheet interaction. The A1 service owns task creation. The A3 executor owns assistant actions. After cutover, AxTask owns operational task state.
+
+### Stable source identity
+
+The ingestion key is the source TaskID plus the privately configured spreadsheet binding. Row number, title, date, and notes are mutable attributes and MUST NOT be the durable key.
+
+A deterministic source identity may be represented as:
+
+```text
+provider = "google-sheets"
+binding = private per-user spreadsheet binding
+externalTaskId = source TaskID
+sourceKey = hash(provider, binding, externalTaskId)
+```
+
+The first implementation should reuse the repository's existing import-fingerprint persistence if it can safely store `sourceKey` and the canonical created AxTask ID. This avoids an unnecessary migration. A new mapping table is justified only if focused negative tests prove the existing owner cannot support source-identity idempotency or later explicit update semantics.
+
+### Initial mutation policy
+
+Phase 3 is deliberately **one-way reviewed ingestion**:
+
+- dry-run before apply;
+- active region only by default;
+- explicit row selection;
+- create through the shared task-domain service;
+- stable source receipt;
+- re-import is idempotent;
+- source edits after import do not silently overwrite AxTask;
+- legacy-region import and reverse synchronization are separate contracts.
+
+This boundary keeps the transition understandable and prevents two editable systems from becoming simultaneous authorities.
+
+### Relationship to direct dictation
+
+The Google Sheets bridge is a migration/continuity lane, not the destination for assistant input. Phase 1 + B1/B2 remain the direct path:
+
+```text
+dictation / ChatGPT / voice
+  -> Assistant Action Contract
+  -> reviewed/authorized executor
+  -> shared task-domain service
+  -> AxTask
+```
+
+Once that path and the Phase 3 cutover are proven, a user should be able to dictate directly into AxTask without involving Google Sheets at all.
