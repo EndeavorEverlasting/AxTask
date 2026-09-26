@@ -1,8 +1,8 @@
 # Shared Task Tracker — Program Design (call-stack prototypes)
 
-**Status:** DESIGNED + G1 dry-run seam VALIDATED (repository unit tests)  
-**Owner:** AXQ-012 design prototype lane (`feat/shared-task-tracker-g1-dryrun-prototype`)  
-**Authority:** Phase 3 in [ASSISTANT_ACTION_EXECUTION_PLAN.md](./ASSISTANT_ACTION_EXECUTION_PLAN.md); operator path in [SHARED_TASK_TRACKER_OPERATOR_GUIDE.md](./SHARED_TASK_TRACKER_OPERATOR_GUIDE.md)  
+**Status:** DESIGNED + G1 dry-run seam VALIDATED (repository unit tests)
+**Owner:** AXQ-012 design prototype lane (`feat/shared-task-tracker-g1-dryrun-prototype`)
+**Authority:** Phase 3 in [ASSISTANT_ACTION_EXECUTION_PLAN.md](./ASSISTANT_ACTION_EXECUTION_PLAN.md); operator path in [SHARED_TASK_TRACKER_OPERATOR_GUIDE.md](./SHARED_TASK_TRACKER_OPERATOR_GUIDE.md)
 **Proof ceiling:** synthetic dry-run dispositions only. Does **not** prove Apps Script S0, live Google read, A1/A3 apply, or cutover.
 
 ## 1. Program recovery (not the file tree)
@@ -102,7 +102,7 @@ SYNTHETIC / FUTURE: GET planner values (header + rows)
   -> (G2+ not prototyped) A3 create_task apply
 ```
 
-**Terminal user value for G1:** operator sees deterministic create/invalid/… counts before any mutation.  
+**Terminal user value for G1:** operator sees deterministic create/invalid/… counts before any mutation.
 UI states: ENTRYPOINT = dry-run request; TERMINAL = disposition report (not “opened sync page”).
 
 ## 6. Failure call stacks (prototyped)
