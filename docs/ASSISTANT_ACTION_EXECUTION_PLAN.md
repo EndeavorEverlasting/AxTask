@@ -551,6 +551,12 @@ The default ingestion region is the active task region only. The historical/lega
 **Queue owner:** AXQ-011
 **Mission:** install the exact already-validated top-entry script in the spreadsheet's bound Apps Script project, promote the proven Quick Entry strip on Task Board, and prove one live submission without changing planner row geometry.
 
+**Operator documentation owners:**
+- `docs/SHARED_TASK_TRACKER_OPERATOR_GUIDE.md` — canonical old-way → new-way operator tutorial;
+- `docs/SHARED_TASK_TRACKER_APPS_SCRIPT_INSTALL_CHECKLIST.md` — canonical one-page S0 install/proof checklist.
+
+These docs may describe and route the provider operation, but the provider-owned workbook `Scripts!B2` value remains the canonical script payload. Do not copy a second source-code authority into Git.
+
 **Deployment contract:**
 1. use the provider-owned tracker `Scripts` surface as the source payload; do not reconstruct from chat;
 2. install/save/authorize it in the bound project;
