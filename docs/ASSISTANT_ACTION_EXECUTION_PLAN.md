@@ -1,10 +1,10 @@
 # Assistant Action Execution Plan
 
-**Status:** ACTIVE EXECUTION MAP — implementation blocked until PR #157 is merged  
-**Date:** 2026-09-26  
-**Evidence floor:** `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`  
-**Planning owner:** PR #157 / `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`  
-**Queue index:** `.ai/WORK_QUEUE.md` → `AXQ-009`  
+**Status:** ACTIVE EXECUTION MAP — implementation blocked until PR #157 is merged
+**Date:** 2026-09-26
+**Evidence floor:** `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`
+**Planning owner:** PR #157 / `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`
+**Queue index:** `.ai/WORK_QUEUE.md` → `AXQ-009`
 **Dispatch artifact:** `Outputs/prompt-parallel-dispatch/manifest.json`
 
 ## Outcome
@@ -171,19 +171,19 @@ These gates require the active ChatGPT/provider runtime and cannot be proven by 
 
 #### RT-0 — Conversation fixture authority
 
-**Owner:** active ChatGPT runtime  
-**Status:** completed in this plan  
-**Mission:** distill the user's actual day plan and accepted routine semantics into the exact fixture above.  
-**Forbidden:** silently adding inferred commitments, dates, priorities, or schema fields.  
+**Owner:** active ChatGPT runtime
+**Status:** completed in this plan
+**Mission:** distill the user's actual day plan and accepted routine semantics into the exact fixture above.
+**Forbidden:** silently adding inferred commitments, dates, priorities, or schema fields.
 **Proof:** this plan's reviewed fixture and payload.
 
 #### RT-1 — External assistant live acceptance
 
-**Dependency:** Phase 2 external adapter + scoped auth integrated and deployed to an authorized non-destructive test environment.  
-**Owner:** active ChatGPT runtime with the installed/connected AxTask adapter.  
-**Mission:** send a fresh four-task plan through the real external assistant transport, receive structured review/receipt data, and verify the created AxTask records by canonical IDs.  
-**Forbidden:** production-user mutation without explicit operator authorization; direct DB writes; bypassing review/auth/capability policy.  
-**Gate:** live provider invocation + AxTask readback.  
+**Dependency:** Phase 2 external adapter + scoped auth integrated and deployed to an authorized non-destructive test environment.
+**Owner:** active ChatGPT runtime with the installed/connected AxTask adapter.
+**Mission:** send a fresh four-task plan through the real external assistant transport, receive structured review/receipt data, and verify the created AxTask records by canonical IDs.
+**Forbidden:** production-user mutation without explicit operator authorization; direct DB writes; bypassing review/auth/capability policy.
+**Gate:** live provider invocation + AxTask readback.
 **Proof ceiling:** provider/runtime integration only; ordinary UI acceptance remains a separate observation.
 
 Local agents must not claim RT-1 from mocked HTTP tests, repository tests, MCP schema generation, or CI.
@@ -233,18 +233,18 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 ### W0 — PR157 planning closeout
 
-**Primary surface:** docs/reporting + queue continuity  
-**Owner:** PR #157 convergence owner  
-**Dependencies:** none  
-**Owned:** this plan, architecture cross-link, AXQ-009 references, one release note required by release guard, dispatch manifest planning artifact.  
-**Forbidden:** Phase 1 application code; auth; calendar sync; PR #156 files.  
-**Validation:** queue validator, queue contract test, `npm run release:check`, exact-head CI/reviews.  
+**Primary surface:** docs/reporting + queue continuity
+**Owner:** PR #157 convergence owner
+**Dependencies:** none
+**Owned:** this plan, architecture cross-link, AXQ-009 references, one release note required by release guard, dispatch manifest planning artifact.
+**Forbidden:** Phase 1 application code; auth; calendar sync; PR #156 files.
+**Validation:** queue validator, queue contract test, `npm run release:check`, exact-head CI/reviews.
 **Completion:** PR #157 review-clean, exact-head required checks green, merged, and refreshed `main` contains the plan.
 
 ### H0 — Prompt-parallel-dispatch harness bootstrap
 
-**Primary surface:** harness spine  
-**Dependencies:** W0 mainline  
+**Primary surface:** harness spine
+**Dependencies:** W0 mainline
 **Owned:**
 - `harness/contracts/prompt-parallel-dispatch.v1.json`
 - `scripts/prompt_parallel_dispatch.py`
@@ -252,7 +252,7 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 - minimal capability/trigger/workflow registry wiring required to discover the dispatcher
 - the existing `Outputs/prompt-parallel-dispatch/manifest.json` only for schema-conformance repair, never for changing lane intent.
 
-**Forbidden:** application task/intent/server/client logic; deployment/auth/database changes; changing lane missions/dependencies to make validation easier.  
+**Forbidden:** application task/intent/server/client logic; deployment/auth/database changes; changing lane missions/dependencies to make validation easier.
 **Implementation contract:**
 - `validate` checks required lane fields, dependencies, adapter kind, expected artifacts, validation, convergence owner, and unique lane IDs.
 - `run` may execute only `argv` lanes whose dependencies are satisfied; it must not impersonate `runtime_tool` lanes.
@@ -274,8 +274,8 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 ### A1 — Canonical task creation service extraction
 
-**Primary surface:** conventional application logic  
-**Dependencies:** W0 mainline  
+**Primary surface:** conventional application logic
+**Dependencies:** W0 mainline
 **Single-writer owned files/surfaces:**
 - `server/routes.ts` task-create route block only;
 - new shared server-side task-creation domain service under the repository's existing `server/services/` convention;
@@ -304,8 +304,8 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 ### A2 — Raw-utterance, date-only, recurrence, and mutation-policy semantics
 
-**Primary surface:** integration seam / shared intent  
-**Dependencies:** W0 mainline  
+**Primary surface:** integration seam / shared intent
+**Dependencies:** W0 mainline
 **Owned:**
 - `shared/intent/parse-natural-command.ts`
 - `shared/intent/execution-policy.ts`
@@ -338,8 +338,8 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 ### A3 — Assistant Action Contract v1 server executor
 
-**Primary surface:** application service + integration seam  
-**Dependencies:** A1 + A2  
+**Primary surface:** application service + integration seam
+**Dependencies:** A1 + A2
 **Owned:**
 - provider-neutral action request/result schemas;
 - server executor;
@@ -369,22 +369,22 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 ### A4 — Generic review-and-apply UI
 
-**Primary surface:** UI consumer  
-**Dependencies:** A3  
+**Primary surface:** UI consumer
+**Dependencies:** A3
 **Owned:**
 - one generic assistant-action review component;
 - command-palette integration for reviewed actions;
 - focused UI/unit tests.
 
-**Reuse:** command-palette parse preview and bulk-action-dialog interaction patterns.  
-**Forbidden:** client-side reimplementation of parser, date, recurrence, dedupe, or authorization rules; `use-voice.tsx`; server executor changes except typed contract imports.  
-**Required UX:** select all/deselect all; per-action checkbox; normalized title/date/details; clear review/block reason; Apply Selected; per-action partial success; one bounded retry of failed idempotent actions; successful actions disappear or show receipt; failed actions remain visible.  
+**Reuse:** command-palette parse preview and bulk-action-dialog interaction patterns.
+**Forbidden:** client-side reimplementation of parser, date, recurrence, dedupe, or authorization rules; `use-voice.tsx`; server executor changes except typed contract imports.
+**Required UX:** select all/deselect all; per-action checkbox; normalized title/date/details; clear review/block reason; Apply Selected; per-action partial success; one bounded retry of failed idempotent actions; successful actions disappear or show receipt; failed actions remain visible.
 **Acceptance:** the 4-task fixture renders as four reviewed create actions and selected apply calls the canonical apply endpoint once with stable action identities.
 
 ### A5 — Existing channel convergence
 
-**Primary surface:** adapters  
-**Dependencies:** A3  
+**Primary surface:** adapters
+**Dependencies:** A3
 **Owned:**
 - `server/ai/tools/create-task.ts`
 - `server/ai/tools/create-reminder.ts`
@@ -392,16 +392,16 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 - `client/src/hooks/use-voice.tsx`
 - directly related tests.
 
-**Forbidden:** new external assistant auth; A4 command-palette/review component; task-domain business logic; schema/migrations.  
-**Mission:** make existing provider-AI and browser-voice paths delegate to A3 rather than maintaining independent mutation logic.  
+**Forbidden:** new external assistant auth; A4 command-palette/review component; task-domain business logic; schema/migrations.
+**Mission:** make existing provider-AI and browser-voice paths delegate to A3 rather than maintaining independent mutation logic.
 **Acceptance:** existing channels preserve user-visible behavior but no longer bypass canonical action/domain services for supported v1 actions.
 
 ### A6 — Local convergence and Phase 1 proof
 
-**Primary surface:** validation/integration  
-**Dependencies:** H0 + A3 + A4 + A5  
-**Owner:** one convergence lane only.  
-**Mission:** integrate lane heads in dependency order on refreshed main, run collision inspection and combined validation, repair only integration defects, and merge Phase 1 when exact-head gates are green.  
+**Primary surface:** validation/integration
+**Dependencies:** H0 + A3 + A4 + A5
+**Owner:** one convergence lane only.
+**Mission:** integrate lane heads in dependency order on refreshed main, run collision inspection and combined validation, repair only integration defects, and merge Phase 1 when exact-head gates are green.
 **Forbidden:** feature expansion; auth/external adapter work; production deploy.
 
 **Validation order:**
@@ -424,19 +424,19 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 ### B1 — External assistant auth/capability boundary
 
-**Primary surface:** security/integration  
-**Dependencies:** Phase 1 mainline  
-**Owner:** dedicated security sprint  
-**Mission:** define machine-to-machine identity/capabilities distinct from browser session auth.  
-**Forbidden:** implementing auth inside MCP/provider adapters; broad bearer token with unrestricted actions; production rollout without dedicated security proof.  
+**Primary surface:** security/integration
+**Dependencies:** Phase 1 mainline
+**Owner:** dedicated security sprint
+**Mission:** define machine-to-machine identity/capabilities distinct from browser session auth.
+**Forbidden:** implementing auth inside MCP/provider adapters; broad bearer token with unrestricted actions; production rollout without dedicated security proof.
 **Acceptance:** credentials expose only explicitly permitted action/query capabilities and audit identity is preserved.
 
 ### B2 — Thin external adapter
 
-**Primary surface:** adapter  
-**Dependencies:** B1 + Phase 1  
-**Mission:** implement MCP/plugin/provider adapter as a thin client of Assistant Action Contract v1.  
-**Forbidden:** domain logic, alternate parser, direct DB writes, alternate scheduler.  
+**Primary surface:** adapter
+**Dependencies:** B1 + Phase 1
+**Mission:** implement MCP/plugin/provider adapter as a thin client of Assistant Action Contract v1.
+**Forbidden:** domain logic, alternate parser, direct DB writes, alternate scheduler.
 **Acceptance:** tool publication is capability-aware; structured requests/results map losslessly to the canonical action contract; local integration tests pass.
 
 ## Harness factoring
@@ -502,6 +502,6 @@ Therefore this planning run cannot truthfully prove parallel dispatch. Until H0 
 
 ## Next executable action
 
-**Owner:** PR #157 convergence lane.  
-**Action:** add the required release note, run the queue validators and release guard, let exact-head CI/review evaluate the updated planning branch, repair only still-valid planning/harness-documentation findings, and merge #157 when green.  
-**Then:** local orchestration creates isolated H0/A1/A2 workspaces from refreshed main and launches those three lanes concurrently.  
+**Owner:** PR #157 convergence lane.
+**Action:** add the required release note, run the queue validators and release guard, let exact-head CI/review evaluate the updated planning branch, repair only still-valid planning/harness-documentation findings, and merge #157 when green.
+**Then:** local orchestration creates isolated H0/A1/A2 workspaces from refreshed main and launches those three lanes concurrently.
