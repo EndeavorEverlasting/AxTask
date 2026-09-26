@@ -452,7 +452,7 @@ That implementation cannot be adopted unchanged for the operator tracker:
 5. the `/api/google-sheets/import` route performs direct storage creation plus its own derived-field repair instead of delegating to the future shared task-domain service;
 6. the `/api/google-sheets/sync` route merges in memory and exports the result back to Sheets; it is not an approved stable-identity ingestion contract.
 
-Therefore the old bidirectional sync path is **quarantined for the Shared Task Tracker** until Phase 3 explicitly replaces it.
+Therefore the old bidirectional sync path is **unsafe for the Shared Task Tracker on the current evidence floor and MUST NOT be used**. It is still technically reachable today. G3 is the owned transition that makes quarantine enforceable by retiring `POST /api/google-sheets/sync` server-side for all callers before live tracker ingestion.
 
 ### Canonical ownership
 
@@ -480,7 +480,7 @@ The spreadsheet adapter owns transport and parsing only. It never owns AxTask ta
 
 ### Stable source identity
 
-The ingestion key is the source TaskID plus the privately configured spreadsheet binding. Row number, title, date, and notes are mutable attributes and MUST NOT be the durable key.
+The ingestion key is the source TaskID plus the privately configured spreadsheet binding. Row number, title, date, and notes are mutable attributes and MUST NOT be the durable key. G2 converts this source key into A3's canonical action/idempotency identity; A3, not the Sheets adapter, owns the atomic mutation claim and replay receipt.
 
 A deterministic source identity may be represented as:
 
@@ -491,7 +491,7 @@ externalTaskId = source TaskID
 sourceKey = hash(provider, binding, externalTaskId)
 ```
 
-The first implementation should reuse the repository's existing import-fingerprint persistence if it can safely store `sourceKey` and the canonical created AxTask ID. This avoids an unnecessary migration. A new mapping table is justified only if focused negative tests prove the existing owner cannot support source-identity idempotency or later explicit update semantics.
+The existing `task_import_fingerprints` table has a unique `(user_id, fingerprint)` constraint and remains useful for legacy import dedupe, but the current `hasImportFingerprint() -> create -> recordImportFingerprint()` sequence is not an atomic mutation claim. The tracker path therefore MUST NOT reproduce it. G2 passes the deterministic source key into A3's proved atomic idempotency/receipt owner and relies on A3's canonical task ID receipt for replay. Any persistence change required to satisfy A3's atomic contract belongs to A3's canonical idempotency owner, not a Google-specific store.
 
 ### Initial mutation policy
 
