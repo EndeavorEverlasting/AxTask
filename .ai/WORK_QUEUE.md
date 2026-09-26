@@ -201,3 +201,35 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Last proof:** none
 - **Next action:** after AXQ-004, run the R5 dry run and post-cleanup size audit; if physical reclaim is unnecessary, skip it explicitly, then run `node scripts/deploy/check-db-capacity.mjs` under the chosen R6 policy
 - **Updated:** 2026-08-11T17:36:00Z
+
+## AXQ-009 — Assistant action contract and schedule-dictation convergence
+
+- **Status:** BLOCKED
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** planning owner `docs/assistant-action-reference-architecture-20260913` / #157; implementation branch none
+- **Scope:** execute the phased map in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`: extract the full normal `POST /api/tasks` creation workflow into a shared task-domain service; repair raw-utterance/date/mutation-policy semantics; add one provider-neutral server-side Assistant Action Contract v1; converge existing voice/provider-AI channels; add reviewed-action UI; then separately add scoped external-assistant auth and a thin adapter
+- **Forbidden:** standalone assistant scheduler/database; treating project ledgers or an external calendar as peer operational schedule authority; starting Phase 1 from unmerged PR #157; authentication/session changes inside Phase 1; production deploy; scheduled-worker enablement; Google Calendar/CalDAV sync; MCP/plugin code as the domain owner; modifying PR #156 activity-history ownership
+- **Dependencies:** none
+- **References:** `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`, `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`, `Outputs/prompt-parallel-dispatch/manifest.json`, `docs/PRODUCT_CONTINUITY_DOCTRINE.md`, `shared/intent/parse-natural-command.ts`, `shared/intent/execution-policy.ts`, `server/routes.ts`, `server/engines/calendar-engine.ts`, `server/ai/tools/create-task.ts`, `client/src/hooks/use-voice.tsx`, PR #156 as a separate ledger/reporting projection lane
+- **Acceptance gate:** the whole Phase 1 contract in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` is integrated: REST and assistant task creation share the extracted full normal task-create business workflow; the canonical raw dictation fixtures plus the 2026-09-27 four-task day-plan fixture pass end to end or return structured clarification; recurring creation persists supported recurrence; reschedule and every mutation have an explicit review/authorization outcome; date-only scheduling passes configured-timezone midnight/DST boundary fixtures; provider-neutral receipts and retry/idempotency policy are tested; reviewed actions can be applied through the ordinary AxTask UI path; existing voice/provider-AI channels delegate to the canonical executor; affected REST/voice/AI/task/reward/classification contracts pass; no Phase 1 auth/calendar-sync/production surface changes
+- **Gate:** blocked until PR #157 is review-clean, exact-head validated, merged, and present on refreshed `main`; the dispatch manifest is additionally bootstrap-blocked until lane H0 creates and proves `harness/contracts/prompt-parallel-dispatch.v1.json` plus `scripts/prompt_parallel_dispatch.py`; no manifest validation/dispatch claim is valid before that owner exists
+- **Last proof:** artifact:docs/ASSISTANT_ACTION_EXECUTION_PLAN.md and artifact:Outputs/prompt-parallel-dispatch/manifest.json preserve the accepted runtime/local dependency map and dogfood fixture on PR #157; prior exact head `1e3aee78311b6b5d5f78a0107d36596f9eb8bb00` passed typecheck, 272 test files / 1,951 tests, and the 16/16 offline AI intent eval, then failed only the release guard because no `docs/releases/*.md` changed; `docs/releases/2026-09-26-assistant-action-execution-map.md` now addresses that specific release-contract gap, but the new exact head still requires CI/review proof
+- **Next action:** PR #157 convergence owner runs the queue validators and release guard on the new exact head, observes/repairs exact-head CI or review findings, and merges #157 only when green; after refreshed `main` contains the plan, local orchestration creates isolated H0/A1/A2 workspaces and launches those three dependency-ready lanes concurrently according to `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`; H0 must validate the manifest before it can be used as dispatch proof
+- **Updated:** 2026-09-26
+
+## AXQ-010 — Activity memory timeline exact-time query contract
+
+- **Status:** BLOCKED
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** planning in #157; implementation branch none
+- **Scope:** after the activity-history contract is stable on `main`, preserve exact activity intervals and add a deterministic point-in-time query contract that can answer what evidence exists for a specific instant without promoting planned time into observed work
+- **Forbidden:** modifying PR #156 while it remains independently owned; passive window/browser surveillance; Google Calendar/CalDAV sync; database/schema migration in the first exact-time query slice; ML inference as historical fact; using sync/CI logs as the sole human activity history
+- **Dependencies:** none
+- **References:** `docs/ACTIVITY_MEMORY_REFERENCE_ARCHITECTURE.md`, `docs/PRODUCT_CONTINUITY_DOCTRINE.md`, PR #156 `docs/ACTIVITY_LEDGER_CONTRACT.md`, ActivityWatch interval precedent, Timewarrior task/interval precedent, Super Productivity provider/sync precedent, Vikunja CalDAV compatibility precedent
+- **Acceptance gate:** after PR #156 is review-clean and merged, a focused shared contract preserves start/end intervals and deterministically answers a supplied instant with all matching evidence records, source/provenance, temporal basis/confidence, explicit gap behavior, documented interval boundaries, DST/offset fixtures, overlap fixtures, planned-vs-observed fixtures, environment-independent ordering, and privacy-preserving output; no persistence/provider/passive-sensor expansion in this first slice
+- **Gate:** blocked until PR #156 is repaired, validated, merged into refreshed `main`, and PR #157's doctrine/reference plan is also mainline; if an existing native immutable lifecycle-event owner is discovered first, re-evaluate the target before implementation
+- **Last proof:** artifact:docs/ACTIVITY_MEMORY_REFERENCE_ARCHITECTURE.md records the current-repo gap analysis and external mechanism evidence; artifact:docs/PRODUCT_CONTINUITY_DOCTRINE.md records reciprocal continuity and evidence semantics
+- **Next action:** PR #156 owner validates and repairs every still-valid unresolved review finding, runs `npx vitest run shared/activity-ledger-report.test.ts`, `npm run check`, `npm test`, and `npm run build`, reconciles with refreshed `main`, and merges only when exact-head checks/reviews are satisfied; then claim AXQ-010 from refreshed `main` and implement the no-persistence interval-query slice
+- **Updated:** 2026-09-15

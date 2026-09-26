@@ -1,0 +1,503 @@
+{
+  "schemaVersion": 1,
+  "contract": "harness/contracts/prompt-parallel-dispatch.v1.json",
+  "contractStatus": "BLOCKED_MISSING_ON_EVIDENCE_FLOOR",
+  "planOwner": "docs/ASSISTANT_ACTION_EXECUTION_PLAN.md",
+  "repository": "EndeavorEverlasting/AxTask",
+  "baseBranch": "main",
+  "evidenceFloor": "7af06d7a9cf638dfe1c96a1e2b85914edb610f76",
+  "planningPr": 157,
+  "execution": {
+    "requiredGraphWidthAfterW0": 3,
+    "status": "DEGRADED",
+    "reason": "No authoring adapter with >=2 independent local workers is exposed to the active ChatGPT runtime, and the required dispatch contract/runner is absent.",
+    "autonomyGap": "Lane H0 creates and proves the dispatch contract/runner; a local orchestrator then validates this manifest and dispatches dependency-ready argv lanes."
+  },
+  "waves": [
+    {
+      "id": "W0",
+      "lanes": [
+        "W0"
+      ],
+      "gate": "PR #157 merged on refreshed main"
+    },
+    {
+      "id": "W1",
+      "lanes": [
+        "H0",
+        "A1",
+        "A2"
+      ],
+      "gate": "all three complete; A1 and A2 are hard predecessors of A3"
+    },
+    {
+      "id": "W2",
+      "lanes": [
+        "A3"
+      ],
+      "gate": "canonical action executor proven"
+    },
+    {
+      "id": "W3",
+      "lanes": [
+        "A4",
+        "A5"
+      ],
+      "gate": "both complete on A3 contract"
+    },
+    {
+      "id": "W4",
+      "lanes": [
+        "A6"
+      ],
+      "gate": "combined local/CI proof and Phase 1 mainline merge"
+    },
+    {
+      "id": "W5",
+      "lanes": [
+        "B1"
+      ],
+      "gate": "dedicated auth/capability proof"
+    },
+    {
+      "id": "W6",
+      "lanes": [
+        "B2"
+      ],
+      "gate": "external adapter integrated"
+    },
+    {
+      "id": "W7",
+      "lanes": [
+        "RT-1"
+      ],
+      "gate": "live external runtime acceptance"
+    }
+  ],
+  "lanes": [
+    {
+      "lane_id": "W0",
+      "mission": "Close PR #157 as the canonical planning owner, including release-contract hygiene and durable execution map.",
+      "dependencies": [],
+      "owned_mutation_surfaces": [
+        "docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md",
+        "docs/ASSISTANT_ACTION_EXECUTION_PLAN.md",
+        ".ai/WORK_QUEUE.md",
+        "docs/releases/2026-09-26-assistant-action-execution-map.md",
+        "Outputs/prompt-parallel-dispatch/manifest.json"
+      ],
+      "forbidden_surfaces": [
+        "Phase 1 application code",
+        "PR #156 files",
+        "auth/session",
+        "calendar sync",
+        "production deploy"
+      ],
+      "posture": "remote PR writer",
+      "adapter": {
+        "kind": "runtime_tool",
+        "owner": "active ChatGPT runtime",
+        "operation": "GitHub PR/file/check/review/merge actions"
+      },
+      "expected_artifacts": [
+        "merged PR #157",
+        "updated main containing execution plan"
+      ],
+      "validation": [
+        "node scripts/ai-harness/validate-work-queue.mjs",
+        "npx vitest run server/ai-harness/work-queue-contract.test.ts",
+        "npm run release:check",
+        "exact-head CI/review"
+      ],
+      "convergence_owner": "W0",
+      "status": "in_progress"
+    },
+    {
+      "lane_id": "H0",
+      "mission": "Implement the exact prompt-parallel-dispatch schema/runner/receipt validator without changing application behavior or lane intent.",
+      "dependencies": [
+        "W0"
+      ],
+      "owned_mutation_surfaces": [
+        "harness/contracts/prompt-parallel-dispatch.v1.json",
+        "scripts/prompt_parallel_dispatch.py",
+        "focused harness tests",
+        ".ai capability/trigger/workflow registry entries required for discovery",
+        "Outputs/prompt-parallel-dispatch/manifest.json schema-conformance only"
+      ],
+      "forbidden_surfaces": [
+        "server task/intent logic",
+        "client application logic",
+        "auth",
+        "database",
+        "deployment"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "argv",
+        "argv": [
+          "python",
+          "scripts/prompt_parallel_dispatch.py",
+          "validate",
+          "--manifest",
+          "Outputs/prompt-parallel-dispatch/manifest.json"
+        ]
+      },
+      "expected_artifacts": [
+        "validated manifest",
+        "dispatcher tests",
+        "verified dispatch receipt from safe fixture lanes"
+      ],
+      "validation": [
+        "positive manifest",
+        "missing-field negative",
+        "dependency violation negative",
+        "false-parallelism negative",
+        "runtime-tool impersonation negative",
+        "two independent argv jobs with observed overlap"
+      ],
+      "convergence_owner": "A6",
+      "status": "blocked_on_W0"
+    },
+    {
+      "lane_id": "A1",
+      "mission": "Extract the complete normal POST /api/tasks business workflow into one reusable task-domain service and route REST creation through it.",
+      "dependencies": [
+        "W0"
+      ],
+      "owned_mutation_surfaces": [
+        "server/routes.ts task-create block",
+        "new server task-creation domain service",
+        "focused parity tests"
+      ],
+      "forbidden_surfaces": [
+        "shared/intent/**",
+        "server/engines/calendar-engine.ts",
+        "client/**",
+        "auth",
+        "schema",
+        "migrations"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "shared task creation service",
+        "REST parity tests"
+      ],
+      "validation": [
+        "focused task-create parity tests",
+        "npm run check"
+      ],
+      "convergence_owner": "A6",
+      "status": "blocked_on_W0"
+    },
+    {
+      "lane_id": "A2",
+      "mission": "Repair raw-utterance classification, date-only timezone semantics, recurrence/reminder precedence, and explicit mutation execution policy.",
+      "dependencies": [
+        "W0"
+      ],
+      "owned_mutation_surfaces": [
+        "shared/intent/parse-natural-command.ts",
+        "shared/intent/execution-policy.ts",
+        "shared intent tests",
+        "server/engines/calendar-engine.ts",
+        "focused calendar/date tests"
+      ],
+      "forbidden_surfaces": [
+        "server/routes.ts task-create logic",
+        "server/ai/tools/**",
+        "client/**",
+        "auth",
+        "schema",
+        "migrations"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "five raw-language fixture proofs",
+        "timezone midnight/DST fixtures",
+        "explicit reschedule policy"
+      ],
+      "validation": [
+        "focused parser/policy/calendar tests",
+        "npm run test:ai-eval",
+        "npm run check"
+      ],
+      "convergence_owner": "A6",
+      "status": "blocked_on_W0"
+    },
+    {
+      "lane_id": "A3",
+      "mission": "Implement provider-neutral Assistant Action Contract v1 and canonical server executor with receipts/idempotency.",
+      "dependencies": [
+        "A1",
+        "A2"
+      ],
+      "owned_mutation_surfaces": [
+        "new action request/result schemas",
+        "server action executor",
+        "server normalize/review/apply endpoints",
+        "focused executor tests"
+      ],
+      "forbidden_surfaces": [
+        "external auth",
+        "calendar sync",
+        "client UX",
+        "new scheduler/database",
+        "PR #156"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "canonical executor",
+        "structured receipts",
+        "idempotency tests"
+      ],
+      "validation": [
+        "focused executor/receipt tests",
+        "REST/assistant parity",
+        "recurrence persistence",
+        "reschedule review gate"
+      ],
+      "convergence_owner": "A6",
+      "status": "waiting_on_A1_A2"
+    },
+    {
+      "lane_id": "A4",
+      "mission": "Build generic reviewed-action UI by reusing command-palette and bulk-action interaction patterns without duplicating domain logic.",
+      "dependencies": [
+        "A3"
+      ],
+      "owned_mutation_surfaces": [
+        "new assistant-action review component",
+        "client/src/components/command-palette.tsx",
+        "focused UI tests"
+      ],
+      "forbidden_surfaces": [
+        "client/src/hooks/use-voice.tsx",
+        "parser/date/dedupe/auth logic",
+        "server domain logic"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "review/apply UI",
+        "four-task fixture UI proof"
+      ],
+      "validation": [
+        "focused component tests",
+        "selected-action apply contract",
+        "partial-failure behavior"
+      ],
+      "convergence_owner": "A6",
+      "status": "waiting_on_A3"
+    },
+    {
+      "lane_id": "A5",
+      "mission": "Converge existing browser voice and provider-AI mutations onto the canonical A3 executor.",
+      "dependencies": [
+        "A3"
+      ],
+      "owned_mutation_surfaces": [
+        "server/ai/tools/create-task.ts",
+        "server/ai/tools/create-reminder.ts",
+        "server/routes/ai.ts",
+        "client/src/hooks/use-voice.tsx",
+        "related tests"
+      ],
+      "forbidden_surfaces": [
+        "A4 command-palette/review component",
+        "task-domain business logic",
+        "auth",
+        "schema",
+        "migrations"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "voice/AI delegation to A3",
+        "compatibility tests"
+      ],
+      "validation": [
+        "focused voice/provider-AI tests",
+        "npm run test:ai-eval",
+        "npm run check"
+      ],
+      "convergence_owner": "A6",
+      "status": "waiting_on_A3"
+    },
+    {
+      "lane_id": "A6",
+      "mission": "Converge H0/A1-A5 in dependency order, run combined validation, and merge Phase 1 when exact-head gates are green.",
+      "dependencies": [
+        "H0",
+        "A3",
+        "A4",
+        "A5"
+      ],
+      "owned_mutation_surfaces": [
+        "integration branch/worktree",
+        "integration-only conflict repairs",
+        "release note/attestation required by repo contracts"
+      ],
+      "forbidden_surfaces": [
+        "feature expansion",
+        "external auth/adapter",
+        "production deployment"
+      ],
+      "posture": "single convergence writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local convergence owner"
+      },
+      "expected_artifacts": [
+        "combined candidate",
+        "validated receipt",
+        "merged Phase 1"
+      ],
+      "validation": [
+        "git diff --check",
+        "focused lane suites",
+        "npm run test:ai-eval",
+        "npm run check",
+        "npm test",
+        "npm run build",
+        "npm run release:check",
+        "exact-head CI/review",
+        "post-merge containment"
+      ],
+      "convergence_owner": "A6",
+      "status": "waiting_on_predecessors"
+    },
+    {
+      "lane_id": "B1",
+      "mission": "Add dedicated external assistant machine-to-machine auth/capability boundary after Phase 1.",
+      "dependencies": [
+        "A6"
+      ],
+      "owned_mutation_surfaces": [
+        "dedicated security/auth contract and tests"
+      ],
+      "forbidden_surfaces": [
+        "provider-specific domain logic",
+        "production rollout without security gate"
+      ],
+      "posture": "isolated local security writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "scoped assistant credential/capability contract"
+      ],
+      "validation": [
+        "security-focused tests",
+        "authorization negative cases"
+      ],
+      "convergence_owner": "B2",
+      "status": "waiting_on_A6"
+    },
+    {
+      "lane_id": "B2",
+      "mission": "Implement thin external assistant adapter over the canonical action contract.",
+      "dependencies": [
+        "B1",
+        "A6"
+      ],
+      "owned_mutation_surfaces": [
+        "external adapter/MCP/plugin client",
+        "adapter tests"
+      ],
+      "forbidden_surfaces": [
+        "domain business logic",
+        "alternate parser",
+        "direct database writes",
+        "alternate scheduler"
+      ],
+      "posture": "isolated local adapter writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "capability-aware adapter",
+        "structured action mapping proof"
+      ],
+      "validation": [
+        "adapter contract tests",
+        "negative capability tests"
+      ],
+      "convergence_owner": "B2",
+      "status": "waiting_on_B1_A6"
+    },
+    {
+      "lane_id": "RT-1",
+      "mission": "Prove live external assistant invocation from the active ChatGPT runtime against an authorized test target and verify AxTask readback by canonical IDs.",
+      "dependencies": [
+        "B2"
+      ],
+      "owned_mutation_surfaces": [
+        "authorized test account tasks only"
+      ],
+      "forbidden_surfaces": [
+        "production-user mutation without explicit approval",
+        "direct DB writes",
+        "review/auth bypass"
+      ],
+      "posture": "runtime-only acceptance",
+      "adapter": {
+        "kind": "runtime_tool",
+        "owner": "active ChatGPT runtime",
+        "operation": "connected AxTask adapter invocation + readback"
+      },
+      "expected_artifacts": [
+        "provider invocation receipt",
+        "canonical AxTask IDs",
+        "readback evidence"
+      ],
+      "validation": [
+        "receipt/action count",
+        "canonical ID readback",
+        "ordinary UI/query visibility"
+      ],
+      "convergence_owner": "RT-1",
+      "status": "blocked_on_B2"
+    }
+  ],
+  "collisionConstraints": [
+    {
+      "pr": 139,
+      "owner": "harness infrastructure",
+      "collision": "H0 could otherwise touch .ai/harness.json",
+      "rule": "H0 MUST NOT mutate .ai/harness.json while PR #139 remains open. If that file becomes necessary after refreshed inspection, sequence H0 behind #139 or converge through #139's owner."
+    },
+    {
+      "pr": 155,
+      "owner": "calendar overflow UI",
+      "collision": "none on declared Phase 1 paths",
+      "rule": "A2 may mutate server/engines/calendar-engine.ts but MUST NOT mutate client/src/components/task-calendar.tsx or its overflow test."
+    },
+    {
+      "pr": 156,
+      "owner": "activity history/reporting",
+      "collision": "none on declared AXQ-009 paths",
+      "rule": "All AXQ-009 lanes MUST NOT mutate PR #156 activity-ledger/reporting surfaces."
+    }
+  ]
+}
