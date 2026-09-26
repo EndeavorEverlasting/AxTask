@@ -57,7 +57,7 @@
     "test:deploy": "npm run test:deploy:contract && npm run test:deploy:env && npm run test:deploy:artifacts && npm run test:deploy:migrations && npm run test:deploy:health && npm run test:deploy:regression && npm run test:deploy:classify && npm run test:deploy:capacity-gate && npm run test:deploy:db-audit-forensics && npm run test:deploy:deployment-config && npm run test:deploy:account-evidence",
     "deploy:build-manifest": "node scripts/deploy/build-manifest.mjs",
     "test:objective-contracts": "vitest run server/use-case-engagement.contract.test.ts server/release-2026-routes-contract.test.ts server/notification-preferences.contract.test.ts server/calendar-holidays.contract.test.ts server/csp-reporting.contract.test.ts client/src/lib/feedback-nudge.test.ts client/src/lib/install-device-state.test.ts shared/public-client-dtos.test.ts",
-    "test:docs-contracts": "vitest run server/docs-contracts/docs-doctrine-contract.test.ts server/docs-contracts/docs-privacy-contract.test.ts",
+    "test:docs-contracts": "vitest run server/docs-contracts/docs-doctrine-contract.test.ts server/docs-contracts/docs-privacy-contract.test.ts server/docs-contracts/shared-task-tracker-operator-docs.test.ts",
     "check:startup-seeds": "vitest run server/startup-seeds.guard.test.ts",
     "test:watch": "vitest",
     "test:pg-schema": "cross-env RUN_PG_SCHEMA_TESTS=1 vitest run server/users-schema-pg.integration.test.ts",

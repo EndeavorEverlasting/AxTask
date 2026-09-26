@@ -5,7 +5,7 @@
   "planOwner": "docs/ASSISTANT_ACTION_EXECUTION_PLAN.md",
   "repository": "EndeavorEverlasting/AxTask",
   "baseBranch": "main",
-  "evidenceFloor": "80c2629fd6c7602d21d399a92ca6338925e5d4c5",
+  "evidenceFloor": "375bda1d9819bfeff3c9a1a396f81a72f5f1fb6d",
   "planningPr": 157,
   "execution": {
     "requiredGraphWidthAfterW0": 3,
@@ -267,7 +267,9 @@
         "focused executor/receipt tests",
         "REST/assistant parity",
         "recurrence persistence",
-        "reschedule review gate"
+        "reschedule review gate",
+        "concurrent same-key atomic idempotency fixture",
+        "post-success replay returns prior canonical entity receipt"
       ],
       "convergence_owner": "A6",
       "status": "waiting_on_A1_A2"
@@ -478,6 +480,230 @@
       ],
       "convergence_owner": "RT-1",
       "status": "blocked_on_B2"
+    },
+    {
+      "lane_id": "S0",
+      "mission": "Install the already-validated bound Apps Script top-entry workflow in the operator-owned Shared Task Tracker, promote the proven Quick Entry UI, and capture live provider proof without changing planner row geometry.",
+      "dependencies": [],
+      "owned_mutation_surfaces": [
+        "provider-owned Shared Task Tracker bound Apps Script project",
+        "provider-owned Task Board Quick Entry surface",
+        "provider-owned validation receipt"
+      ],
+      "forbidden_surfaces": [
+        "AxTask application code",
+        "public spreadsheet identifiers/private task contents",
+        "public Apps Script web-app endpoint",
+        "physical planner row insertion"
+      ],
+      "posture": "operator/provider runtime",
+      "adapter": {
+        "kind": "runtime_tool",
+        "owner": "Apps Script-capable operator/local browser runtime",
+        "operation": "bound Apps Script install + Google Sheets live acceptance"
+      },
+      "expected_artifacts": [
+        "installed bound script",
+        "live Quick Entry proof",
+        "provider-owned validation receipt"
+      ],
+      "validation": [
+        "created source TaskID readback",
+        "formula anchors unchanged",
+        "validation/conditional-format/filter ranges unchanged",
+        "active/legacy boundary unchanged",
+        "success-clear and failure-retain behavior"
+      ],
+      "convergence_owner": "G4",
+      "status": "operator_gate"
+    },
+    {
+      "lane_id": "G1",
+      "mission": "Implement a header-aware, read-only Shared Task Tracker source adapter keyed by immutable source TaskID and produce deterministic dry-run dispositions.",
+      "dependencies": [
+        "A6"
+      ],
+      "owned_mutation_surfaces": [
+        "server/google-sheets-api.ts or extracted source adapter",
+        "focused synthetic tracker fixtures/tests",
+        "minimal dry-run route typing"
+      ],
+      "forbidden_surfaces": [
+        "task creation mutation",
+        "client redesign",
+        "external assistant auth",
+        "live spreadsheet writes",
+        "legacy-region import by default"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "typed tracker source record",
+        "dry-run parser",
+        "source-identity fixtures"
+      ],
+      "validation": [
+        "header-order independence",
+        "missing TaskID fail-closed",
+        "row-order independence",
+        "legacy exclusion",
+        "mutable-text same-TaskID identity"
+      ],
+      "convergence_owner": "G5",
+      "status": "waiting_on_A6"
+    },
+    {
+      "lane_id": "G2",
+      "mission": "Map reviewed tracker source records to stable A3 create_task actions so A3 supplies atomic idempotency/receipts and A1 supplies the normal task-create business workflow.",
+      "dependencies": [
+        "G1",
+        "A6"
+      ],
+      "owned_mutation_surfaces": [
+        "Google Sheets source-to-Assistant-Action mapping",
+        "stable source identity to A3 action/idempotency key mapping",
+        "focused concurrency/replay integration tests"
+      ],
+      "forbidden_surfaces": [
+        "direct Google-specific storage.createTask workflow",
+        "check-then-create dedupe",
+        "second provider-specific idempotency store",
+        "silent source-to-AxTask overwrite",
+        "client UX",
+        "bidirectional sync"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "source-record to canonical create_task action mapper",
+        "A3-backed source TaskID receipts",
+        "concurrent idempotency proof"
+      ],
+      "validation": [
+        "A3/A1 task creation parity",
+        "two concurrent applies of same source TaskID create exactly one task",
+        "post-success replay returns same canonical AxTask ID",
+        "mutable source text does not fork source identity",
+        "structured failure/review receipts"
+      ],
+      "convergence_owner": "G5",
+      "status": "waiting_on_G1_A6"
+    },
+    {
+      "lane_id": "G3",
+      "mission": "Modernize Google Sheets UX to dry-run/review/apply and retire POST /api/google-sheets/sync at the server boundary so direct requests cannot bypass the quarantine.",
+      "dependencies": [
+        "G2"
+      ],
+      "owned_mutation_surfaces": [
+        "client/src/pages/google-sheets-sync.tsx",
+        "client/src/lib/google-api.ts",
+        "server /api/google-sheets/sync retirement policy",
+        "focused server/UI tests"
+      ],
+      "forbidden_surfaces": [
+        "domain business logic",
+        "silent bulk import",
+        "legacy-region default import",
+        "credential exposure",
+        "automatic conflict overwrite",
+        "UI-only quarantine"
+      ],
+      "posture": "isolated local writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local agent/orchestrator selected by local environment"
+      },
+      "expected_artifacts": [
+        "review/apply Google Sheets UX",
+        "server-side legacy-sync retirement response",
+        "receipt UI"
+      ],
+      "validation": [
+        "dry-run disposition counts",
+        "selection/apply contract",
+        "per-row receipts",
+        "direct POST /api/google-sheets/sync cannot mutate and returns retirement response"
+      ],
+      "convergence_owner": "G5",
+      "status": "waiting_on_G2"
+    },
+    {
+      "lane_id": "G4",
+      "mission": "Run controlled live ingestion from the exact authorized tracker binding: dry-run first, bounded approved sample, canonical AxTask readback, then idempotent repeat.",
+      "dependencies": [
+        "G3",
+        "S0"
+      ],
+      "owned_mutation_surfaces": [
+        "authorized operator AxTask account tasks only",
+        "sanitized runtime receipt"
+      ],
+      "forbidden_surfaces": [
+        "legacy-region import without approval",
+        "private task contents in Git",
+        "unreviewed bulk mutation",
+        "source spreadsheet overwrite"
+      ],
+      "posture": "runtime acceptance",
+      "adapter": {
+        "kind": "runtime_tool",
+        "owner": "authorized operator/runtime",
+        "operation": "Google Sheets dry-run/apply + AxTask readback"
+      },
+      "expected_artifacts": [
+        "dry-run receipt",
+        "bounded live import receipt",
+        "canonical AxTask IDs",
+        "repeat-import zero-duplicate proof"
+      ],
+      "validation": [
+        "source TaskID to AxTask ID mapping",
+        "same source repeat creates zero new tasks",
+        "ordinary AxTask visibility"
+      ],
+      "convergence_owner": "G5",
+      "status": "waiting_on_G3_S0"
+    },
+    {
+      "lane_id": "G5",
+      "mission": "Complete cutover: AxTask becomes operational task authority, the tracker becomes an optional legacy/manual producer or projection, and destructive bidirectional sync stays disabled absent a separately proved contract.",
+      "dependencies": [
+        "G4"
+      ],
+      "owned_mutation_surfaces": [
+        "integration closeout docs/config/UI disposition",
+        "release/queue evidence"
+      ],
+      "forbidden_surfaces": [
+        "new sync semantics",
+        "automatic reverse writes",
+        "unproved external assistant rollout"
+      ],
+      "posture": "single convergence writer",
+      "adapter": {
+        "kind": "local_agent",
+        "runner": "repo-proven local convergence owner"
+      },
+      "expected_artifacts": [
+        "canonical cutover contract",
+        "old-sync disposition",
+        "post-cutover regression proof"
+      ],
+      "validation": [
+        "AxTask canonical create/edit path",
+        "source dry-run remains idempotent",
+        "no required workflow depends on spreadsheet row identity",
+        "docs/release/queue alignment"
+      ],
+      "convergence_owner": "G5",
+      "status": "waiting_on_G4"
     }
   ],
   "collisionConstraints": [

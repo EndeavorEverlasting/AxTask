@@ -342,6 +342,8 @@ Suggested mini-games PR sequence:
 
 ### Document Authority Map
 
+- Shared Task Tracker day-to-day transition and old-vs-new workflow: [SHARED_TASK_TRACKER_OPERATOR_GUIDE.md](./SHARED_TASK_TRACKER_OPERATOR_GUIDE.md)
+- Shared Task Tracker bound Apps Script install + live proof: [SHARED_TASK_TRACKER_APPS_SCRIPT_INSTALL_CHECKLIST.md](./SHARED_TASK_TRACKER_APPS_SCRIPT_INSTALL_CHECKLIST.md)
 - Discretionary AxCoin credits (owner allowlist, not generic admin): [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
 - Local / Docker / production database and schema sync: [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
 - Canonical index: `docs/ACTIVE_LEGACY_INDEX.md`
