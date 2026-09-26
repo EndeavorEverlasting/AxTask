@@ -20,6 +20,7 @@ describe("Shared Task Tracker operator documentation", () => {
     expect(guide).toContain("Scripts!B2");
     expect(checklist).toContain("Scripts!B2");
     expect(checklist).toContain("TrackerV2.gs");
+    expect(checklist).toContain("Files to create for the current Tracker V2 install: exactly one");
     expect(checklist).toContain("No public web-app deployment.");
     expect(checklist).toContain("No manually installed trigger required.");
     expect(plan).toContain("provider-owned workbook `Scripts!B2`");
