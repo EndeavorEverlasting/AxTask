@@ -84,7 +84,7 @@ If the menu is absent, do not continue to production use of Submit.
 
 On `Task Board`, row 4:
 
-- [ ] leave Date blank for today, or enter a valid date;
+- [ ] choose an explicit valid Date in A4 — use today's date for the first Today-projection smoke test;
 - [ ] Activity: enter a clearly labeled test task;
 - [ ] Notes: optionally state that this is the S0 top-entry smoke test;
 - [ ] leave optional scoring/classification fields blank unless you want to exercise them;
@@ -107,7 +107,8 @@ Use **Ctrl+F** and search for the TaskID shown in `Task Board!D5`.
 
 Verify:
 
-- [ ] Date is a durable date value;
+- [ ] Date is a durable **date-only** value;
+- [ ] if the smoke task is dated today, it appears in the Task Board Today projection;
 - [ ] Result is unchecked / false;
 - [ ] Activity matches;
 - [ ] Notes match;
@@ -116,6 +117,21 @@ Verify:
 - [ ] Score column K remains formula-owned.
 
 Do not insert or delete planner rows to perform this test.
+
+---
+
+## Date-only proof boundary
+
+Do **not** use a blank A4 Date as the first production proof.
+
+The current Tracker V2 source uses `new Date()` as the blank-date fallback, while Task Board's Today/Tomorrow projections use exact `=TODAY()` date equality. Existing workbook tests do not yet prove that blank fallback is normalized to date-only semantics.
+
+S0 must either:
+
+1. prove the blank-date path stores a date-only value and appears in the Today projection; or
+2. repair the canonical provider-owned script before “blank Date means today” is documented as supported behavior.
+
+Until then, explicit A4 Date selection is the operator-safe path.
 
 ---
 
@@ -166,6 +182,8 @@ Call S0 installed/proven only after live provider readback establishes:
 4. invalid submission does not lose the staging input;
 5. Priority / Score formula owners remain intact;
 6. validation / filter / formatting geometry remains intact;
-7. the active region still ends before the preserved legacy boundary at row 24997.
+7. the active region still ends before the preserved legacy boundary at row 24997;
+8. a task explicitly dated today appears in the Task Board Today projection;
+9. blank-Date behavior is either independently proved date-only-safe or remains explicitly unsupported pending repair.
 
 Repository documentation alone does not prove this gate.
