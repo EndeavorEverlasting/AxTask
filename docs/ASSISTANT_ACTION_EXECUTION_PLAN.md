@@ -98,7 +98,7 @@ This conversation-derived fixture is the first dogfood case. It is intentionally
       "payload": {
         "date": "2026-09-27",
         "activity": "Clean room",
-        "notes": "Bonus task after the higher-priority work is handled.",
+        "notes": "Bonus task after the higher-priority work is handled, if I have time.",
         "recurrence": "none",
         "status": "pending",
         "visibility": "private",
@@ -113,14 +113,21 @@ Do not add unsupported fields such as arbitrary `optional`, `order`, or provider
 
 ### Raw-language acceptance fixture
 
-Use this exact semantic fixture in end-to-end tests:
+Use this exact semantic fixture in end-to-end tests.
+
+Fixture clock and timezone (required inputs — not optional):
+
+- fixed clock: `2026-09-26T15:00:00-04:00`
+- timezone: `America/New_York`
+
+Under those inputs, “Tomorrow” resolves deterministically to calendar date `2026-09-27`.
 
 > Tomorrow I want to do my morning routine, get back to Donald about DB Smith, do my taxes, and clean my room if I have time.
 
 Expected result after review approval:
 
 1. exactly four task-create actions;
-2. every task date resolves to `2026-09-27` under the configured user/application timezone contract;
+2. every task date resolves to `2026-09-27` under the fixed clock and `America/New_York` timezone contract above;
 3. the morning routine remains one AxTask task with its six-step detail in notes;
 4. no duplicate task is created on replay under the accepted idempotency policy;
 5. a structured receipt returns one canonical task ID per successful action;
