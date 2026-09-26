@@ -370,7 +370,7 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 
 **Required contract fields:** stable action ID, action kind, normalized payload, execution policy state, clarification/review reason when applicable, idempotency key/replay disposition, canonical created/updated entity ID on success, per-action error on failure.
 
-**Idempotency:** retries must not duplicate already-successful mutations. The implementation may reuse an existing canonical idempotency/fingerprint mechanism when semantics match; it must not invent a second silent dedupe store without proving necessity.
+**Idempotency:** retries and concurrent submissions with the same canonical idempotency key must not duplicate mutations. Claiming a key MUST be atomic (unique-key insert/transaction or an equivalent repository-owned primitive); a select-then-insert check is insufficient. One contender owns execution; a concurrent loser receives a deterministic in-progress/replay disposition rather than running the mutation. Successful completion persists a replayable receipt including the canonical entity ID before the action is considered complete. A3 must prove a two-contender concurrent fixture plus post-success replay. Reuse an existing canonical idempotency owner only if it satisfies those semantics; otherwise strengthen the smallest canonical owner rather than adding provider-specific dedupe.
 
 **Acceptance:** both REST task creation and assistant task creation reach A1's same domain service; recurring task persists supported recurrence; reschedule mutates server-side only after policy allows; per-action receipts are deterministic.
 
@@ -523,7 +523,7 @@ This phase is a reconciliation of two already-existing systems, not a greenfield
 - The provider-owned Shared Task Tracker has a validated **top-entry staging → canonical append** design with immutable source `TaskID`, formula-owned Priority/Score projections, a fixed active/legacy boundary, and a rejected physical-row-insertion prototype because insertion shifted spill ranges and the legacy boundary.
 - AxTask already ships a Google Sheets subsystem in `server/google-sheets-api.ts`, `server/routes.ts`, `client/src/lib/google-api.ts`, and `client/src/pages/google-sheets-sync.tsx`.
 - The legacy AxTask subsystem is **not** approved as the Shared Task Tracker ingestion path: its export clears/re-writes `A2:L`; its parser manufactures row-derived temporary IDs; its in-memory sync conflict model does not preserve the tracker's immutable `TaskID`; and the import route reconstructs task-create effects around direct storage writes instead of delegating to the future A1 shared task-domain service.
-- Therefore **do not point `/api/google-sheets/sync` at the operator tracker**. Phase 3 converts the existing subsystem into a reviewed, source-identity-aware one-way ingestion seam and then makes AxTask canonical after cutover.
+- Therefore **do not point `/api/google-sheets/sync` at the operator tracker**. The endpoint is still reachable on the current evidence floor; this plan does not pretend otherwise. G3 makes the quarantine real by retiring that mutation endpoint server-side before any controlled live tracker ingestion. Phase 3 converts the remaining subsystem into a reviewed, source-identity-aware one-way ingestion seam and then makes AxTask canonical after cutover.
 
 Private spreadsheet identifiers and task contents are provider state and MUST NOT be copied into this public repository. Repository fixtures use synthetic rows with the same structural contract.
 
@@ -591,27 +591,30 @@ The default ingestion region is the active task region only. The historical/lega
 
 **Acceptance:** row order is irrelevant; changing mutable text while keeping the same source TaskID does not create a second source identity; formula-owned source Priority/Score are ignored as task-authority inputs; malformed/missing TaskID fails closed.
 
-### G2 — Canonical reviewed ingestion service
+### G2 — Canonical reviewed ingestion action mapping
 
 **Primary surface:** integration service
 **Dependencies:** G1 + A6
-**Mission:** turn reviewed source records into ordinary AxTask task creates through A1's shared task-domain service.
+**Mission:** turn reviewed source records into canonical A3 `create_task` actions so the ingestion path reuses A3 authorization/idempotency/receipts and A1's full normal task-create workflow.
 
 **Required invariants:**
 - no direct Google-Sheets-specific `storage.createTask` business workflow;
-- quota, duplicate handling, derived priority/classification/shopping associations, pattern learning, rewards, and other ordinary creation effects remain owned by the shared service;
-- idempotency is keyed by stable source identity, not mutable task text;
-- prefer the existing import-fingerprint persistence when it can safely store a deterministic hash of `provider + private binding identity + source TaskID`; add schema only if a negative fixture proves that owner cannot represent the requirement;
-- each apply returns a receipt containing source TaskID, disposition, canonical AxTask task ID on success, and structured error/review reason on failure;
+- each source record maps to a stable action ID/idempotency key derived from `provider + private binding identity + source TaskID`; mutable title/date/notes are payload, never identity;
+- A3 owns the atomic idempotency claim and replay receipt. G2 MUST NOT implement a check-then-create dedupe path;
+- two concurrent applies for the same source identity are a required negative fixture: exactly one may reach task creation; the other returns A3's deterministic in-progress/replay disposition;
+- after successful apply, replay returns the prior canonical AxTask task ID and does not rerun rewards, classification, learning, or other creation side effects;
+- quota, duplicate handling, derived priority/classification/shopping associations, pattern learning, rewards, and other ordinary creation effects remain owned by A1 through A3;
 - imports are one-way creates in the first slice. A later edit in Sheets MUST NOT silently overwrite an AxTask task.
 
-**Acceptance:** repeated apply of the same source TaskID is idempotent even after source title/notes change; ordinary AxTask creation parity tests remain green.
+**Existing persistence evidence:** `task_import_fingerprints` already has a unique `(user_id, fingerprint)` index, but the current `hasImportFingerprint() -> create task -> recordImportFingerprint()` flow is not an atomic mutation claim. It may remain useful for legacy import dedupe, but it is not sufficient by itself for G2 concurrency. G2 must use A3's proved atomic action-idempotency owner.
+
+**Acceptance:** simultaneous apply of the same source TaskID produces one canonical task; post-success replay returns the same A3 receipt/task ID; mutable source text does not fork identity; ordinary AxTask creation parity tests remain green.
 
 ### G3 — Review/apply experience and legacy sync quarantine
 
 **Primary surface:** UI consumer + route policy
 **Dependencies:** G2
-**Mission:** modernize the existing Google Sheets Sync screen around dry-run/review/apply instead of silent bidirectional merge.
+**Mission:** modernize the existing Google Sheets Sync screen around dry-run/review/apply and retire the current destructive bidirectional sync path at the server boundary.
 
 **Reuse:** A4 generic review-and-apply interaction patterns when practical.
 
@@ -622,9 +625,10 @@ The default ingestion region is the active task region only. The historical/lega
 - row-level selection before apply;
 - per-row result receipts after apply;
 - bounded retry only for idempotent failures;
-- the existing destructive/bidirectional `sync` action is hidden or disabled for this tracker binding unless a future separately proved conflict contract exists.
+- `POST /api/google-sheets/sync` is retired server-side for all callers in this phase and returns an explicit non-mutating retirement response (for example HTTP 410 with the reviewed-ingestion replacement path); UI removal is defense-in-depth, not the enforcement boundary;
+- a future bidirectional sync may be reintroduced only as a new separately proved stable-identity/conflict contract, never by silently re-enabling this endpoint.
 
-**Acceptance:** no UI action can invoke the old destructive sync against the Shared Task Tracker; selected apply maps exactly to G2 receipts.
+**Acceptance:** direct HTTP calls to the legacy sync endpoint cannot mutate any spreadsheet or AxTask task; the UI exposes dry-run/review/apply instead; selected apply maps exactly to G2/A3 receipts.
 
 ### G4 — Controlled live ingestion acceptance
 
