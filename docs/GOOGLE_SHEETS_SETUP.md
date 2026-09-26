@@ -5,11 +5,11 @@
 ## Legacy subsystem warning
 
 > [!WARNING]
-> The existing Google Sheets integration predates the current assistant-action/task-domain convergence plan. **Do not point the current `/api/google-sheets/sync` path at the operator-owned Shared Task Tracker.** The legacy sync/export code clears and rewrites `A2:L`, uses row-derived temporary IDs during import, and does not preserve the tracker's immutable source `TaskID` contract. The approved successor is the reviewed one-way ingestion plan in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` Phase 3 / AXQ-012. AxTask becomes canonical after cutover.
+> The existing Google Sheets integration predates the current assistant-action/task-domain convergence plan. **Do not point the current `/api/google-sheets/sync` path at the operator-owned Shared Task Tracker.** The endpoint is still reachable on the current code floor; this warning is operational guidance, not a claim that enforcement already exists. The legacy sync/export code clears and rewrites `A2:L`, uses row-derived temporary IDs during import, and does not preserve the tracker's immutable source `TaskID` contract. G3 in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` retires the sync mutation endpoint server-side before live tracker ingestion. The approved successor is reviewed one-way ingestion, and AxTask becomes canonical after cutover.
 
 This setup guide remains useful for Google OAuth/API mechanics. It is not authority for the Shared Task Tracker ingestion semantics.
 
-This guide provides step-by-step instructions for setting up Google Sheets API integration with AxTask. The setup enables real-time synchronization between your intelligent task management system and Google Sheets.
+This guide documents the existing Google Sheets API integration mechanics in AxTask. It includes legacy import/export and a historical bidirectional sync endpoint. That sync endpoint is **not** considered a safe real-time synchronization contract under the current architecture and is scheduled for server-side retirement in the Shared Task Tracker convergence plan.
 
 ## Security Notice
 
@@ -127,9 +127,9 @@ Team lead sets up shared project, distributes credentials securely:
 2. **Create OAuth Client ID**
    - Go to "APIs & Services" → "Credentials"
    - Click "+ Create Credentials" → "OAuth client ID"
-   
+
    **⚠️ Important Setup Notes:**
-   
+
    You're in the right place—this screen is **Create OAuth client ID**.
    The fields you're looking for (Origins + Redirect URIs) appear **after you pick "Web application."**
 
