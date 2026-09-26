@@ -479,5 +479,25 @@
       "convergence_owner": "RT-1",
       "status": "blocked_on_B2"
     }
+  ],
+  "collisionConstraints": [
+    {
+      "pr": 139,
+      "owner": "harness infrastructure",
+      "collision": "H0 could otherwise touch .ai/harness.json",
+      "rule": "H0 MUST NOT mutate .ai/harness.json while PR #139 remains open. If that file becomes necessary after refreshed inspection, sequence H0 behind #139 or converge through #139's owner."
+    },
+    {
+      "pr": 155,
+      "owner": "calendar overflow UI",
+      "collision": "none on declared Phase 1 paths",
+      "rule": "A2 may mutate server/engines/calendar-engine.ts but MUST NOT mutate client/src/components/task-calendar.tsx or its overflow test."
+    },
+    {
+      "pr": 156,
+      "owner": "activity history/reporting",
+      "collision": "none on declared AXQ-009 paths",
+      "rule": "All AXQ-009 lanes MUST NOT mutate PR #156 activity-ledger/reporting surfaces."
+    }
   ]
 }
