@@ -120,11 +120,39 @@ function parseCompleted(value: string): boolean {
   return v === "true" || v === "1" || v === "yes" || v === "checked";
 }
 
-function parseScore1to5(value: string): number | null {
-  if (!value) return null;
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n) || n < 1 || n > 5) return null;
-  return n;
+type OptionalScoreParse =
+  | { ok: true; value: number | null }
+  | { ok: false; reason: string };
+
+/**
+ * AxTask create contract accepts urgency/impact/effort 1–5.
+ * Blank → null (omit). Exact 0 or malformed text → fail closed via needs_review.
+ */
+function parseOptionalScore(value: string): OptionalScoreParse {
+  if (!value) return { ok: true, value: null };
+  if (!/^[0-5]$/.test(value)) {
+    return { ok: false, reason: `malformed score '${value}' (expected blank or 0-5)` };
+  }
+  const n = Number(value);
+  if (n === 0) {
+    return {
+      ok: false,
+      reason: "score 0 cannot map losslessly to AxTask 1-5 create contract",
+    };
+  }
+  return { ok: true, value: n };
+}
+
+/** Accept only YYYY-MM-DD calendar dates (no invent-today, no free text). */
+function isDateOnlyYmd(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split("-").map((part) => Number(part));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d
+  );
 }
 
 function isBlankRow(row: unknown[]): boolean {
@@ -313,35 +341,65 @@ export function dryRunTrackerRows(input: DryRunTrackerRowsInput): TrackerDryRunR
     }
     seenIdentityRows.set(identityKey, spreadsheetRow);
 
-    const record: TrackerSourceRecord = {
-      identity,
-      spreadsheetRow,
-      region,
-      date: dateRaw || null,
-      activity,
-      notes: cell(row, notesIdx),
-      completed: parseCompleted(cell(row, resultIdx)),
-      urgency: parseScore1to5(cell(row, urgencyIdx)),
-      impact: parseScore1to5(cell(row, impactIdx)),
-      effort: parseScore1to5(cell(row, effortIdx)),
-      domain: cell(row, domainIdx) || null,
-      tags: cell(row, tagsIdx) || null,
-      manualOverride: cell(row, manualIdx) || null,
-    };
-
-    // Date missing → needs_review (not invent today); matches operator date-only caution.
-    if (!dateRaw) {
+    const urgencyParse = parseOptionalScore(cell(row, urgencyIdx));
+    const impactParse = parseOptionalScore(cell(row, impactIdx));
+    const effortParse = parseOptionalScore(cell(row, effortIdx));
+    if (!urgencyParse.ok || !impactParse.ok || !effortParse.ok) {
+      const reason = !urgencyParse.ok
+        ? `Urgency: ${urgencyParse.reason}`
+        : !impactParse.ok
+          ? `Impact: ${impactParse.reason}`
+          : `Effort: ${(effortParse as { ok: false; reason: string }).reason}`;
       const result: TrackerDryRunRowResult = {
         disposition: "needs_review",
         spreadsheetRow,
-        reason: "missing Date; refuse blank-date invent-today in dry-run",
-        record,
+        reason,
         sourceTaskId,
       };
       counts.needs_review += 1;
       results.push(result);
       continue;
     }
+
+    if (!dateRaw) {
+      const result: TrackerDryRunRowResult = {
+        disposition: "needs_review",
+        spreadsheetRow,
+        reason: "missing Date; refuse blank-date invent-today in dry-run",
+        sourceTaskId,
+      };
+      counts.needs_review += 1;
+      results.push(result);
+      continue;
+    }
+
+    if (!isDateOnlyYmd(dateRaw)) {
+      const result: TrackerDryRunRowResult = {
+        disposition: "needs_review",
+        spreadsheetRow,
+        reason: `Date '${dateRaw}' is not a lossless YYYY-MM-DD value`,
+        sourceTaskId,
+      };
+      counts.needs_review += 1;
+      results.push(result);
+      continue;
+    }
+
+    const record: TrackerSourceRecord = {
+      identity,
+      spreadsheetRow,
+      region,
+      date: dateRaw,
+      activity,
+      notes: cell(row, notesIdx),
+      completed: parseCompleted(cell(row, resultIdx)),
+      urgency: urgencyParse.value,
+      impact: impactParse.value,
+      effort: effortParse.value,
+      domain: cell(row, domainIdx) || null,
+      tags: cell(row, tagsIdx) || null,
+      manualOverride: cell(row, manualIdx) || null,
+    };
 
     if (input.receipts.hasImportedSourceIdentity(identity)) {
       const result: TrackerDryRunRowResult = {

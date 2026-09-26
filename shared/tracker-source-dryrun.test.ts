@@ -189,4 +189,78 @@ describe("tracker-source-dryrun G1 prototype", () => {
     expect(report.results[0]?.disposition).toBe("needs_review");
     expect(report.results[0]?.reason).toMatch(/blank-date|missing Date/i);
   });
+
+  it("duplicate TaskID in batch → needs_review citing first row", () => {
+    const report = dryRunTrackerRows({
+      provider: "google_sheets",
+      bindingId: "synthetic-binding",
+      rows: plannerRows(activeRow("T-DUP"), activeRow("T-DUP", "Second")),
+      receipts: createMemoryReceiptPort(),
+    });
+
+    expect(report.counts.create).toBe(1);
+    expect(report.counts.needs_review).toBe(1);
+    expect(report.results[1]?.disposition).toBe("needs_review");
+    expect(report.results[1]?.reason).toMatch(/first seen at row 2/);
+  });
+
+  it("malformed Date → needs_review", () => {
+    const report = dryRunTrackerRows({
+      provider: "google_sheets",
+      bindingId: "synthetic-binding",
+      rows: plannerRows(activeRow("T-BAD-DATE", "Bad date", "not-a-date")),
+      receipts: createMemoryReceiptPort(),
+    });
+
+    expect(report.counts.needs_review).toBe(1);
+    expect(report.results[0]?.reason).toMatch(/YYYY-MM-DD/);
+  });
+
+  it("score 0 or malformed score → needs_review", () => {
+    const zero = dryRunTrackerRows({
+      provider: "google_sheets",
+      bindingId: "synthetic-binding",
+      rows: plannerRows([
+        "2026-09-26",
+        "FORMULA",
+        false,
+        "Zero urgency",
+        "",
+        0,
+        4,
+        2,
+        "",
+        "",
+        "FORMULA",
+        "",
+        "T-ZERO",
+      ]),
+      receipts: createMemoryReceiptPort(),
+    });
+    expect(zero.counts.needs_review).toBe(1);
+    expect(zero.results[0]?.reason).toMatch(/score 0/i);
+
+    const malformed = dryRunTrackerRows({
+      provider: "google_sheets",
+      bindingId: "synthetic-binding",
+      rows: plannerRows([
+        "2026-09-26",
+        "FORMULA",
+        false,
+        "Bad urgency",
+        "",
+        "3abc",
+        4,
+        2,
+        "",
+        "",
+        "FORMULA",
+        "",
+        "T-BAD-SCORE",
+      ]),
+      receipts: createMemoryReceiptPort(),
+    });
+    expect(malformed.counts.needs_review).toBe(1);
+    expect(malformed.results[0]?.reason).toMatch(/malformed score/i);
+  });
 });
