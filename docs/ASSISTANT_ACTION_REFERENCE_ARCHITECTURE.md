@@ -411,7 +411,8 @@ manifest is intentionally marked bootstrap-blocked: it is a durable lane map,
 not dispatch proof. Lane H0 in the execution plan owns creation and validation
 of that missing harness seam.
 
-The execution map does **not** weaken the existing Phase 1 gate. AXQ-009 remains
-non-executable until this PR is review-clean, validated, merged, and present on
-refreshed `main`. No assistant-action application implementation may begin
-from this unmerged planning branch.
+The execution map does **not** weaken the existing Phase 1 gate. AXQ-009 is
+`READY` after PR #157 merged onto refreshed `main` at
+`80c2629fd6c7602d21d399a92ca6338925e5d4c5`. Phase 1 application implementation
+may begin from that mainline floor as H0 ∥ A1 ∥ A2 per
+`docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`.

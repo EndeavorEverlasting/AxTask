@@ -5,7 +5,7 @@
   "planOwner": "docs/ASSISTANT_ACTION_EXECUTION_PLAN.md",
   "repository": "EndeavorEverlasting/AxTask",
   "baseBranch": "main",
-  "evidenceFloor": "7af06d7a9cf638dfe1c96a1e2b85914edb610f76",
+  "evidenceFloor": "80c2629fd6c7602d21d399a92ca6338925e5d4c5",
   "planningPr": 157,
   "execution": {
     "requiredGraphWidthAfterW0": 3,
@@ -19,7 +19,7 @@
       "lanes": [
         "W0"
       ],
-      "gate": "PR #157 merged on refreshed main"
+      "gate": "COMPLETE — PR #157 merged on refreshed main"
     },
     {
       "id": "W1",
@@ -110,7 +110,7 @@
         "exact-head CI/review"
       ],
       "convergence_owner": "W0",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "lane_id": "H0",
@@ -157,7 +157,7 @@
         "two independent argv jobs with observed overlap"
       ],
       "convergence_owner": "A6",
-      "status": "blocked_on_W0"
+      "status": "ready"
     },
     {
       "lane_id": "A1",
@@ -192,7 +192,7 @@
         "npm run check"
       ],
       "convergence_owner": "A6",
-      "status": "blocked_on_W0"
+      "status": "ready"
     },
     {
       "lane_id": "A2",
@@ -231,7 +231,7 @@
         "npm run check"
       ],
       "convergence_owner": "A6",
-      "status": "blocked_on_W0"
+      "status": "ready"
     },
     {
       "lane_id": "A3",
