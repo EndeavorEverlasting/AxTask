@@ -567,7 +567,8 @@ These docs may describe and route the provider operation, but the provider-owned
 7. read back the created source TaskID and the canonical planner row;
 8. verify formula anchors, validation, conditional-format ranges, basic filter, and active/legacy boundary are unchanged;
 9. verify success clears the staging row only after commit and a validation error leaves inputs available for correction;
-10. persist the live result in the provider-owned validation surface.
+10. prove date-only semantics: an explicitly today-dated Quick Entry record must appear in the Task Board Today projection; the current blank-date `new Date()` fallback is UNPROVEN and must either be normalized/repaired in the provider-owned source or independently proved date-only-safe before “blank Date means today” is accepted;
+11. persist the live result in the provider-owned validation surface.
 
 **Proof ceiling:** live Google Sheet behavior only. This does not prove AxTask ingestion.
 
