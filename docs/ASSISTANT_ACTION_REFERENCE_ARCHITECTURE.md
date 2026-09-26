@@ -392,3 +392,26 @@ No code mutation is authorized by these findings in the reference-architecture s
 **Action:** create the Phase 1 implementation sprint by reconciling the current raw utterance parser/classifier, execution policy, `POST /api/tasks` business workflow, `calendar-engine.ts`, provider AI tools, reminder/update services, application timezone/date contracts, and affected tests; first extract the full normal task-create workflow into a shared domain service, then implement the smallest provider-neutral server action executor covering create task, create recurring task, create reminder, reschedule task, and schedule query; wire raw-utterance fixtures through the entire path and run focused plus affected existing suites.
 **Expected proof:** one merged shared task-domain creation service and server-owned action path with REST/assistant parity, deterministic receipts, target dictation fixtures, recurring persistence, explicit reschedule policy, timezone-safe date-only behavior, and no auth/calendar/production-surface changes.
 **Completion gate:** all Phase 1 proof criteria above are satisfied on the exact integrated default-branch head.
+
+
+## Execution factoring update — 2026-09-26
+
+The complete accepted successor execution map now lives in
+[`docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`](./ASSISTANT_ACTION_EXECUTION_PLAN.md).
+That plan is the canonical owner for the runtime-vs-local work split, bounded
+sprint lanes, dependency graph, user dogfood fixture, review-and-apply flow,
+validation order, and proof ceilings.
+
+The machine-readable orchestration plan is
+[`Outputs/prompt-parallel-dispatch/manifest.json`](../Outputs/prompt-parallel-dispatch/manifest.json).
+On the current evidence floor, the requested
+`harness/contracts/prompt-parallel-dispatch.v1.json` and
+`scripts/prompt_parallel_dispatch.py` owners do not yet exist. Therefore the
+manifest is intentionally marked bootstrap-blocked: it is a durable lane map,
+not dispatch proof. Lane H0 in the execution plan owns creation and validation
+of that missing harness seam.
+
+The execution map does **not** weaken the existing Phase 1 gate. AXQ-009 remains
+non-executable until this PR is review-clean, validated, merged, and present on
+refreshed `main`. No assistant-action application implementation may begin
+from this unmerged planning branch.
