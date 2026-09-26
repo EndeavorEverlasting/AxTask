@@ -2,6 +2,13 @@
 
 ## Overview
 
+## Legacy subsystem warning
+
+> [!WARNING]
+> The existing Google Sheets integration predates the current assistant-action/task-domain convergence plan. **Do not point the current `/api/google-sheets/sync` path at the operator-owned Shared Task Tracker.** The legacy sync/export code clears and rewrites `A2:L`, uses row-derived temporary IDs during import, and does not preserve the tracker's immutable source `TaskID` contract. The approved successor is the reviewed one-way ingestion plan in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` Phase 3 / AXQ-012. AxTask becomes canonical after cutover.
+
+This setup guide remains useful for Google OAuth/API mechanics. It is not authority for the Shared Task Tracker ingestion semantics.
+
 This guide provides step-by-step instructions for setting up Google Sheets API integration with AxTask. The setup enables real-time synchronization between your intelligent task management system and Google Sheets.
 
 ## Security Notice
