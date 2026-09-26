@@ -267,7 +267,9 @@
         "focused executor/receipt tests",
         "REST/assistant parity",
         "recurrence persistence",
-        "reschedule review gate"
+        "reschedule review gate",
+        "concurrent same-key atomic idempotency fixture",
+        "post-success replay returns prior canonical entity receipt"
       ],
       "convergence_owner": "A6",
       "status": "waiting_on_A1_A2"
@@ -555,20 +557,21 @@
     },
     {
       "lane_id": "G2",
-      "mission": "Route reviewed Google Sheets source records through the shared task-domain service with stable source-idempotency receipts and no duplicate Google-specific business workflow.",
+      "mission": "Map reviewed tracker source records to stable A3 create_task actions so A3 supplies atomic idempotency/receipts and A1 supplies the normal task-create business workflow.",
       "dependencies": [
         "G1",
         "A6"
       ],
       "owned_mutation_surfaces": [
-        "Google Sheets import route/service",
-        "import identity integration",
-        "focused service/idempotency tests"
+        "Google Sheets source-to-Assistant-Action mapping",
+        "stable source identity to A3 action/idempotency key mapping",
+        "focused concurrency/replay integration tests"
       ],
       "forbidden_surfaces": [
-        "direct duplicate task-create workflow",
+        "direct Google-specific storage.createTask workflow",
+        "check-then-create dedupe",
+        "second provider-specific idempotency store",
         "silent source-to-AxTask overwrite",
-        "new schema absent proving need",
         "client UX",
         "bidirectional sync"
       ],
@@ -578,37 +581,39 @@
         "runner": "repo-proven local agent/orchestrator selected by local environment"
       },
       "expected_artifacts": [
-        "reviewed ingestion service",
-        "source TaskID receipts",
-        "idempotency proof"
+        "source-record to canonical create_task action mapper",
+        "A3-backed source TaskID receipts",
+        "concurrent idempotency proof"
       ],
       "validation": [
-        "shared task-domain parity",
-        "same source TaskID re-import no duplicate",
-        "mutable source text does not fork identity",
-        "structured failure receipts"
+        "A3/A1 task creation parity",
+        "two concurrent applies of same source TaskID create exactly one task",
+        "post-success replay returns same canonical AxTask ID",
+        "mutable source text does not fork source identity",
+        "structured failure/review receipts"
       ],
       "convergence_owner": "G5",
       "status": "waiting_on_G1_A6"
     },
     {
       "lane_id": "G3",
-      "mission": "Modernize the Google Sheets UI to dry-run/review/apply and quarantine the legacy destructive bidirectional sync for the Shared Task Tracker binding.",
+      "mission": "Modernize Google Sheets UX to dry-run/review/apply and retire POST /api/google-sheets/sync at the server boundary so direct requests cannot bypass the quarantine.",
       "dependencies": [
         "G2"
       ],
       "owned_mutation_surfaces": [
         "client/src/pages/google-sheets-sync.tsx",
         "client/src/lib/google-api.ts",
-        "minimal route policy needed to disable unsafe sync",
-        "focused UI tests"
+        "server /api/google-sheets/sync retirement policy",
+        "focused server/UI tests"
       ],
       "forbidden_surfaces": [
         "domain business logic",
         "silent bulk import",
         "legacy-region default import",
         "credential exposure",
-        "automatic conflict overwrite"
+        "automatic conflict overwrite",
+        "UI-only quarantine"
       ],
       "posture": "isolated local writer",
       "adapter": {
@@ -617,14 +622,14 @@
       },
       "expected_artifacts": [
         "review/apply Google Sheets UX",
-        "unsafe-sync quarantine",
+        "server-side legacy-sync retirement response",
         "receipt UI"
       ],
       "validation": [
         "dry-run disposition counts",
         "selection/apply contract",
         "per-row receipts",
-        "old sync unavailable for tracker binding"
+        "direct POST /api/google-sheets/sync cannot mutate and returns retirement response"
       ],
       "convergence_owner": "G5",
       "status": "waiting_on_G2"
