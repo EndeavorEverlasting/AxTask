@@ -231,6 +231,8 @@ export function dryRunTrackerRows(input: DryRunTrackerRowsInput): TrackerDryRunR
   const manualIdx = headerIndex(map, "manual override", "manualoverride");
 
   const results: TrackerDryRunRowResult[] = [];
+  /** First spreadsheet row that formed a complete source identity in this dry-run batch. */
+  const seenIdentityRows = new Map<string, number>();
 
   for (let i = 1; i < input.rows.length; i += 1) {
     const row = input.rows[i] ?? [];
@@ -295,6 +297,21 @@ export function dryRunTrackerRows(input: DryRunTrackerRowsInput): TrackerDryRunR
       bindingId: input.bindingId.trim(),
       sourceTaskId,
     };
+
+    const identityKey = buildTrackerSourceIdentityKey(identity);
+    const firstRowForIdentity = seenIdentityRows.get(identityKey);
+    if (firstRowForIdentity !== undefined) {
+      const result: TrackerDryRunRowResult = {
+        disposition: "needs_review",
+        spreadsheetRow,
+        reason: `duplicate source TaskID in dry-run batch; first seen at row ${firstRowForIdentity}`,
+        sourceTaskId,
+      };
+      counts.needs_review += 1;
+      results.push(result);
+      continue;
+    }
+    seenIdentityRows.set(identityKey, spreadsheetRow);
 
     const record: TrackerSourceRecord = {
       identity,
