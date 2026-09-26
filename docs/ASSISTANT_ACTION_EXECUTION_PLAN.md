@@ -252,7 +252,7 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 - minimal capability/trigger/workflow registry wiring required to discover the dispatcher
 - the existing `Outputs/prompt-parallel-dispatch/manifest.json` only for schema-conformance repair, never for changing lane intent.
 
-**Forbidden:** application task/intent/server/client logic; deployment/auth/database changes; changing lane missions/dependencies to make validation easier.
+**Forbidden:** application task/intent/server/client logic; deployment/auth/database changes; changing lane missions/dependencies to make validation easier; `.ai/harness.json` while PR #139 remains open.
 **Implementation contract:**
 - `validate` checks required lane fields, dependencies, adapter kind, expected artifacts, validation, convergence owner, and unique lane IDs.
 - `run` may execute only `argv` lanes whose dependencies are satisfied; it must not impersonate `runtime_tool` lanes.
