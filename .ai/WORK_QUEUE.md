@@ -209,7 +209,7 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Owner:** unclaimed
 - **Branch / PR:** planning merged via #157 (`merge:80c2629fd6c7602d21d399a92ca6338925e5d4c5`); implementation branches none (next: H0 ∥ A1 ∥ A2)
 - **Scope:** execute the phased map in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`: extract the full normal `POST /api/tasks` creation workflow into a shared task-domain service; repair raw-utterance/date/mutation-policy semantics; add one provider-neutral server-side Assistant Action Contract v1; converge existing voice/provider-AI channels; add reviewed-action UI; then separately add scoped external-assistant auth and a thin adapter
-- **Forbidden:** standalone assistant scheduler/database; treating project ledgers or an external calendar as peer operational schedule authority; authentication/session changes inside Phase 1; production deploy; scheduled-worker enablement; Google Calendar/CalDAV sync; MCP/plugin code as the domain owner; modifying PR #156 activity-history ownership; mutating `.ai/harness.json` while PR #139 remains open (H0 collision)
+- **Forbidden:** standalone assistant scheduler/database; treating project ledgers or an external calendar as peer operational schedule authority; authentication/session changes inside Phase 1; production deploy; scheduled-worker enablement; Google Calendar/CalDAV sync; MCP/plugin code as the domain owner; modifying PR #156 activity-history ownership; mutating `.ai/harness.json` while PR #139 remains open (H0 collision); Google Sheets tracker ingestion/cutover semantics owned by AXQ-012
 - **Dependencies:** none
 - **References:** `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`, `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md`, `Outputs/prompt-parallel-dispatch/manifest.json`, `docs/PRODUCT_CONTINUITY_DOCTRINE.md`, `shared/intent/parse-natural-command.ts`, `shared/intent/execution-policy.ts`, `server/routes.ts`, `server/engines/calendar-engine.ts`, `server/ai/tools/create-task.ts`, `client/src/hooks/use-voice.tsx`, PR #156 as a separate ledger/reporting projection lane
 - **Acceptance gate:** the whole Phase 1 contract in `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` is integrated: REST and assistant task creation share the extracted full normal task-create business workflow; the canonical raw dictation fixtures plus the 2026-09-27 four-task day-plan fixture pass end to end or return structured clarification; recurring creation persists supported recurrence; reschedule and every mutation have an explicit review/authorization outcome; date-only scheduling passes configured-timezone midnight/DST boundary fixtures; provider-neutral receipts and retry/idempotency policy are tested; reviewed actions can be applied through the ordinary AxTask UI path; existing voice/provider-AI channels delegate to the canonical executor; affected REST/voice/AI/task/reward/classification contracts pass; no Phase 1 auth/calendar-sync/production surface changes
@@ -233,3 +233,36 @@ Deployment recovery must not serialize independent preservation and local-proof 
 - **Last proof:** artifact:docs/ACTIVITY_MEMORY_REFERENCE_ARCHITECTURE.md records the current-repo gap analysis and external mechanism evidence; artifact:docs/PRODUCT_CONTINUITY_DOCTRINE.md records reciprocal continuity and evidence semantics
 - **Next action:** PR #156 owner validates and repairs every still-valid unresolved review finding, runs `npx vitest run shared/activity-ledger-report.test.ts`, `npm run check`, `npm test`, and `npm run build`, reconciles with refreshed `main`, and merges only when exact-head checks/reviews are satisfied; then claim AXQ-010 from refreshed `main` and implement the no-persistence interval-query slice
 - **Updated:** 2026-09-15
+
+
+## AXQ-011 — Shared Task Tracker Apps Script top-entry deployment
+
+- **Status:** OPERATOR
+- **Priority:** P1
+- **Owner:** operator
+- **Branch / PR:** planning in this docs lane; deployment branch none
+- **Scope:** install the already validated bound Apps Script top-entry implementation for the operator-owned Shared Task Tracker, promote the proven Quick Entry strip on the provider-owned Task Board, and run the live submit/readback regression before declaring the tracker top-entry workflow deployed
+- **Forbidden:** copying private task contents or the private spreadsheet binding into this public repository; exposing the bound script as a public web-app ingestion API; implementing top-entry by physically inserting rows into the canonical planner; moving the active/legacy boundary; AxTask application/auth/database changes
+- **Dependencies:** none
+- **References:** `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` Phase 3 / S0, `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`; provider-owned tracker `Scripts`, `Roadmap`, and `System Validation` surfaces remain the detailed runtime evidence owner
+- **Acceptance gate:** the exact validated script is installed in the bound project; the Quick Entry surface is live; one clearly labeled disposable submission returns a durable source TaskID; formula-owned Priority/Score outputs remain untouched; validation, conditional-format, filter, and active/legacy-boundary invariants remain unchanged; successful submit clears staged inputs only after commit; failure leaves staged values available for correction; provider-owned validation records the live proof
+- **Gate:** current ChatGPT Google Drive connector can edit the workbook but cannot mutate the bound Apps Script project; deployment therefore requires an Apps Script-capable local/browser/operator surface
+- **Last proof:** artifact:docs/ASSISTANT_ACTION_EXECUTION_PLAN.md records the validated staging-to-append design and the rejected physical-row-insertion path
+- **Next action:** install the exact validated code from the provider-owned tracker `Scripts` surface into the bound Apps Script project, save/authorize it, refresh the workbook, then run S0's live Quick Entry acceptance without changing planner row geometry
+- **Updated:** 2026-09-26
+
+## AXQ-012 — Google Sheets tracker ingestion convergence
+
+- **Status:** BLOCKED
+- **Priority:** P1
+- **Owner:** unclaimed
+- **Branch / PR:** planning in this docs lane; implementation branch none
+- **Scope:** reconcile AxTask's existing Google Sheets subsystem with the operator-owned Shared Task Tracker as a reviewed one-way producer/import source: parse the tracker by stable source TaskID, exclude the legacy region by default, dry-run/review before mutation, route accepted creates through AXQ-009's shared task-domain service, preserve idempotent source receipts, then cut over AxTask as canonical task owner
+- **Forbidden:** pointing the current destructive `/api/google-sheets/sync` path at the Shared Task Tracker; treating spreadsheet row number/title/date as durable identity; direct `storage.createTask` duplication of task-create business rules after A1 exists; automatic bidirectional conflict resolution; overwriting the operator tracker; importing the legacy region by default; publishing the spreadsheet ID or private task contents; schema migration unless focused evidence proves the existing import-fingerprint store cannot safely retain stable source identity
+- **Dependencies:** AXQ-009, AXQ-011
+- **References:** `docs/ASSISTANT_ACTION_EXECUTION_PLAN.md` Phase 3, `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`, `server/google-sheets-api.ts`, `server/routes.ts` Google Sheets routes, `server/task-fingerprint.ts`, `client/src/lib/google-api.ts`, `client/src/pages/google-sheets-sync.tsx`, `docs/GOOGLE_SHEETS_SETUP.md`
+- **Acceptance gate:** tracker rows are parsed by header-aware contract with source `TaskID` required; formula-owned source fields are treated as projections, not AxTask authorities; dry-run returns deterministic create/duplicate/invalid/legacy-excluded dispositions; applying selected rows reaches the same shared task-domain service as ordinary REST/assistant creation; re-import of the same source TaskID cannot duplicate even if mutable task text changes; provider/source receipts map source TaskID to canonical AxTask IDs; the current bidirectional sync path is disabled or explicitly unavailable for this tracker binding; controlled live ingestion is read back by canonical AxTask IDs; after cutover AxTask is the operational task authority and the sheet is an optional legacy/manual producer or projection only
+- **Gate:** blocked until AXQ-009 Phase 1/A6 is integrated so the shared task-domain service is mainline, and until AXQ-011 proves the live tracker entry contract on the provider surface
+- **Last proof:** artifact:docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md records that the existing Google Sheets import/sync path is not a stable source-TaskID ingestion contract and must be reconciled rather than reused blindly
+- **Next action:** after AXQ-009 A6 and AXQ-011 are proven, claim G1 from refreshed `main`, add the tracker row/source-identity contract plus dry-run fixtures, and keep all live spreadsheet mutation disabled until those fixtures pass
+- **Updated:** 2026-09-26
