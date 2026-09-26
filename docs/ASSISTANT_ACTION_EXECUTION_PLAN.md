@@ -546,9 +546,9 @@ The default ingestion region is the active task region only. The historical/lega
 
 ### S0 — Bound Apps Script deployment + live top-entry proof
 
-**Primary surface:** provider runtime / Google Sheets  
-**Dependencies:** none  
-**Queue owner:** AXQ-011  
+**Primary surface:** provider runtime / Google Sheets
+**Dependencies:** none
+**Queue owner:** AXQ-011
 **Mission:** install the exact already-validated top-entry script in the spreadsheet's bound Apps Script project, promote the proven Quick Entry strip on Task Board, and prove one live submission without changing planner row geometry.
 
 **Deployment contract:**
@@ -567,10 +567,10 @@ The default ingestion region is the active task region only. The historical/lega
 
 ### G1 — Tracker source adapter + dry-run contract
 
-**Primary surface:** Google Sheets adapter / integration seam  
-**Dependencies:** A6 mainline  
-**Queue owner:** AXQ-012  
-**Owned surfaces:** `server/google-sheets-api.ts` or a smaller extracted source adapter, focused synthetic fixtures/tests, minimal route typing required for dry-run.  
+**Primary surface:** Google Sheets adapter / integration seam
+**Dependencies:** A6 mainline
+**Queue owner:** AXQ-012
+**Owned surfaces:** `server/google-sheets-api.ts` or a smaller extracted source adapter, focused synthetic fixtures/tests, minimal route typing required for dry-run.
 **Forbidden:** AxTask task creation mutation, client redesign, external assistant auth, live spreadsheet writes.
 
 **Mission:** add a header-aware parser for the Shared Task Tracker source shape and return typed source records without mutating AxTask.
@@ -593,8 +593,8 @@ The default ingestion region is the active task region only. The historical/lega
 
 ### G2 — Canonical reviewed ingestion service
 
-**Primary surface:** integration service  
-**Dependencies:** G1 + A6  
+**Primary surface:** integration service
+**Dependencies:** G1 + A6
 **Mission:** turn reviewed source records into ordinary AxTask task creates through A1's shared task-domain service.
 
 **Required invariants:**
@@ -609,8 +609,8 @@ The default ingestion region is the active task region only. The historical/lega
 
 ### G3 — Review/apply experience and legacy sync quarantine
 
-**Primary surface:** UI consumer + route policy  
-**Dependencies:** G2  
+**Primary surface:** UI consumer + route policy
+**Dependencies:** G2
 **Mission:** modernize the existing Google Sheets Sync screen around dry-run/review/apply instead of silent bidirectional merge.
 
 **Reuse:** A4 generic review-and-apply interaction patterns when practical.
@@ -628,8 +628,8 @@ The default ingestion region is the active task region only. The historical/lega
 
 ### G4 — Controlled live ingestion acceptance
 
-**Primary surface:** runtime proof  
-**Dependencies:** G3 + S0  
+**Primary surface:** runtime proof
+**Dependencies:** G3 + S0
 **Mission:** prove the real operator tracker can be ingested without duplicate or overwrite behavior.
 
 **Run order:**
@@ -646,8 +646,8 @@ The default ingestion region is the active task region only. The historical/lega
 
 ### G5 — Canonical cutover and old-sync disposition
 
-**Primary surface:** integration closeout  
-**Dependencies:** G4  
+**Primary surface:** integration closeout
+**Dependencies:** G4
 **Mission:** remove split-brain ownership after successful ingestion.
 
 **Required end state:**
