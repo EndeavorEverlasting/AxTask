@@ -580,6 +580,12 @@ These docs may describe and route the provider operation, but the provider-owned
 **Owned surfaces:** `server/google-sheets-api.ts` or a smaller extracted source adapter, focused synthetic fixtures/tests, minimal route typing required for dry-run.
 **Forbidden:** AxTask task creation mutation, client redesign, external assistant auth, live spreadsheet writes.
 
+**Design / prototype owners (repository proof, not A6 unblocked):**
+- `docs/SHARED_TASK_TRACKER_PROGRAM_DESIGN.md` — module map, alternatives, success/failure call stacks;
+- `shared/tracker-source-dryrun.ts` + `shared/tracker-source-dryrun.test.ts` — pure disposition seam (`dryRunTrackerRows`) with receipt-port stub.
+
+Full G1 route wiring and acceptance still wait on A6. The pure dry-run module must not be treated as live Google transport or apply.
+
 **Mission:** add a header-aware parser for the Shared Task Tracker source shape and return typed source records without mutating AxTask.
 
 **Required record fields:**
