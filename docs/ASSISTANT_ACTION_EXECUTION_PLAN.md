@@ -1,10 +1,10 @@
 # Assistant Action Execution Plan
 
-**Status:** ACTIVE EXECUTION MAP — implementation blocked until PR #157 is merged
+**Status:** ACTIVE EXECUTION MAP — W0 complete; Phase 1 open for H0 ∥ A1 ∥ A2
 **Date:** 2026-09-26
-**Evidence floor:** `main@7af06d7a9cf638dfe1c96a1e2b85914edb610f76`
-**Planning owner:** PR #157 / `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`
-**Queue index:** `.ai/WORK_QUEUE.md` → `AXQ-009`
+**Evidence floor:** `main@80c2629fd6c7602d21d399a92ca6338925e5d4c5` (PR #157 squash merge)
+**Planning owner:** merged PR #157 / `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`
+**Queue index:** `.ai/WORK_QUEUE.md` → `AXQ-009` (`READY`)
 **Dispatch artifact:** `Outputs/prompt-parallel-dispatch/manifest.json`
 
 ## Outcome
@@ -25,15 +25,15 @@ The finished behavior must support:
 
 - **Repo:** `EndeavorEverlasting/AxTask`
 - **Default branch:** `main`
-- **Main HEAD:** `7af06d7a9cf638dfe1c96a1e2b85914edb610f76`
-- **Active planning PR:** #157, branch `docs/assistant-action-reference-architecture-20260913`
-- **PR #157 head before this execution-map update:** `1e3aee78311b6b5d5f78a0107d36596f9eb8bb00`
+- **Main HEAD (planning merge):** `80c2629fd6c7602d21d399a92ca6338925e5d4c5`
+- **Planning PR:** #157 MERGED (squash); prior planning branch `docs/assistant-action-reference-architecture-20260913`
+- **PR #157 exact head before merge:** `86c79fe8b41c9559fc7ab82b9f8f43ca6423cff8`
 - **PR #156:** open and separately owns activity-history/reporting; do not modify from AXQ-009 lanes.
 - **PR #155:** open calendar overflow fix; inspect collision before touching calendar UI files.
 - **PR #139:** open harness infrastructure branch; harness lane must inspect it before writing shared harness surfaces.
-- **PR #157 CI evidence:** typecheck passed; 272 test files passed with 1,951 tests passed and 40 skipped; offline AI intent eval passed 16/16; `release:check` failed only because no `docs/releases/*.md` file changed.
 - **Existing harness:** repository intake, PR closeout, failure recovery, parallel sprint intake, PR-collision inspection, managed agent workspaces, capability/trigger registries, validator selection.
 - **Missing requested dispatch seam:** `harness/contracts/prompt-parallel-dispatch.v1.json` and `scripts/prompt_parallel_dispatch.py` are absent on the evidence floor. The manifest therefore remains bootstrap-blocked until lane H0 creates and proves those owners.
+- **Next dependency-ready lanes:** H0 ∥ A1 ∥ A2 from refreshed `origin/main`.
 
 ## Authority boundary
 
@@ -246,7 +246,7 @@ After W0, graph width is 3: H0, A1, and A2 may execute concurrently because thei
 **Owned:** this plan, architecture cross-link, AXQ-009 references, one release note required by release guard, dispatch manifest planning artifact.
 **Forbidden:** Phase 1 application code; auth; calendar sync; PR #156 files.
 **Validation:** queue validator, queue contract test, `npm run release:check`, exact-head CI/reviews.
-**Completion:** PR #157 review-clean, exact-head required checks green, merged, and refreshed `main` contains the plan.
+**Completion:** DONE — PR #157 squash-merged at `80c2629fd6c7602d21d399a92ca6338925e5d4c5`; refreshed `main` contains the plan.
 
 ### H0 — Prompt-parallel-dispatch harness bootstrap
 
@@ -494,7 +494,7 @@ Therefore this planning run cannot truthfully prove parallel dispatch. Until H0 
 
 | Contract | Owner | Status before implementation | Closing transition |
 |---|---|---|---|
-| Durable architecture/plan | PR #157 | IN PROGRESS | exact-head CI/review green + merge |
+| Durable architecture/plan | PR #157 | PROVEN | merged on `main@80c2629fd6c7602d21d399a92ca6338925e5d4c5` |
 | Dispatch automation | H0 | REQUIRED SUCCESSOR WORK | contract + runner + verified receipt |
 | Canonical task creation | A1 | REQUIRED SUCCESSOR WORK | shared service + REST parity |
 | Intent/date/policy semantics | A2 | REQUIRED SUCCESSOR WORK | fixtures + timezone/DST proof |
@@ -509,6 +509,6 @@ Therefore this planning run cannot truthfully prove parallel dispatch. Until H0 
 
 ## Next executable action
 
-**Owner:** PR #157 convergence lane.
-**Action:** add the required release note, run the queue validators and release guard, let exact-head CI/review evaluate the updated planning branch, repair only still-valid planning/harness-documentation findings, and merge #157 when green.
-**Then:** local orchestration creates isolated H0/A1/A2 workspaces from refreshed main and launches those three lanes concurrently.
+**Owner:** local orchestration / AXQ-009 Phase 1 lanes.
+**Action:** create isolated H0, A1, and A2 workspaces from refreshed `origin/main` and launch those three dependency-ready lanes concurrently.
+**Then:** A3 joins on A1+A2; A4 ∥ A5 after A3; A6 converges Phase 1.
