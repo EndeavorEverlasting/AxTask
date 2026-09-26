@@ -143,7 +143,18 @@ The core algorithm calculates priorities using:
 
 ## Google Sheets Setup
 
-Complete setup guide available in [`docs/GOOGLE_SHEETS_SETUP.md`](docs/GOOGLE_SHEETS_SETUP.md)
+### 2026 Shared Task Tracker transition
+
+If you are moving from the old **`Daily Planner 2026`** workflow to the new top-entry system, do **not** start with the generic Google API setup below.
+
+Use these operator docs first:
+
+- **[2026 Shared Task Tracker — Operator Guide](docs/SHARED_TASK_TRACKER_OPERATOR_GUIDE.md)** — old way vs new way, what works today, Quick Entry row 4, editing/completion, and troubleshooting.
+- **[Shared Task Tracker — Apps Script Install Checklist](docs/SHARED_TASK_TRACKER_APPS_SCRIPT_INSTALL_CHECKLIST.md)** — one-page bound-script install and live proof checklist.
+
+The current workbook already has the `Task Board` Quick Entry UI, but Submit remains a **validated prototype / not-yet-installed provider gate** until Tracker V2 is copied from the workbook's provider-owned `Scripts!B2` cell into the bound Apps Script project and live-tested. Do not point AxTask's legacy bidirectional `/api/google-sheets/sync` endpoint at this tracker.
+
+Complete generic Google API setup guide available in [`docs/GOOGLE_SHEETS_SETUP.md`](docs/GOOGLE_SHEETS_SETUP.md)
 
 Required environment variables:
 ```env
@@ -274,7 +285,9 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 - **[Orb and Avatar Experience Contract](docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md)** - Orb UX philosophy and mood/avatar behavior system
 - **[Scroll and calm-mode visual stability](docs/SCROLL_REFRESH_VISUAL_STABILITY.md)** - Pretext + glass + Gantt compositor contract (`data-axtask-calm`, nav chrome, scroll budget)
 - **[Community Automation Privacy Contract](docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)** - Public community automation and data-minimization guardrails
-- **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
+- **[2026 Shared Task Tracker — Operator Guide](docs/SHARED_TASK_TRACKER_OPERATOR_GUIDE.md)** - migration tutorial from `Daily Planner 2026` to the top-entry `Task Board` workflow
+- **[Shared Task Tracker — Apps Script Install Checklist](docs/SHARED_TASK_TRACKER_APPS_SCRIPT_INSTALL_CHECKLIST.md)** - one-page Tracker V2 bound-script install and live proof checklist
+- **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - generic API configuration guide; not the tracker migration runbook
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
 - **[Version History](VERSION.md)** - Release notes and changelog
 - **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - Transitional runbook: 48-hour cutover and rollback guardrails
