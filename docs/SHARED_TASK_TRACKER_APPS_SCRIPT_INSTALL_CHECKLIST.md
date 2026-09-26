@@ -12,9 +12,9 @@ This is a **bound spreadsheet script**, not a web app.
 
 ### SOURCE — copy this
 
-**Workbook:** 2026 Shared Task Tracker  
-**Tab:** `Scripts`  
-**Cell:** `B2`  
+**Workbook:** 2026 Shared Task Tracker
+**Tab:** `Scripts`
+**Cell:** `B2`
 **Label:** `Tracker V2 — canonical automation prototype`
 
 **Action:** select B2 and copy the **entire cell value**.
@@ -23,16 +23,16 @@ Do not copy B3/B4 as code. Those cells are validation/deployment-status notes.
 
 ### DESTINATION — paste here
 
-**Google Sheets:** 2026 Shared Task Tracker  
-**Open:** `Extensions → Apps Script`  
-**File type:** Script  
+**Google Sheets:** 2026 Shared Task Tracker
+**Open:** `Extensions → Apps Script`
+**File type:** Script
 **Recommended file name:** `TrackerV2` → appears as **`TrackerV2.gs`**
 
 Paste the entire `Scripts!B2` value into that one file.
 
-**No additional HTML file.**  
-**No `appsscript.json` change required by the current prototype.**  
-**No public web-app deployment.**  
+**No additional HTML file.**
+**No `appsscript.json` change required by the current prototype.**
+**No public web-app deployment.**
 **No manually installed trigger required.**
 
 ---
