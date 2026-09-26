@@ -36,7 +36,7 @@ After the one-time Apps Script install:
 2. use **row 4**, directly under **Quick Entry**;
 3. type **Activity**;
 4. optionally type **Notes**;
-5. leave Date blank for **today**, or enter another date;
+5. choose the task date explicitly in **Date** — for now, choose today's date if the task is for today;
 6. optionally fill the other scoring/classification fields;
 7. check **Submit** once;
 8. wait for row 5 to say **Created** and show the new `TaskID`.
@@ -53,7 +53,7 @@ You stay at the top. The record still lives in the planner.
 | --- | --- | --- |
 | Where you type a new task | `Daily Planner 2026` | `Task Board` row 4 |
 | Need to find the next row | Yes | No |
-| Minimum useful input | Activity, usually Date/Notes | Activity only; Date may be blank for today |
+| Minimum useful input | Activity, usually Date/Notes | Date + Activity while the date-only seam is being proved |
 | Where the canonical record ends up | `Daily Planner 2026` | `Daily Planner 2026` |
 | Priority / Score system columns | Easy to edit accidentally | Script avoids writing them |
 | TaskID handling | Easy to break manually | Script allocates it |
@@ -150,7 +150,7 @@ The Quick Entry headers are on row 3 and the input cells are on **row 4**.
 
 | Cell / column | Quick Entry field | Required? | Meaning |
 | --- | --- | --- | --- |
-| A4 | Date | No | blank means today; otherwise use a valid date |
+| A4 | Date | **For now, yes** | choose an explicit valid date; blank-date fallback is not yet accepted as date-only-safe |
 | B4 | Activity | **Yes** | what needs to be done |
 | C4 | Notes | No | detail, context, links |
 | D4 | Urgency | No | 0–5 |
@@ -165,14 +165,26 @@ The Quick Entry headers are on row 3 and the input cells are on **row 4**.
 
 For a task you want **today**:
 
-1. click `Task Board!B4`;
-2. type the Activity;
+1. click `Task Board!A4` and choose **today's date** with the date picker;
+2. click `B4` and type the Activity;
 3. optionally type Notes in `C4`;
 4. check `J4 — Submit`.
 
-That is it.
+That is the shortest currently documented safe path.
 
 You do not need to rate urgency / impact / effort every time.
+
+### Why Date is explicit for now
+
+The current provider-owned Tracker V2 code falls back to JavaScript `new Date()` when Quick Entry Date is blank. That value can include a time-of-day component. The Task Board Today/Tomorrow projections compare planner dates to `TODAY()` using exact equality.
+
+The workbook's existing prototype tests prove staging → append and preserve the planner geometry, but they do **not** yet prove that a blank Quick Entry Date is normalized to a date-only value that appears in the Today projection.
+
+Therefore:
+
+- **current operator rule:** enter an explicit date in A4;
+- **S0 proof/repair gate:** prove or repair date-only normalization before documenting “blank Date means today” as supported behavior;
+- repository documentation must not promote the blank-Date shortcut from planned convenience to proven behavior.
 
 ## What success looks like
 
@@ -286,7 +298,7 @@ After saving `TrackerV2.gs`:
 1. refresh the spreadsheet;
 2. confirm a **Task Automation** menu appears;
 3. confirm `Task Board!B5` no longer represents an uninstalled state once the operator updates the provider validation/status surface;
-4. create one clearly labeled disposable task from Task Board row 4;
+4. create one clearly labeled disposable task from Task Board row 4 and explicitly select its date in A4;
 5. check Submit once.
 
 Expected success:
@@ -295,6 +307,7 @@ Expected success:
 - `D5` contains a new TaskID;
 - staging inputs clear only after the append succeeds;
 - the task exists in `Daily Planner 2026`;
+- its Date is stored with date-only semantics and a task dated today appears in the Task Board Today projection;
 - column B Priority and column K Score formulas remain owned by their existing formula system;
 - the legacy boundary remains at row 24997.
 
@@ -349,9 +362,12 @@ Common input contracts:
 
 ## The task was created but I do not see it in Today/Tomorrow
 
-The Task Board projections show only tasks whose dates equal today or tomorrow.
+The Task Board projections show only tasks whose stored dates equal today or tomorrow exactly.
 
-Find the record by TaskID in `Daily Planner 2026`.
+1. find the record by TaskID in `Daily Planner 2026`;
+2. inspect the Date value;
+3. if this came from a blank Quick Entry Date, treat it as the known date-normalization proof gap rather than assuming the projection is wrong;
+4. use an explicit A4 date for current live proof until S0 repairs or proves blank-date normalization.
 
 ## I accidentally changed Priority or Score
 
@@ -388,7 +404,7 @@ Until G5 is proven:
 
 **If B5 says WAITING:** use the familiar `Daily Planner 2026` path or an agent-assisted canonical write.
 
-**After Tracker V2 install:** `Task Board` → B4 Activity → optional C4 Notes → J4 Submit.
+**After Tracker V2 install:** `Task Board` → A4 explicit Date → B4 Activity → optional C4 Notes → J4 Submit.
 
 ## I want to complete something
 
