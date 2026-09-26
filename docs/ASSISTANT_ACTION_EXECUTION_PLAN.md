@@ -2,9 +2,9 @@
 
 **Status:** ACTIVE EXECUTION MAP — W0 complete; Phase 1 open for H0 ∥ A1 ∥ A2
 **Date:** 2026-09-26
-**Evidence floor:** `main@80c2629fd6c7602d21d399a92ca6338925e5d4c5` (PR #157 squash merge)
+**Evidence floor:** `main@375bda1d9819bfeff3c9a1a396f81a72f5f1fb6d` (`0e2e333` planning floor plus CI attestation-only successor)
 **Planning owner:** merged PR #157 / `docs/ASSISTANT_ACTION_REFERENCE_ARCHITECTURE.md`
-**Queue index:** `.ai/WORK_QUEUE.md` → `AXQ-009` (`READY`)
+**Queue index:** `.ai/WORK_QUEUE.md` → `AXQ-009` (`READY`), `AXQ-011` (`OPERATOR`), `AXQ-012` (`BLOCKED`)
 **Dispatch artifact:** `Outputs/prompt-parallel-dispatch/manifest.json`
 
 ## Outcome
@@ -512,3 +512,169 @@ Therefore this planning run cannot truthfully prove parallel dispatch. Until H0 
 **Owner:** local orchestration / AXQ-009 Phase 1 lanes.
 **Action:** create isolated H0, A1, and A2 workspaces from refreshed `origin/main` and launch those three dependency-ready lanes concurrently.
 **Then:** A3 joins on A1+A2; A4 ∥ A5 after A3; A6 converges Phase 1.
+
+
+## Phase 3 — Shared Task Tracker → AxTask convergence
+
+### Evidence reconciliation
+
+This phase is a reconciliation of two already-existing systems, not a greenfield connector:
+
+- The provider-owned Shared Task Tracker has a validated **top-entry staging → canonical append** design with immutable source `TaskID`, formula-owned Priority/Score projections, a fixed active/legacy boundary, and a rejected physical-row-insertion prototype because insertion shifted spill ranges and the legacy boundary.
+- AxTask already ships a Google Sheets subsystem in `server/google-sheets-api.ts`, `server/routes.ts`, `client/src/lib/google-api.ts`, and `client/src/pages/google-sheets-sync.tsx`.
+- The legacy AxTask subsystem is **not** approved as the Shared Task Tracker ingestion path: its export clears/re-writes `A2:L`; its parser manufactures row-derived temporary IDs; its in-memory sync conflict model does not preserve the tracker's immutable `TaskID`; and the import route reconstructs task-create effects around direct storage writes instead of delegating to the future A1 shared task-domain service.
+- Therefore **do not point `/api/google-sheets/sync` at the operator tracker**. Phase 3 converts the existing subsystem into a reviewed, source-identity-aware one-way ingestion seam and then makes AxTask canonical after cutover.
+
+Private spreadsheet identifiers and task contents are provider state and MUST NOT be copied into this public repository. Repository fixtures use synthetic rows with the same structural contract.
+
+### Source ownership contract
+
+| Concern | Canonical owner |
+| --- | --- |
+| top-entry interaction while the legacy tracker remains in use | bound Apps Script + provider-owned Task Board |
+| source row identity | immutable tracker `TaskID` |
+| spreadsheet parsing / Google API transport | AxTask Google Sheets adapter |
+| task business rules | A1 shared task-domain service |
+| natural-language/assistant actions | A3 Assistant Action Contract executor |
+| import idempotency / source receipt | AxTask import identity owner |
+| operational task state after cutover | AxTask |
+| optional future spreadsheet export | projection only; never peer task authority |
+
+The source adapter MUST resolve fields by header contract and fail closed when required headers are missing. The current tracker contract includes Date, Result, Activity, Notes, Urgency, Impact, Effort, Domain, Tags, Manual Override, and TaskID. Formula-owned Priority and Score are source projections and MUST NOT bypass AxTask's normal derivation rules.
+
+The default ingestion region is the active task region only. The historical/legacy region is excluded unless a separate migration acceptance explicitly includes it.
+
+### S0 — Bound Apps Script deployment + live top-entry proof
+
+**Primary surface:** provider runtime / Google Sheets  
+**Dependencies:** none  
+**Queue owner:** AXQ-011  
+**Mission:** install the exact already-validated top-entry script in the spreadsheet's bound Apps Script project, promote the proven Quick Entry strip on Task Board, and prove one live submission without changing planner row geometry.
+
+**Deployment contract:**
+1. use the provider-owned tracker `Scripts` surface as the source payload; do not reconstruct from chat;
+2. install/save/authorize it in the bound project;
+3. do **not** publish it as a public web app;
+4. promote the validated Quick Entry surface;
+5. refresh the spreadsheet so `onEdit`/menu bindings are current;
+6. submit one clearly labeled disposable task;
+7. read back the created source TaskID and the canonical planner row;
+8. verify formula anchors, validation, conditional-format ranges, basic filter, and active/legacy boundary are unchanged;
+9. verify success clears the staging row only after commit and a validation error leaves inputs available for correction;
+10. persist the live result in the provider-owned validation surface.
+
+**Proof ceiling:** live Google Sheet behavior only. This does not prove AxTask ingestion.
+
+### G1 — Tracker source adapter + dry-run contract
+
+**Primary surface:** Google Sheets adapter / integration seam  
+**Dependencies:** A6 mainline  
+**Queue owner:** AXQ-012  
+**Owned surfaces:** `server/google-sheets-api.ts` or a smaller extracted source adapter, focused synthetic fixtures/tests, minimal route typing required for dry-run.  
+**Forbidden:** AxTask task creation mutation, client redesign, external assistant auth, live spreadsheet writes.
+
+**Mission:** add a header-aware parser for the Shared Task Tracker source shape and return typed source records without mutating AxTask.
+
+**Required record fields:**
+- source provider/binding (configured privately, never hard-coded in public fixtures);
+- source TaskID — required and immutable;
+- date;
+- completed/result state;
+- activity;
+- notes;
+- urgency/impact/effort when present;
+- domain/tags when present;
+- manual override when supported by the target task-create contract;
+- source-region classification: active vs legacy.
+
+**Dry-run dispositions:** `create`, `already_imported`, `invalid`, `legacy_excluded`, and `needs_review` when target semantics cannot be mapped losslessly.
+
+**Acceptance:** row order is irrelevant; changing mutable text while keeping the same source TaskID does not create a second source identity; formula-owned source Priority/Score are ignored as task-authority inputs; malformed/missing TaskID fails closed.
+
+### G2 — Canonical reviewed ingestion service
+
+**Primary surface:** integration service  
+**Dependencies:** G1 + A6  
+**Mission:** turn reviewed source records into ordinary AxTask task creates through A1's shared task-domain service.
+
+**Required invariants:**
+- no direct Google-Sheets-specific `storage.createTask` business workflow;
+- quota, duplicate handling, derived priority/classification/shopping associations, pattern learning, rewards, and other ordinary creation effects remain owned by the shared service;
+- idempotency is keyed by stable source identity, not mutable task text;
+- prefer the existing import-fingerprint persistence when it can safely store a deterministic hash of `provider + private binding identity + source TaskID`; add schema only if a negative fixture proves that owner cannot represent the requirement;
+- each apply returns a receipt containing source TaskID, disposition, canonical AxTask task ID on success, and structured error/review reason on failure;
+- imports are one-way creates in the first slice. A later edit in Sheets MUST NOT silently overwrite an AxTask task.
+
+**Acceptance:** repeated apply of the same source TaskID is idempotent even after source title/notes change; ordinary AxTask creation parity tests remain green.
+
+### G3 — Review/apply experience and legacy sync quarantine
+
+**Primary surface:** UI consumer + route policy  
+**Dependencies:** G2  
+**Mission:** modernize the existing Google Sheets Sync screen around dry-run/review/apply instead of silent bidirectional merge.
+
+**Reuse:** A4 generic review-and-apply interaction patterns when practical.
+
+**Required UX:**
+- connect/select an authorized spreadsheet binding without exposing credentials;
+- explicit source sheet and active-region summary;
+- counts for create/already-imported/invalid/legacy-excluded/review;
+- row-level selection before apply;
+- per-row result receipts after apply;
+- bounded retry only for idempotent failures;
+- the existing destructive/bidirectional `sync` action is hidden or disabled for this tracker binding unless a future separately proved conflict contract exists.
+
+**Acceptance:** no UI action can invoke the old destructive sync against the Shared Task Tracker; selected apply maps exactly to G2 receipts.
+
+### G4 — Controlled live ingestion acceptance
+
+**Primary surface:** runtime proof  
+**Dependencies:** G3 + S0  
+**Mission:** prove the real operator tracker can be ingested without duplicate or overwrite behavior.
+
+**Run order:**
+1. authorize read access to the exact provider binding;
+2. run **dry-run only** and review counts/errors first;
+3. do not import the legacy region;
+4. apply a bounded operator-approved sample;
+5. read back created AxTask tasks by canonical AxTask IDs and source TaskID receipts;
+6. rerun the same source sample and prove zero duplicate creates;
+7. only after sample proof, run the operator-approved active-region batch;
+8. retain a sanitized receipt summary without private task contents.
+
+**Proof ceiling:** authorized live ingestion into the selected AxTask account. It does not by itself authorize broad production rollout to other users.
+
+### G5 — Canonical cutover and old-sync disposition
+
+**Primary surface:** integration closeout  
+**Dependencies:** G4  
+**Mission:** remove split-brain ownership after successful ingestion.
+
+**Required end state:**
+- AxTask is the operational task authority for new/edited tasks;
+- direct dictation/assistant paths create through the Assistant Action Contract, not through Sheets;
+- the legacy tracker may remain an optional manual producer during a bounded transition, or become read-only/archive/projection;
+- bidirectional spreadsheet merge remains disabled for this binding unless separately redesigned and proved;
+- optional AxTask → Sheet export is a projection and MUST NOT imply peer authority;
+- documentation clearly distinguishes migration/import from sync.
+
+**Acceptance:** a user can dictate/create in AxTask, inspect the canonical task there, and re-run the old source dry-run without producing duplicates; no required workflow depends on spreadsheet row insertion or row-number identity.
+
+### Phase 3 dependency order
+
+```text
+S0  (provider deployment; independent operator/runtime gate)
+
+A6 ──> G1 ──> G2 ──> G3
+                    │
+S0 ─────────────────┘
+        G3 + S0 ──> G4 ──> G5
+
+A6 ──> B1 ──> B2 ──> RT-1   (existing direct-assistant path)
+```
+
+S0 can proceed while Phase 1 is being implemented. G1 waits for A6 so the importer cannot institutionalize a second task-create workflow immediately before A1/A3 convergence. B1/B2/RT-1 remain the direct assistant path; after G5, dictation should create canonical AxTask tasks without Sheets in the loop.
+
+### Phase 3 proof ceiling
+
+Repository proof can validate parser/source identity, idempotency, task-domain delegation, UI review behavior, and quarantine of the old sync path. Bound Apps Script deployment and real spreadsheet ingestion require their respective provider/runtime surfaces and must not be promoted from repository-only evidence.
