@@ -30,6 +30,26 @@ Do not copy B3/B4 as code. Those cells are validation/deployment-status notes.
 
 Paste the entire `Scripts!B2` value into that one file.
 
+## Copy-ready file card
+
+```text
+CREATE IN APPS SCRIPT
+File type: Script
+Name to type: TrackerV2
+Google displays: TrackerV2.gs
+
+COPY FROM THE WORKBOOK
+Tab: Scripts
+Cell: B2
+Copy: the entire cell value
+
+PASTE INTO
+TrackerV2.gs
+Action: replace the file's placeholder/default contents with the complete copied B2 payload
+```
+
+**Files to create for the current Tracker V2 install: exactly one — `TrackerV2.gs`.**
+
 **No additional HTML file.**
 **No `appsscript.json` change required by the current prototype.**
 **No public web-app deployment.**
