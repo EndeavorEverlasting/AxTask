@@ -19,3 +19,9 @@
 ## Proof ceiling
 
 Planning/repository alignment only. The bound Apps Script deployment requires an Apps Script-capable provider surface. Live Google Sheets → AxTask ingestion waits for AXQ-009 Phase 1/A6 plus AXQ-011 provider proof.
+
+## Review reconciliation
+
+- CodeAnt concurrency finding: accepted. The plan now requires A3 to provide an atomic idempotency claim plus replayable canonical-ID receipt; G2 derives a stable A3 action/idempotency key from the tracker source identity and does not implement check-then-create dedupe.
+- CodeAnt server-bypass finding: accepted. G3 now retires `POST /api/google-sheets/sync` at the server boundary for all callers before live tracker ingestion; hiding UI alone is explicitly insufficient.
+- CodeAnt documentation-state findings: accepted. The architecture and setup guide now distinguish the endpoint's **current reachable/unsafe** state from the future enforced quarantine transition.
