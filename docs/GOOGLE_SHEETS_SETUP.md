@@ -1,5 +1,20 @@
 # Google Sheets API Setup Guide
 
+## 2026 Shared Task Tracker users — start here instead
+
+If your goal is to use, repair, or install the new top-entry workflow in **2026 Shared Task Tracker**, this generic API guide is **not** the first tutorial.
+
+Use:
+
+1. [2026 Shared Task Tracker — Operator Guide](./SHARED_TASK_TRACKER_OPERATOR_GUIDE.md)
+2. [Shared Task Tracker — Apps Script Install Checklist](./SHARED_TASK_TRACKER_APPS_SCRIPT_INSTALL_CHECKLIST.md)
+
+Those documents explain the old `Daily Planner 2026` workflow, the new `Task Board` Quick Entry row, the current `WAITING` deployment state, and the one-file bound Apps Script install.
+
+The tracker automation is a **bound spreadsheet script**, not a public web app, and it does not require the generic API-key/OAuth setup below merely to enable Task Board Submit.
+
+Do **not** point the existing AxTask `/api/google-sheets/sync` path at the Shared Task Tracker.
+
 ## Overview
 
 ## Legacy subsystem warning
